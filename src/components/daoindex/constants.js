@@ -1,0 +1,92 @@
+/**
+ * SQL 巡检模块 —— 常量
+ *
+ * 所有颜色尽量复用 style.css 里的 CSS 变量，
+ * 这样切夜间模式时自动跟随，不用写双份样式。
+ */
+
+/** 侧边栏标识色（用在 section 徽章、脉冲点等） */
+export const DII_SECTION_ACCENT = '#7950F2'
+
+/** 四个子页的 currentPage key，按钮映射 */
+export const DII_PAGES = [
+  {
+    key: 'dii-dashboard',
+    label: '概览仪表盘',
+    desc: '总览 · 评级分布',
+    color: '#7950F2',
+  },
+  {
+    key: 'dii-sqls',
+    label: 'SQL 分析',
+    desc: '逐条 SQL 详情',
+    color: '#228BE6',
+  },
+  {
+    key: 'dii-tasks',
+    label: '巡检任务',
+    desc: '批量巡检进度',
+    color: '#12B886',
+  },
+  {
+    key: 'dii-table-advice',
+    label: '表维度建议',
+    desc: 'DBA 聚合视图',
+    color: '#F76707',
+  },
+]
+
+/**
+ * 评级 → 前端渲染配置（background / text / border 全部在组件里用 CSS 变量，
+ * 这里只给"角色语义"，DiiRatingBadge 里根据 role 选变量。）
+ */
+export const RATING_META = {
+  POOR: {
+    label: '差',
+    role: 'error', // --build-sync-error-*
+    icon: '●',
+  },
+  GOOD: {
+    label: '良',
+    role: 'idle', // --build-sync-idle-*（保守色）
+    icon: '●',
+  },
+  EXCELLENT: {
+    label: '优',
+    role: 'success', // --build-sync-success-*
+    icon: '●',
+  },
+  NOT_APPLICABLE: {
+    label: '不适用',
+    role: 'faint',
+    icon: '○',
+  },
+}
+
+/** LLM 状态 → 渲染配置；icon 改为 Lucide 组件名（具体组件由消费方按 iconKind 选 lucide-vue-next 里的图标） */
+export const LLM_STATUS_META = {
+  PENDING: { label: '待分析', role: 'running', iconKind: 'loader' },
+  DONE:    { label: '已完成', role: 'success', iconKind: 'check' },
+  FAILED:  { label: '失败',   role: 'error',   iconKind: 'x' },
+  SKIPPED: { label: '已跳过', role: 'faint',   iconKind: 'minus' },
+}
+
+/** 环境列表（颜色统一为 SG 蓝，符合"灰+蓝"双色基调） */
+export const DII_ENVS = [
+  { key: 'dev', label: 'DEV', color: '#0b70db' },
+  { key: 'sit', label: 'SIT', color: '#0b70db' },
+  { key: 'uat', label: 'UAT', color: '#0b70db' },
+]
+
+/** 严重度 → 颜色 role */
+export const SEVERITY_META = {
+  HIGH: { label: 'HIGH', role: 'error' },
+  MEDIUM: { label: 'MEDIUM', role: 'running' },
+  LOW: { label: 'LOW', role: 'idle' },
+}
+
+/** Suggestion scope（TABLE/SQL）的标识；iconKind 由消费方映射到 Lucide 图标 */
+export const SCOPE_META = {
+  TABLE: { label: '表级',   color: '#7950F2', iconKind: 'table'  },
+  SQL:   { label: 'SQL 级', color: '#228BE6', iconKind: 'pencil' },
+}

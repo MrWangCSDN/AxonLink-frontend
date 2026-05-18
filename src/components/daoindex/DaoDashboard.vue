@@ -82,26 +82,9 @@
             />
           </section>
 
-          <!-- 第三块：7 天评级趋势（最近 7 个 DONE 任务）→ 折线图 -->
-          <section class="dii-panel">
-            <div class="dii-panel-head">
-              <div>
-                <h3 class="dii-panel-title">近 7 天评级趋势</h3>
-                <p class="dii-panel-desc">每个数据点 = 一次 DONE 任务，按时间正序</p>
-              </div>
-              <div class="dii-legend">
-                <span class="dii-legend-item"><i class="dii-swatch dii-sw-excellent"></i>优</span>
-                <span class="dii-legend-item"><i class="dii-swatch dii-sw-good"></i>良</span>
-                <span class="dii-legend-item"><i class="dii-swatch dii-sw-poor"></i>差</span>
-                <span class="dii-legend-item"><i class="dii-swatch dii-sw-error"></i>报错</span>
-              </div>
-            </div>
-            <DiiLineChart
-              :categories="trendCats"
-              :series="trendSeries"
-              :height="220"
-            />
-          </section>
+          <!-- 第三块：7 天评级趋势 → 四档堆叠柱 + 领域单选切换
+               组件自带面板/标题/图例/tab，直接传后端 trend7d 明细行即可 -->
+          <DiiDashboardTrendChart :items="trend7d" />
 
           <!-- 第四块：7 天巡检任务执行时长 → 饼图（看每天耗时占比） -->
           <section class="dii-panel">
@@ -129,8 +112,8 @@ import { ref, computed, onMounted, watch } from 'vue'
 import DiiEnvSwitcher from './widgets/DiiEnvSwitcher.vue'
 import DiiBarGroupChart from './widgets/DiiBarGroupChart.vue'
 import DiiHorizontalStackBar from './widgets/DiiHorizontalStackBar.vue'
-import DiiLineChart from './widgets/DiiLineChart.vue'
 import DiiPieChart from './widgets/DiiPieChart.vue'
+import DiiDashboardTrendChart from './dashboard/DiiDashboardTrendChart.vue'
 import { getDiiDashboard } from '../../api/daoIndex.js'
 
 const props = defineProps({ env: { type: String, default: 'uat' } })
@@ -199,18 +182,11 @@ const ratingDomainSeries = computed(() => [
     values: filteredRatingByDomain.value.map(d => Number(d.error_count) || 0) },
 ])
 
-/* ─────── 第三块：7 天趋势 ─────── */
-const trendCats = computed(() => trend7d.value.map(t => fmtDay(t.day)))
-const trendSeries = computed(() => [
-  { name: '优', color: 'var(--c-rating-excellent, #14b8a6)',
-    values: trend7d.value.map(t => Number(t.excellent) || 0) },
-  { name: '良', color: 'var(--c-rating-good, #3b82f6)',
-    values: trend7d.value.map(t => Number(t.good) || 0) },
-  { name: '差', color: 'var(--c-rating-poor, #f59e0b)',
-    values: trend7d.value.map(t => Number(t.poor) || 0) },
-  { name: '报错', color: 'var(--c-rating-error, #ef4444)',
-    values: trend7d.value.map(t => Number(t.error_count) || 0) },
-])
+/* ─────── 第三块：7 天评级趋势 ───────
+   已迁移到自带逻辑的 DiiDashboardTrendChart 组件：
+   后端 trend7d 现按 (task, domain) 返回明细行，组件内部按
+   选中领域（汇总/各领域）折叠成每任务一根四档堆叠柱。
+   原 trendCats/trendSeries（折线图数据）已不再需要。 */
 
 /* ─────── 第四块：7 天执行时长 ─────── */
 const elapsedCats = computed(() => elapsed7d.value.map(t => fmtDay(t.day)))

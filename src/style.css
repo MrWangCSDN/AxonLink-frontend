@@ -100,6 +100,14 @@
   --build-sync-idle-bg:        #F3F5F9;
   --build-sync-idle-color:     #6B7280;
   --build-sync-idle-border:    rgba(107,114,128,0.1);
+
+  /* 评级四档色（优/良/差/报错）—— 趋势图/评级分布/领域分布共用。
+     代码多处已用 var(--c-rating-*, fallback)，此前从未在主题层定义，
+     现统一定义，使全部 fallback 收敛到单一来源，避免硬编码漂移。 */
+  --c-rating-excellent: #12B886;
+  --c-rating-good:      #4F7CFF;
+  --c-rating-poor:      #F76707;
+  --c-rating-error:     #E03131;
 }
 
 /* ── 夜间模式 ── */
@@ -204,6 +212,12 @@
   --build-sync-idle-bg:        rgba(143,163,191,0.16);
   --build-sync-idle-color:     #C4D2E6;
   --build-sync-idle-border:    rgba(196,210,230,0.14);
+
+  /* 评级四档色（暗色变体：亮一档，保证暗底对比度 ≥ 4.5:1） */
+  --c-rating-excellent: #3DDC97;
+  --c-rating-good:      #7AA2FF;
+  --c-rating-poor:      #FF9248;
+  --c-rating-error:     #FF6B6B;
 }
 
 *, *::before, *::after {

@@ -50,9 +50,9 @@
                 <p class="dii-panel-desc">巡检 SQL 总数 / EXPLAIN 报错 / LLM 已给出整改建议</p>
               </div>
               <div class="dii-legend">
-                <span class="dii-legend-item"><i class="dii-swatch dii-sw-total"></i>巡检</span>
+                <span class="dii-legend-item"><i class="dii-swatch dii-sw-total"></i>SQL总数</span>
                 <span class="dii-legend-item"><i class="dii-swatch dii-sw-err"></i>报错</span>
-                <span class="dii-legend-item"><i class="dii-swatch dii-sw-fix"></i>整改</span>
+                <span class="dii-legend-item"><i class="dii-swatch dii-sw-fix"></i>需整改</span>
               </div>
             </div>
             <DiiBarGroupChart
@@ -161,11 +161,11 @@ const filteredRatingByDomain = computed(() =>
 /* ─────── 第一块：按领域聚合 ─────── */
 const byDomainCats = computed(() => filteredByDomain.value.map(d => d.domain))
 const byDomainSeries = computed(() => [
-  { name: '巡检 SQL', color: 'var(--c-bar-total, #6366f1)',
+  { name: 'SQL总数', color: 'var(--c-bar-total, #6366f1)',
     values: filteredByDomain.value.map(d => Number(d.total) || 0) },
   { name: 'EXPLAIN 报错', color: 'var(--c-bar-err, #ef4444)',
     values: filteredByDomain.value.map(d => Number(d.explain_err) || 0) },
-  { name: 'LLM 整改', color: 'var(--c-bar-fix, #10b981)',
+  { name: '需整改', color: 'var(--c-bar-fix, #10b981)',
     values: filteredByDomain.value.map(d => Number(d.llm_fix) || 0) },
 ])
 

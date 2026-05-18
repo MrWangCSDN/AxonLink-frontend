@@ -2,12 +2,12 @@
   <section class="dii-panel trend-card">
     <div class="dii-panel__head">
       <div>
-        <h3 class="dii-panel__title">近 7 天评级趋势</h3>
-        <p class="dii-panel__desc">勾选领域与评级，按 (领域 × 评级) 叠加折线对比时间趋势。</p>
+        <h3 class="dii-panel__title">近 7 天整改趋势</h3>
+        <p class="dii-panel__desc">勾选领域与整改类型，按 (领域 × 类型) 叠加折线对比时间趋势（与整改分布同口径）。</p>
       </div>
     </div>
 
-    <!-- 两组多选：领域 / 评级 -->
+    <!-- 两组多选：领域 / 整改类型 -->
     <div class="filters">
       <div class="filters__row">
         <span class="filters__label">领域</span>
@@ -22,7 +22,7 @@
         </label>
       </div>
       <div class="filters__row">
-        <span class="filters__label">评级</span>
+        <span class="filters__label">类型</span>
         <label
           v-for="r in RATINGS"
           :key="r.key"
@@ -36,7 +36,7 @@
       </div>
     </div>
 
-    <!-- 图例：当前生效的每条线（颜色=评级，线型=领域） -->
+    <!-- 图例：当前生效的每条线（颜色=整改类型，线型=领域） -->
     <div v-if="series.length" class="legend">
       <span v-for="s in series" :key="s.name" class="legend__item">
         <svg class="legend__line" width="26" height="8" aria-hidden="true">
@@ -57,17 +57,17 @@
         :series="series"
         :height="240"
       />
-      <div v-else class="trend-empty">请至少选择一个领域和一个评级</div>
+      <div v-else class="trend-empty">请至少选择一个领域和一个整改类型</div>
     </div>
   </section>
 </template>
 
 <script setup>
-// v3：折线 + 领域&评级双维多选叉乘。
-// 后端 trend7d（commit 9912de4）已按 (task, domain) 返回，含
-//   { task_id, day, domain, excellent, good, poor, error_count }
-// 绘制线集合 = 选中领域 × 选中评级，每对组合一条线：
-//   - color  按评级（var(--c-rating-*)）
+// 折线 + 领域&整改类型双维多选叉乘（与"整改分布"同口径）。
+// 后端 trend7d 按 (task, domain) 返回整改口径，含
+//   { task_id, day, domain, error_count, need_fix }
+// 绘制线集合 = 选中领域 × 选中整改类型，每对组合一条线：
+//   - color  按整改类型（var(--c-rating-*)）
 //   - dash   按领域（实线/虚线/点线/点划线/长虚线）
 //   - 「汇总」= 对每个 task 跨 domain 求和
 import { ref, computed } from 'vue'
@@ -80,12 +80,11 @@ const props = defineProps({
 const SUMMARY = '汇总'
 const DOMAINS = [SUMMARY, '公共', '存款', '贷款', '结算']
 
-// 评级 → 取数字段 + 颜色 token。颜色统一走 v2 已建的 --c-rating-*
+// 整改类型 → 取数字段 + 颜色 token（与整改分布 2 档完全一致）。
+// RATINGS 变量名沿用（语义已是"整改类型"），避免大范围改名引入风险。
 const RATINGS = [
-  { key: 'excellent', label: '优', field: 'excellent', color: 'var(--c-rating-excellent)' },
-  { key: 'good', label: '良', field: 'good', color: 'var(--c-rating-good)' },
-  { key: 'poor', label: '差', field: 'poor', color: 'var(--c-rating-poor)' },
   { key: 'error', label: '报错', field: 'error_count', color: 'var(--c-rating-error)' },
+  { key: 'need_fix', label: '待整改', field: 'need_fix', color: 'var(--c-rating-poor)' },
 ]
 
 // 领域 → 线型（SVG stroke-dasharray）。汇总=实线，其余各异。
@@ -97,9 +96,9 @@ const DOMAIN_DASH = {
   结算: '18 8',
 }
 
-// 默认：汇总 + 四档全选（等价 v1 折线）
+// 默认：汇总 + 报错/待整改 全选
 const selDomains = ref([SUMMARY])
-const selRatings = ref(['excellent', 'good', 'poor', 'error'])
+const selRatings = ref(['error', 'need_fix'])
 
 // 按后端返回顺序抽取 7 个任务（task_id 去重，保插入序 = 时间正序）
 const taskList = computed(() => {

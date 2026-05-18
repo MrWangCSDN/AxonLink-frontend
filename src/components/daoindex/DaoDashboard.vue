@@ -62,18 +62,17 @@
             />
           </section>
 
-          <!-- 第二块：评级分布（按领域 4 档）→ 改用横向堆叠条 -->
+          <!-- 第二块：整改分布（按领域 2 档）→ 横向堆叠条
+               只展示 EXPLAIN 报错 + 全表扫描且 AI 判定待整改；AI 判无需整改的已过滤 -->
           <section class="dii-panel">
             <div class="dii-panel-head">
               <div>
-                <h3 class="dii-panel-title">评级分布（按领域）</h3>
-                <p class="dii-panel-desc">优 / 良 / 差 / 报错 四档互斥占比</p>
+                <h3 class="dii-panel-title">整改分布（按领域）</h3>
+                <p class="dii-panel-desc">仅 EXPLAIN 报错 + 全表扫描且 AI 判定待整改（AI 判无需整改已过滤）</p>
               </div>
               <div class="dii-legend">
-                <span class="dii-legend-item"><i class="dii-swatch dii-sw-excellent"></i>优</span>
-                <span class="dii-legend-item"><i class="dii-swatch dii-sw-good"></i>良</span>
-                <span class="dii-legend-item"><i class="dii-swatch dii-sw-poor"></i>差</span>
                 <span class="dii-legend-item"><i class="dii-swatch dii-sw-error"></i>报错</span>
+                <span class="dii-legend-item"><i class="dii-swatch dii-sw-poor"></i>待整改</span>
               </div>
             </div>
             <DiiHorizontalStackBar
@@ -169,17 +168,16 @@ const byDomainSeries = computed(() => [
     values: filteredByDomain.value.map(d => Number(d.llm_fix) || 0) },
 ])
 
-/* ─────── 第二块：评级分布按领域 ─────── */
+/* ─────── 第二块：整改分布按领域（2 档：报错 / 待整改）───────
+   后端 ratingByDomain 新结构 [{domain, error_count, need_fix}]
+   error_count = EXPLAIN 报错；need_fix = 非报错+overall_rating=POOR+llm_fix_verdict=NEED_FIX
+   AI 判定无需整改 / EXCELLENT / GOOD / 未分析 天然不计入 */
 const ratingDomainCats = computed(() => filteredRatingByDomain.value.map(d => d.domain))
 const ratingDomainSeries = computed(() => [
-  { name: '优', color: 'var(--c-rating-excellent, #14b8a6)',
-    values: filteredRatingByDomain.value.map(d => Number(d.excellent) || 0) },
-  { name: '良', color: 'var(--c-rating-good, #3b82f6)',
-    values: filteredRatingByDomain.value.map(d => Number(d.good) || 0) },
-  { name: '差', color: 'var(--c-rating-poor, #f59e0b)',
-    values: filteredRatingByDomain.value.map(d => Number(d.poor) || 0) },
   { name: '报错', color: 'var(--c-rating-error, #ef4444)',
     values: filteredRatingByDomain.value.map(d => Number(d.error_count) || 0) },
+  { name: '待整改', color: 'var(--c-rating-poor, #f59e0b)',
+    values: filteredRatingByDomain.value.map(d => Number(d.need_fix) || 0) },
 ])
 
 /* ─────── 第三块：7 天评级趋势 ───────

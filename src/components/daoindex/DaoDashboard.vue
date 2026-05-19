@@ -314,8 +314,6 @@ function fmtDay(s) {
 .dii-sw-total     { background: var(--c-bar-total, #6366f1); }
 .dii-sw-err       { background: var(--c-bar-err, #ef4444); }
 .dii-sw-fix       { background: var(--c-bar-fix, #10b981); }
-.dii-sw-excellent { background: var(--c-rating-excellent, #14b8a6); }
-.dii-sw-good      { background: var(--c-rating-good, #3b82f6); }
 .dii-sw-poor      { background: var(--c-rating-poor, #f59e0b); }
 .dii-sw-error     { background: var(--c-rating-error, #ef4444); }
 .dii-sw-elapsed   { background: var(--c-bar-elapsed, #8b5cf6); }
@@ -324,8 +322,6 @@ function fmtDay(s) {
 [data-theme="dark"] .dii-sw-total     { background: var(--c-bar-total-dark, #818cf8); }
 [data-theme="dark"] .dii-sw-err       { background: var(--c-bar-err-dark, #ff7a7e); }
 [data-theme="dark"] .dii-sw-fix       { background: var(--c-bar-fix-dark, #34d399); }
-[data-theme="dark"] .dii-sw-excellent { background: var(--c-rating-excellent-dark, #2dd4bf); }
-[data-theme="dark"] .dii-sw-good      { background: var(--c-rating-good-dark, #60a5fa); }
 [data-theme="dark"] .dii-sw-poor      { background: var(--c-rating-poor-dark, #fbbf24); }
 [data-theme="dark"] .dii-sw-error     { background: var(--c-rating-error-dark, #ff7a7e); }
 [data-theme="dark"] .dii-sw-elapsed   { background: var(--c-bar-elapsed-dark, #a78bfa); }

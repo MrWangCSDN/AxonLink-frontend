@@ -27,8 +27,8 @@ export function getDiiHealth() {
  * {
  *   env, latestTask: { id, task_no, env, created_at, updated_at, total_sqls, ... } | null,
  *   byDomain: [ { domain, total, explain_err, llm_fix }, ... ],
- *   ratingByDomain: [ { domain, excellent, good, poor, error_count }, ... ],
- *   trend7d: [ { task_id, day, excellent, good, poor, error_count }, ... ],   // 时间正序
+ *   ratingByDomain: [ { domain, error_count, need_fix }, ... ],                       // v3 整改分布 2 档
+ *   trend7d: [ { task_id, day, domain, error_count, need_fix }, ... ],   // 按(任务×领域)明细，时间正序
  *   elapsed7d: [ { task_id, day, elapsed_seconds, total_sqls }, ... ]         // 时间正序
  * }
  *

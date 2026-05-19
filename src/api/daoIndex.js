@@ -239,7 +239,10 @@ export async function triggerDiiBatch(env, token) {
     err.code = 'TOKEN_INVALID'
     throw err
   }
-  if (!resp.ok || json?.code !== 0) {
+  // 后端统一响应 R：成功为 code=200, message="success"（无 success 布尔字段）。
+  // 此处历史上误判 code!==0（R 体系从无 code===0 约定），导致成功也抛 Error("success")
+  // → 弹窗显示"触发失败：success"。改为与通用 request() 一致判 code!==200。
+  if (!resp.ok || json?.code !== 200) {
     const err = new Error(json?.message || `HTTP ${resp.status}`)
     err.code = 'TRIGGER_FAILED'
     throw err

@@ -108,6 +108,11 @@
   --c-rating-good:      #4F7CFF;
   --c-rating-poor:      #F76707;
   --c-rating-error:     #E03131;
+
+  /* 主操作按钮（primary button）文字色：light=纯白（深蓝底上白字）。
+     新增 token 是为支持登录页/未来其它"primary action"按钮，
+     避免在组件层写裸 #FFFFFF 违反"零硬编码颜色"规则。 */
+  --btn-primary-text: #FFFFFF;
 }
 
 /* ── 夜间模式 ── */
@@ -218,6 +223,10 @@
   --c-rating-good:      #7AA2FF;
   --c-rating-poor:      #FF9248;
   --c-rating-error:     #FF6B6B;
+
+  /* 主操作按钮文字色（dark）：暗主题下 --text-active 是浅蓝 (#7EB8FF) 作为按钮底色，
+     文字反向用深色（page bg #0D1424），保证 ≥ 4.5:1 对比度。 */
+  --btn-primary-text: #0D1424;
 }
 
 *, *::before, *::after {

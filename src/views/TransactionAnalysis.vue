@@ -14,6 +14,7 @@
         @select-domain="onSelectDomainNav"
         @select-impact-mode="onSelectImpactMode"
         @select-dii-page="onSelectDiiPage"
+        @select-code-page="onSelectCodePage"
       />
 
       <main v-show="currentPage === 'chain'" class="main-content">
@@ -197,6 +198,12 @@
         :current-page="currentPage"
         @navigate-page="currentPage = $event"
       />
+
+      <!-- ══════════ 源码提交分析大屏 ══════════ -->
+      <CodeDashboard
+        v-show="currentPage === 'code-dashboard'"
+        class="impact-main"
+      />
     </div>
   </div>
 </template>
@@ -208,6 +215,7 @@ import ChainImpactSidebar from '../components/ChainImpactSidebar.vue'
 import TransactionCard from '../components/TransactionCard.vue'
 import ImpactAnalysisPage from '../components/impact/ImpactAnalysisPage.vue'
 import DaoIndexPage from '../components/daoindex/DaoIndexPage.vue'
+import CodeDashboard from '../components/code-dashboard/CodeDashboard.vue'
 import {
   getAllTables,
   getAllComponents,
@@ -616,6 +624,11 @@ const onSelectDomainNav = (domain) => {
 const onSelectDiiPage = (pageKey) => {
   // pageKey ∈ 'dii-dashboard' | 'dii-sqls' | 'dii-tasks' | 'dii-table-advice'
   currentPage.value = pageKey
+}
+
+// ══════════ 代码提交（独立分区）侧边栏点击 ══════════
+const onSelectCodePage = () => {
+  currentPage.value = 'code-dashboard'
 }
 
 const onSelectImpactMode = async (mode) => {

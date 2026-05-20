@@ -150,6 +150,56 @@
         </button>
       </div>
       </transition>
+
+      <div class="cis-sep-dashed" role="presentation" />
+
+      <!-- ══════════ 第 4 大模块：代码提交（与 SQL 巡检 / 影响分析 平级） ══════════ -->
+      <button type="button" class="cis-section-hd" @click="codeOpen = !codeOpen">
+        <span v-if="isCodePage" class="cis-section-hd-bar" :style="barGradient(CODE_SECTION_ACCENT)" />
+        <span class="cis-section-hd-ico-wrap" :class="{ on: isCodePage }" :style="{ '--accent': CODE_SECTION_ACCENT }">
+          <IconCodeDash class="cis-section-hd-ico" />
+        </span>
+        <span class="cis-section-hd-label" :class="{ on: isCodePage }" :style="{ '--accent': CODE_SECTION_ACCENT }">代码提交</span>
+        <span v-if="isCodePage" class="cis-pulse-wrap" aria-hidden="true">
+          <span class="cis-pulse-ring" :style="{ '--accent': CODE_SECTION_ACCENT }" />
+          <span class="cis-pulse-dot" :style="{ '--accent': CODE_SECTION_ACCENT }" />
+        </span>
+        <IconChevronDown class="cis-section-hd-chev" :class="{ collapsed: !codeOpen }" />
+      </button>
+
+      <transition
+        name="cis-collapse"
+        @before-enter="onCollapseBeforeEnter"
+        @enter="onCollapseEnter"
+        @after-enter="onCollapseAfterEnter"
+        @before-leave="onCollapseBeforeLeave"
+        @leave="onCollapseLeave"
+      >
+      <div v-show="codeOpen" class="cis-block cis-block-sub" :class="{ 'is-section-on': isCodePage }">
+        <button
+          v-for="m in codeMenu"
+          :key="m.key"
+          type="button"
+          class="cis-impact"
+          :class="{ active: currentPage === m.key }"
+          :style="diiRowStyle(m)"
+          @click="$emit('selectCodePage', m.key)"
+        >
+          <span
+            v-if="currentPage === m.key"
+            class="cis-impact-bar"
+            :style="impactBarGradient(m.color)"
+          />
+          <span class="cis-impact-ico-wrap" :style="diiIcoWrapStyle(m)">
+            <component :is="codeIconMap[m.key]" :style="{ color: diiActive(m) ? '#0b70db' : '#5e6975' }" />
+          </span>
+          <div class="cis-impact-txt">
+            <div class="cis-impact-title" :style="diiTitleStyle(m)">{{ m.label }}</div>
+            <div class="cis-impact-desc" :style="diiDescStyle(m)">{{ m.desc }}</div>
+          </div>
+        </button>
+      </div>
+      </transition>
     </nav>
 
     <footer class="cis-foot">
@@ -200,17 +250,21 @@ const props = defineProps({
   impactMode: { type: String, default: 'table' },
 })
 
-defineEmits(['selectDomain', 'selectImpactMode', 'selectDiiPage'])
+defineEmits(['selectDomain', 'selectImpactMode', 'selectDiiPage', 'selectCodePage'])
 
 const chainOpen = ref(true)
 const impactOpen = ref(true)
 const diiOpen = ref(true)
-// 三个分区的 accent 统一为 Sourcegraph 蓝；不再每区一个颜色
+const codeOpen = ref(true)
+// 各分区的 accent 统一为 Sourcegraph 蓝；不再每区一个颜色
 const IMPACT_SECTION_ACCENT = '#0b70db'
 const DII_SECTION_ACCENT = '#0b70db'
+const CODE_SECTION_ACCENT = '#0b70db'
 
 // 当 currentPage 命中 dii-* 任意页时视为 DAO 模块激活
 const isDiiPage = computed(() => (props.currentPage || '').startsWith('dii-'))
+// 代码提交分区激活判定
+const isCodePage = computed(() => props.currentPage === 'code-dashboard')
 
 /* ── 子菜单展开/收起动画 hooks ──
    通过 JS 显式设置 height 到 scrollHeight，让 transition 在精确高度间过渡，
@@ -464,6 +518,11 @@ const diiMenu = [
   { key: 'dii-table-advice',  label: 'TABLE 维度分析', desc: 'DBA 聚合视图' },
 ]
 
+// ══════════ 代码提交 · 独立分区（与 SQL 巡检 / 影响分析 平级）子页菜单 ══════════
+const codeMenu = [
+  { key: 'code-dashboard', label: '代码提交大屏', desc: '工程/作者/领域 占比' },
+]
+
 const IconDatabaseLg = iconLucide(
   'M12 3C7 3 4 4.5 4 6v12c0 1.5 3 3 8 3s8-1.5 8-3V6c0-1.5-3-3-8-3Z M4 10c0 1.5 3 3 8 3s8-1.5 8-3 M4 14c0 1.5 3 3 8 3s8-1.5 8-3',
   14
@@ -472,12 +531,17 @@ const IconGauge = iconLucide('M12 14l4-4M3.5 16a9 9 0 1 1 17 0', 15)
 const IconList = iconLucide('M8 6h13M8 12h13M8 18h13 M3 6h.01M3 12h.01M3 18h.01', 15)
 const IconClipboard = iconLucide('M9 2h6a2 2 0 0 1 2 2v2H7V4a2 2 0 0 1 2-2z M7 6v14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V6', 15)
 const IconTable = iconLucide('M3 6h18M3 12h18M3 18h18 M9 3v18M15 3v18', 15)
+const IconCodeDash = iconLucide('M9 7l-4 5 4 5 M15 7l4 5-4 5', 15)
 
 const diiIconMap = {
   'dii-dashboard':    IconGauge,
   'dii-sqls':         IconList,
   'dii-tasks':        IconClipboard,
   'dii-table-advice': IconTable,
+}
+
+const codeIconMap = {
+  'code-dashboard': IconCodeDash,
 }
 
 function diiActive(m) { return props.currentPage === m.key }

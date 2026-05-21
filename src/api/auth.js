@@ -38,3 +38,19 @@ export function logout() {
 export function getCurrentUser() {
   return request('/auth/me')
 }
+
+/**
+ * GET /api/auth/config —— 拉登录配置（哪些方式 enabled + 默认选哪个）。
+ *
+ * <p>返回：{ ldapEnabled, uiasEnabled, defaultMethod }，
+ * 其中 defaultMethod ∈ {"UIAS","LDAP","NONE"}。
+ *
+ * <p>异常处理：调用方自己 catch；常见情况：
+ * - 200 但 enabled=false 时 → 调用方据此隐藏对应 Tab
+ * - 404 → 后端鉴权未启用（AuthController @ConditionalOnProperty 未装），
+ *         调用方默认显 LDAP Tab 兜底
+ * - 网络/500 → 同 404 处理
+ */
+export async function getAuthConfig() {
+  return await request('/auth/config')
+}

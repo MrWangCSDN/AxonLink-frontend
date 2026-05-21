@@ -113,6 +113,16 @@
      新增 token 是为支持登录页/未来其它"primary action"按钮，
      避免在组件层写裸 #FFFFFF 违反"零硬编码颜色"规则。 */
   --btn-primary-text: #FFFFFF;
+
+  /* 次级卡片背景（增强 v2）：用于 Tab pill 容器底色、UIAS 说明面板等"卡片内的次级区块"。
+     light：浅灰 #f0f2f5；与 --bg-badge 同色系，保持与现有 token 风格一致。 */
+  --bg-card-secondary: #F0F2F5;
+
+  /* 登录页 Tab pill（增强 v2） */
+  --tab-bg-active: var(--text-active);          /* 激活：品牌主色 */
+  --tab-bg-inactive: var(--bg-card-secondary);  /* 非激活：浅灰背景 */
+  --tab-text-active: var(--btn-primary-text);   /* 激活文字：复用按钮主色文字 */
+  --tab-text-inactive: var(--text-secondary);   /* 非激活文字：次要灰 */
 }
 
 /* ── 夜间模式 ── */
@@ -227,6 +237,15 @@
   /* 主操作按钮文字色（dark）：暗主题下 --text-active 是浅蓝 (#7EB8FF) 作为按钮底色，
      文字反向用深色（page bg #0D1424），保证 ≥ 4.5:1 对比度。 */
   --btn-primary-text: #0D1424;
+
+  /* 次级卡片背景（增强 v2，dark 覆盖）：比 --bg-card (#1A2540) 略浅一档，避免视觉融为一块。 */
+  --bg-card-secondary: #1D2638;
+
+  /* 登录页 Tab pill（增强 v2，dark 覆盖） */
+  --tab-bg-active: var(--text-active);
+  --tab-bg-inactive: var(--bg-card-secondary);
+  --tab-text-active: var(--btn-primary-text);
+  --tab-text-inactive: var(--text-secondary);
 }
 
 *, *::before, *::after {

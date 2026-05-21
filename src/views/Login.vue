@@ -14,25 +14,55 @@
 -->
 <template>
   <div class="login-page" :data-theme="isDark ? 'dark' : 'light'">
-    <!-- 居中卡片 -->
     <div class="login-card">
-      <!-- 顶部 Logo + 标题 -->
+      <!-- 顶部 logo + 标题 -->
       <div class="login-header">
         <img src="/spd-bank-logo.png" alt="浦发银行" class="login-logo" />
         <div class="login-title-group">
           <h1 class="login-title">
-            <span class="title-axon">对公分布式核心</span>
-            <span class="title-link">智能中心</span>
+            <span class="title-axon">欢迎</span>
           </h1>
           <p class="login-subtitle">请使用域账号登录</p>
         </div>
       </div>
 
-      <!-- 表单 -->
-      <form class="login-form" @submit.prevent="onSubmit">
-        <!-- 用户名 -->
+      <!-- Tab 切换：当 uiasEnabled 时显示，否则不显 -->
+      <div v-if="showTabs" class="login-tabs" role="tablist" aria-label="登录方式">
+        <button
+          type="button"
+          role="tab"
+          class="login-tab"
+          :class="{ active: activeTab === 'UIAS' }"
+          :aria-selected="activeTab === 'UIAS'"
+          @click="switchTab('UIAS')"
+        >统一认证登录</button>
+        <button
+          type="button"
+          role="tab"
+          class="login-tab"
+          :class="{ active: activeTab === 'LDAP' }"
+          :aria-selected="activeTab === 'LDAP'"
+          @click="switchTab('LDAP')"
+        >LDAP登录</button>
+      </div>
+
+      <!-- UIAS Tab 内容 -->
+      <div v-if="activeTab === 'UIAS'" class="uias-panel">
+        <p class="uias-hint">点击下方按钮跳转浦发统一认证（域内员工免输密码）</p>
+        <div v-if="errorMessage" class="form-error" role="alert">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.4"/>
+            <path d="M8 5v3.5M8 11v.01" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+          </svg>
+          <span>{{ errorMessage }}</span>
+        </div>
+        <button type="button" class="form-submit" @click="onUiasLogin">跳转登录</button>
+      </div>
+
+      <!-- LDAP Tab 内容（原表单） -->
+      <form v-else class="login-form" @submit.prevent="onSubmit">
         <label class="form-field">
-          <span class="form-label">用户名</span>
+          <span class="form-label">域账号</span>
           <input
             v-model="username"
             type="text"
@@ -44,8 +74,6 @@
             ref="usernameRef"
           />
         </label>
-
-        <!-- 密码 -->
         <label class="form-field">
           <span class="form-label">密码</span>
           <input
@@ -58,8 +86,6 @@
             @input="clearError"
           />
         </label>
-
-        <!-- 错误提示 -->
         <div v-if="errorMessage" class="form-error" role="alert">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
             <circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.4"/>
@@ -67,13 +93,7 @@
           </svg>
           <span>{{ errorMessage }}</span>
         </div>
-
-        <!-- 提交按钮 -->
-        <button
-          type="submit"
-          class="form-submit"
-          :disabled="loading || !canSubmit"
-        >
+        <button type="submit" class="form-submit" :disabled="loading || !canSubmit">
           <span v-if="!loading">登录</span>
           <span v-else class="submit-loading">
             <svg class="submit-spin" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -85,7 +105,6 @@
         </button>
       </form>
 
-      <!-- 底部说明 -->
       <p class="login-footer">登录即代表同意《数据安全使用规范》</p>
     </div>
   </div>
@@ -94,7 +113,7 @@
 <script setup>
 import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { login, getCurrentUser } from '../api/auth.js'
+import { login, getCurrentUser, getAuthConfig } from '../api/auth.js'
 import { clearCurrentUser } from '../router/index.js'
 
 const router = useRouter()
@@ -109,13 +128,29 @@ const loading = ref(false)
 const errorMessage = ref('')
 const usernameRef = ref(null)
 
-// 主题（与项目其它页一致：从 localStorage 读，跟随 :data-theme）
+// 主题
 const isDark = ref(localStorage.getItem('theme') === 'dark')
 
+// Tab 状态
+const ldapEnabled = ref(true)   // 兜底默认显 LDAP
+const uiasEnabled = ref(false)
+const activeTab = ref('LDAP')
+
+const showTabs = computed(() => uiasEnabled.value && ldapEnabled.value)
 const canSubmit = computed(() => username.value.trim() && password.value.length > 0)
 
 function clearError() {
   if (errorMessage.value) errorMessage.value = ''
+}
+
+function switchTab(tab) {
+  if (activeTab.value === tab) return
+  activeTab.value = tab
+  errorMessage.value = ''
+  // 切到 LDAP 时聚焦用户名
+  if (tab === 'LDAP') {
+    nextTick(() => usernameRef.value?.focus())
+  }
 }
 
 /** 把后端异常翻译成中文友好提示 */
@@ -128,13 +163,24 @@ function formatError(e) {
   return `登录失败：${msg || '未知错误'}`
 }
 
+/** URL ?error= query 中文化（UIAS callback 失败时回跳带的） */
+function formatQueryError(code) {
+  switch (code) {
+    case 'uias_not_configured': return '统一认证 SDK 未配置，请联系系统管理员或改用 LDAP 登录'
+    case 'uias_no_empno': return '统一认证回调未携带工号信息（SDK 集成异常）'
+    case 'user_not_found': return '系统中未找到该用户，请联系管理员开通账号'
+    case 'user_disabled': return '账号已被禁用，请联系管理员'
+    case 'uias_callback_failed': return '统一认证回调异常，请重试或改用 LDAP 登录'
+    default: return ''
+  }
+}
+
 async function onSubmit() {
   if (loading.value || !canSubmit.value) return
   errorMessage.value = ''
   loading.value = true
   try {
     await login(username.value.trim(), password.value)
-    // 登录成功：清掉之前缓存的"无鉴权"标记，让 guard 下次重新探测拿到真实用户
     clearCurrentUser()
     const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/'
     router.replace(redirect)
@@ -145,12 +191,46 @@ async function onSubmit() {
   }
 }
 
-onMounted(async () => {
-  // 自动聚焦用户名
-  await nextTick()
-  usernameRef.value?.focus()
+function onUiasLogin() {
+  // 浏览器跳走 UIAS 流程；后端 302 处理后续
+  window.location.href = '/api/auth/uias/login'
+}
 
-  // 探测当前是否已登录；若是直接跳首页
+onMounted(async () => {
+  // 1. 处理 URL ?error= query（UIAS callback 失败时回跳带的）
+  const errCode = typeof route.query.error === 'string' ? route.query.error : ''
+  if (errCode) {
+    const msg = formatQueryError(errCode)
+    if (msg) errorMessage.value = msg
+  }
+
+  // 2. 拉服务端 config 决定显几个 Tab + 默认
+  try {
+    const cfg = await getAuthConfig()
+    if (cfg && typeof cfg === 'object') {
+      ldapEnabled.value = cfg.ldapEnabled !== false  // 默认 true
+      uiasEnabled.value = cfg.uiasEnabled === true
+      // defaultMethod: "UIAS"/"LDAP"/"NONE"
+      if (cfg.defaultMethod === 'UIAS' && uiasEnabled.value) {
+        activeTab.value = 'UIAS'
+      } else {
+        activeTab.value = 'LDAP'
+      }
+    }
+  } catch (_) {
+    // 后端 config 拉不到 → 兜底显 LDAP Tab（既有行为不破坏）
+    ldapEnabled.value = true
+    uiasEnabled.value = false
+    activeTab.value = 'LDAP'
+  }
+
+  // 3. 自动聚焦用户名（仅 LDAP Tab 激活时）
+  if (activeTab.value === 'LDAP') {
+    await nextTick()
+    usernameRef.value?.focus()
+  }
+
+  // 4. 探测当前是否已登录；若是直接跳首页
   try {
     const user = await getCurrentUser()
     if (user) {
@@ -158,9 +238,7 @@ onMounted(async () => {
       router.replace(redirect)
     }
   } catch (_) {
-    // 401 / 404 / 网络异常都不处理：留在登录页即可
-    // 注意：401 会被 api/index.js 拦截器再次触发 push('/login')，但当前已在 /login，
-    // 拦截器内部有"当前已在 /login 就不跳"的保护，不会循环
+    // 401/404/网络异常都不处理：留在登录页即可
   }
 })
 </script>
@@ -365,5 +443,63 @@ onMounted(async () => {
   text-align: center;
   font-size: 12px;
   color: var(--text-faint);
+}
+
+/* ── Tab pill（增强 v2）── */
+.login-tabs {
+  display: inline-flex;
+  gap: 0;
+  padding: 4px;
+  background: var(--tab-bg-inactive);
+  border-radius: 999px;
+  margin-bottom: 22px;
+  align-self: center;
+  width: fit-content;
+}
+
+.login-tab {
+  flex: 0 0 auto;
+  padding: 8px 18px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--tab-text-inactive);
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+
+.login-tab:hover:not(.active) {
+  color: var(--text-primary);
+}
+
+.login-tab.active {
+  background: var(--tab-bg-active);
+  color: var(--tab-text-active);
+}
+
+/* tabs 居中（卡片内） */
+.login-card {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── UIAS 面板 ── */
+.uias-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.uias-hint {
+  margin: 0;
+  padding: 14px 16px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  background: var(--bg-card-secondary);
+  border-radius: 8px;
+  line-height: 1.5;
 }
 </style>

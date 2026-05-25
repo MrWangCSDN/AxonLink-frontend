@@ -1,16 +1,18 @@
 /**
- * 概览仪表盘新 4 块结构的 mock 数据。
+ * 概览仪表盘 4 块结构的 mock 数据（v3 整改口径）。
  *
  * 数据契约与后端 GET /api/ai/dao-index/dashboard 完全一致，便于：
  *   - dev 环境后端没起时，前端自检布局
  *   - 后端不可达时自动降级展示
  *
- * 字段口径：
- *   latestTask: { id, task_no, env, created_at, updated_at, total_sqls, ... }
- *   byDomain[]: { domain, total, explain_err, llm_fix }
- *   ratingByDomain[]: { domain, excellent, good, poor, error_count }
- *   trend7d[]: { task_id, day, excellent, good, poor, error_count }    时间正序
- *   elapsed7d[]: { task_id, day, elapsed_seconds, total_sqls }         时间正序
+ * 字段口径（v3：取消优良差评级，改"是否需整改"）：
+ *   latestTask:       { id, task_no, env, created_at, updated_at, total_sqls, ... }
+ *   byDomain[]:       { domain, total, explain_err, llm_fix }
+ *                     llm_fix = 该领域 llm_fix_verdict='NEED_FIX' 的条数（需整改）
+ *   ratingByDomain[]: { domain, error_count, need_fix }   ← 整改分布 2 档
+ *                     error_count = EXPLAIN 报错；need_fix = 非报错 + POOR + NEED_FIX（待整改）
+ *   trend7d[]:        { task_id, day, domain, error_count, need_fix }  ← 按 (任务×领域) 明细行，时间正序
+ *   elapsed7d[]:      { task_id, day, elapsed_seconds, total_sqls }    时间正序
  */
 
 const DOMAINS = ['存款', '贷款', '公共', '结算', '其他']
@@ -41,38 +43,31 @@ export function getDaoDashboardRealMock(env = 'uat') {
   const byDomain = byDomainScale.map(({ domain, base }) => ({
     domain,
     total: base,
-    explain_err: Math.round(base * 0.012),         // 1.2% EXPLAIN 错
-    llm_fix: Math.round(base * 0.05),              // 5% LLM 已整改
+    explain_err: Math.round(base * 0.012),         // 1.2% EXPLAIN 报错
+    llm_fix: Math.round(base * 0.08),              // 8% 经 AI 判定待整改
   }))
   const totalSqls = byDomain.reduce((sum, d) => sum + d.total, 0)
 
-  // 第二块：评级分布（按领域，4 档互斥）
+  // 第二块：整改分布（按领域，2 档：报错 / 待整改）
+  // need_fix = 非报错 + overall_rating=POOR + llm_fix_verdict=NEED_FIX
   const ratingByDomain = byDomainScale.map(({ domain, base }) => {
     const errCount = Math.round(base * 0.012)
-    const valid = base - errCount
-    const excellent = Math.round(valid * 0.65)
-    const good = Math.round(valid * 0.22)
-    const poor = valid - excellent - good
-    return { domain, excellent, good, poor, error_count: errCount }
+    const needFix = Math.round((base - errCount) * 0.09)   // 约 9% 待整改
+    return { domain, error_count: errCount, need_fix: needFix }
   })
 
-  // 第三块：7 天趋势（每天一个任务）
-  const trend7d = days.map((day, idx) => {
-    const seed = 0.85 + (idx / 6) * 0.3        // 0.85 → 1.15 渐变
-    const dayTotal = Math.round(totalSqls * seed)
-    const errCount = Math.round(dayTotal * 0.012)
-    const valid = dayTotal - errCount
-    const excellent = Math.round(valid * (0.6 + idx * 0.01))
-    const good = Math.round(valid * 0.22)
-    const poor = valid - excellent - good
-    return {
-      task_id: 100 + idx,
-      day,
-      excellent,
-      good,
-      poor,
-      error_count: errCount,
-    }
+  // 第三块：7 天整改趋势 —— 按 (任务 × 领域) 明细行（前端按领域多选叉乘）
+  // 每天一个 DONE 任务，每个任务下 5 个领域各一行
+  const trend7d = []
+  days.forEach((day, idx) => {
+    const taskId = 100 + idx
+    const seed = 0.85 + (idx / 6) * 0.3                     // 0.85 → 1.15 渐变
+    byDomainScale.forEach(({ domain, base }) => {
+      const dayBase = Math.round(base * seed)
+      const errCount = Math.round(dayBase * 0.012)
+      const needFix = Math.round((dayBase - errCount) * (0.07 + idx * 0.004))
+      trend7d.push({ task_id: taskId, day, domain, error_count: errCount, need_fix: needFix })
+    })
   })
 
   // 第四块：7 天耗时（伪随机：受日总量影响 + 偶尔抖动）

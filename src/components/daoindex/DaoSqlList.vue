@@ -151,7 +151,7 @@
         <DiiEmptyState
           v-if="!loading && pageItems.length === 0"
           :title="hasActiveFilter ? '没有匹配的 SQL' : '当前任务没有「有问题」的 SQL'"
-          :desc="hasActiveFilter ? '试试清空筛选条件' : '所有 SQL 要么规则评级良好、要么还在待分析'"
+          :desc="hasActiveFilter ? '试试清空筛选条件' : '当前任务下没有报错或待整改的 SQL（或仍在 AI 分析中）'"
         />
 
         <ol v-else class="rows">

@@ -421,8 +421,7 @@ watch(() => props.env, () => { page.value = 1; doLoad() })
   font-family: ui-monospace, monospace;
   font-size: 12.5px;
 }
-/* 4 项统计文字色：总数=中性靛蓝 / 报错=红 / AI 整改=绿 / AI 报错=红
-   旧的 .dii-stat-poor / .dii-stat-running 不再被表格使用，但保留以免外部样式被破坏 */
+/* 4 项统计文字色：总数=中性靛蓝 / 报错=红 / AI 整改=绿 / AI 报错=红 */
 .dii-stat-total   { color: var(--text-link, #2563eb); }
 .dii-stat-err     { color: var(--text-error, #cf1124); }
 .dii-stat-done    { color: var(--text-success, #137333); }

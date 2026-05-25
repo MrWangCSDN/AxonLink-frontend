@@ -27,8 +27,8 @@ export function getDiiHealth() {
  * {
  *   env, latestTask: { id, task_no, env, created_at, updated_at, total_sqls, ... } | null,
  *   byDomain: [ { domain, total, explain_err, llm_fix }, ... ],
- *   ratingByDomain: [ { domain, excellent, good, poor, error_count }, ... ],
- *   trend7d: [ { task_id, day, excellent, good, poor, error_count }, ... ],   // 时间正序
+ *   ratingByDomain: [ { domain, error_count, need_fix }, ... ],                       // v3 整改分布 2 档
+ *   trend7d: [ { task_id, day, domain, error_count, need_fix }, ... ],   // 按(任务×领域)明细，时间正序
  *   elapsed7d: [ { task_id, day, elapsed_seconds, total_sqls }, ... ]         // 时间正序
  * }
  *
@@ -239,7 +239,10 @@ export async function triggerDiiBatch(env, token) {
     err.code = 'TOKEN_INVALID'
     throw err
   }
-  if (!resp.ok || json?.code !== 0) {
+  // 后端统一响应 R：成功为 code=200, message="success"（无 success 布尔字段）。
+  // 此处历史上误判 code!==0（R 体系从无 code===0 约定），导致成功也抛 Error("success")
+  // → 弹窗显示"触发失败：success"。改为与通用 request() 一致判 code!==200。
+  if (!resp.ok || json?.code !== 200) {
     const err = new Error(json?.message || `HTTP ${resp.status}`)
     err.code = 'TRIGGER_FAILED'
     throw err

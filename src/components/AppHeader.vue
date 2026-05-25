@@ -44,8 +44,8 @@
 
     <div class="header-right">
 <div class="user-info" @click="toggleUserMenu">
-        <div class="avatar">管</div>
-        <span class="username">管理员</span>
+        <div class="avatar">{{ avatarText }}</div>
+        <span class="username">{{ displayName }}</span>
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
           <path d="M3 4.5L6 7.5L9 4.5" stroke="#8C94A6" stroke-width="1.5" stroke-linecap="round"/>
         </svg>
@@ -66,7 +66,7 @@
             操作日志
           </div>
           <div class="dropdown-divider"></div>
-          <div class="dropdown-item logout">
+          <div class="dropdown-item logout" @click.stop="onLogout">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
               <path d="M5 2H2.5A1.5 1.5 0 0 0 1 3.5v7A1.5 1.5 0 0 0 2.5 12H5" stroke="currentColor" stroke-width="1.3"/>
               <path d="M9 4.5L12.5 7 9 9.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
@@ -81,7 +81,10 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { getCurrentUser, logout as apiLogout } from '../api/auth.js'
+import { clearCurrentUser } from '../router/index.js'
 
 const props = defineProps({
   isDark: { type: Boolean, default: false }
@@ -89,10 +92,22 @@ const props = defineProps({
 
 const emit = defineEmits(['search', 'toggleTheme'])
 
+const router = useRouter()
+
 const searchText   = ref('')
 const showUserMenu = ref(false)
 const isLoading    = ref(false)
 const isNotFound   = ref(false)
+// 当前登录用户名（鉴权未启用 或 还没探测到时 显示"管理员"作为缺省）
+const currentUsername = ref('')
+
+const displayName = computed(() => currentUsername.value || '管理员')
+const avatarText = computed(() => {
+  const name = currentUsername.value
+  if (!name) return '管'
+  // 取用户名首字符大写（英文/数字账号都适用；中文则取首个汉字）
+  return name.charAt(0).toUpperCase()
+})
 
 const setResult = (found) => {
   isLoading.value  = false
@@ -117,6 +132,29 @@ const clearSearch = () => {
 }
 
 const toggleUserMenu = () => { showUserMenu.value = !showUserMenu.value }
+
+/** 退出登录：调后端 → 清前端缓存 → 跳 /login */
+async function onLogout() {
+  showUserMenu.value = false
+  try {
+    await apiLogout()
+  } catch (_) {
+    // 网络错误也照样清缓存跳 /login，避免用户卡在中间态
+  }
+  clearCurrentUser()
+  currentUsername.value = ''
+  router.push('/login')
+}
+
+onMounted(async () => {
+  // 接入登录用户名显示：成功就更新；失败（未启用/未登录/网络异常）保留缺省"管理员"
+  try {
+    const user = await getCurrentUser()
+    if (user?.username) currentUsername.value = user.username
+  } catch (_) {
+    // 静默：未登录会被 axios 拦截器跳 /login，鉴权未启用就保留缺省文案
+  }
+})
 
 defineExpose({ setResult })
 </script>

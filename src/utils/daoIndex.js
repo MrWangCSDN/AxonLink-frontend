@@ -2,21 +2,6 @@
  * SQL 巡检 —— 前端辅助工具函数
  */
 
-/** 评级 label 映射（与后端 IndexRating enum 对齐） */
-export const RATING_LABEL = {
-  POOR: '差',
-  GOOD: '良',
-  EXCELLENT: '优',
-  NOT_APPLICABLE: '不适用',
-}
-
-export const LLM_STATUS_LABEL = {
-  PENDING: '待分析',
-  DONE: '已完成',
-  FAILED: '失败',
-  SKIPPED: '已跳过',
-}
-
 /** JSON 字符串安全反序列化，失败返回默认值 */
 export function safeParse(jsonStr, fallback = null) {
   if (!jsonStr) return fallback

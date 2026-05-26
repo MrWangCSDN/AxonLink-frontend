@@ -30,6 +30,9 @@
       :env="env"
       @update:env="env = $event"
     />
+    <DaoSqlPool
+      v-show="currentPage === 'dii-sql-pool'"
+    />
 
     <!-- 二级覆盖页：仅保留巡检任务详情；SQL 详情页已下线 -->
     <DaoTaskDetail
@@ -46,6 +49,7 @@ import DaoDashboard from './DaoDashboard.vue'
 import DaoSqlList from './DaoSqlList.vue'
 import DaoTaskList from './DaoTaskList.vue'
 import DaoTableAdvice from './DaoTableAdvice.vue'
+import DaoSqlPool from './DaoSqlPool.vue'
 import DaoTaskDetail from './DaoTaskDetail.vue'
 
 const props = defineProps({

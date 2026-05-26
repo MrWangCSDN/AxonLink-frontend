@@ -34,6 +34,12 @@ export const DII_PAGES = [
     desc: 'DBA 聚合视图',
     color: '#F76707',
   },
+  {
+    key: 'dii-sql-pool',
+    label: 'SQL 池',
+    desc: 'Excel 导入的外部 SQL 库',
+    color: '#0CA678',
+  },
 ]
 
 /** 环境列表（颜色统一为 SG 蓝，符合"灰+蓝"双色基调） */

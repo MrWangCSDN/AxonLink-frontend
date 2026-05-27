@@ -10,7 +10,7 @@
 
       <div class="dii-modal-body">
         <div class="dii-form-tip">
-          支持 .xlsx 和 .csv 两种格式。工程名（dept-bcc / loan-bcc / sett-bcc / comm-bcc / other）由后端按命名 SQL 前缀自动识别，无需填写。
+          支持 .xlsx / .xls / .csv 三种格式。工程名（dept-bcc / loan-bcc / sett-bcc / comm-bcc / other）由后端按命名 SQL 前缀自动识别，无需填写。
         </div>
 
         <div class="dii-form-row">
@@ -30,7 +30,7 @@
             ref="fileInputRef"
             type="file"
             class="dii-form-input dii-file-input"
-            accept=".xlsx,.csv"
+            accept=".xlsx,.xls,.csv"
             :disabled="submitting"
             @change="onFileChange"
           />

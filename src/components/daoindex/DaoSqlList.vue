@@ -225,6 +225,14 @@
                   {{ (it.source || 'odb').toLowerCase() }}
                 </span>
 
+                <!-- V16+：nsql 行紧接 source tag 后展示完整 named_sql（全量、不截断、长则自动换行）
+                     pool DAO 把 named_sql 放进了 class_fqn 字段（兼容 odb 列名）；同时多带原始 named_sql 字段 -->
+                <code
+                  v-if="it.source === 'nsql' && (it.named_sql || it.class_fqn)"
+                  class="named-sql-full"
+                  :title="it.named_sql || it.class_fqn"
+                >{{ it.named_sql || it.class_fqn }}</code>
+
                 <span class="table-chain" :title="(tableListOf(it) || []).join(', ')">
                   <span class="table-name">{{ tableListOf(it)[0] || '—' }}</span>
                   <span v-if="tableListOf(it).length > 1" class="table-more">
@@ -1945,6 +1953,34 @@ watch(
   background: var(--c-accent-bg-dark, #1d3329);
   color: var(--c-accent-text-dark, #6ec78a);
   border-color: var(--c-accent-border-dark, #2f5a3c);
+}
+
+/* V16+：nsql 行专属——完整 named_sql 显示
+   - 不截断（白名单审批 / 巡检定位都要看完整名）
+   - 长名自动 break-word 而不是省略号；行高紧凑避免破坏 row-head 视觉
+   - 配色继承 source-nsql 弱化版（绿色，但比 badge 浅，避免与 badge 撞色） */
+.named-sql-full {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--c-accent-text, #0a8559);
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--c-accent-bg-soft, #f0fdf6);
+  border: 1px solid var(--c-accent-border-soft, #cfeede);
+  /* 关键：全量展示，不省略号 */
+  word-break: break-all;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+  /* 占据剩余横向空间，避免与右侧 table-chain / domain 挤一行 */
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 100%;
+}
+[data-theme="dark"] .named-sql-full {
+  background: var(--c-accent-bg-soft-dark, #16271f);
+  color: var(--c-accent-text-dark, #6ec78a);
+  border-color: var(--c-accent-border-soft-dark, #2a4a37);
 }
 
 .table-chain {

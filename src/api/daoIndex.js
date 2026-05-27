@@ -270,6 +270,192 @@ export function getDiiTableAdvice(env, table) {
   return request(`${PREFIX}/debug/table-advice-rollup${qs}`)
 }
 
+/* ───────────── SQL 池 / 白名单 ───────────── */
+
+/**
+ * 分页查询 SQL 池
+ * @param {Object} params {limit, offset, project, whitelist:0|1, keyword}
+ * @returns {Promise<{total: number, items: Array}>}
+ */
+export async function listSqlPool(params = {}) {
+  const qs = toQuery(params)
+  const res = await request(`${PREFIX}/sql-pool${qs}`)
+  if (Array.isArray(res)) return { total: res.length, items: res }
+  return {
+    total: Number(res?.total || 0),
+    items: Array.isArray(res?.items) ? res.items : [],
+  }
+}
+
+/** 拉取池表所有去重的工程名（前端下拉框） */
+export async function listSqlPoolProjects() {
+  const res = await request(`${PREFIX}/sql-pool/projects`)
+  return Array.isArray(res) ? res : []
+}
+
+/**
+ * 上传 Excel 导入到 SQL 池（multipart/form-data，受口令保护）。
+ *
+ * v2 改动：不再传 projectName——后端按命名 SQL 前缀自动匹配
+ * （dept-bcc/loan-bcc/sett-bcc/comm-bcc/other）。
+ *
+ * 后端 POST /api/ai/dao-index/sql-pool/import，header X-DII-Trigger-Token 必填。
+ * 错误：HTTP 401 → 抛 Error('口令错误') with err.code='TOKEN_INVALID'。
+ *
+ * @param {File} file       xlsx 文件
+ * @param {string} env      可选环境标记
+ * @param {string} token    X-DII-Trigger-Token
+ * @returns {Promise<{inserted, updated, unchanged, duplicatedInBatch, skippedEntity, skippedMalformed, skippedOversize, totalRowsScanned, byProject}>}
+ */
+export async function uploadSqlPoolExcel(file, env, token) {
+  const fd = new FormData()
+  fd.append('file', file)
+  if (env) fd.append('env', env)
+  // 注意：不能手动设 Content-Type；浏览器会自动加 boundary
+  const resp = await fetch(`/api${PREFIX}/sql-pool/import`, {
+    method: 'POST',
+    headers: { 'X-DII-Trigger-Token': token || '' },
+    body: fd,
+  })
+  const json = await resp.json().catch(() => ({}))
+  if (resp.status === 401 || json?.code === 401) {
+    const err = new Error('口令错误')
+    err.code = 'TOKEN_INVALID'
+    throw err
+  }
+  if (!resp.ok || json?.code !== 200) {
+    const err = new Error(json?.message || `HTTP ${resp.status}`)
+    err.code = 'IMPORT_FAILED'
+    throw err
+  }
+  return json.data
+}
+
+/**
+ * 切换 SQL 池条目的白名单状态（受口令保护）
+ * @param {number} id     池表行 id
+ * @param {0|1} value     0=取消，1=置位
+ * @param {string} token  X-DII-Trigger-Token
+ */
+export async function toggleSqlPoolWhitelist(id, value, token) {
+  const resp = await fetch(
+    `/api${PREFIX}/sql-pool/${id}/whitelist?value=${value === 0 ? 0 : 1}`,
+    {
+      method: 'POST',
+      headers: { 'X-DII-Trigger-Token': token || '' },
+    },
+  )
+  const json = await resp.json().catch(() => ({}))
+  if (resp.status === 401 || json?.code === 401) {
+    const err = new Error('口令错误')
+    err.code = 'TOKEN_INVALID'
+    throw err
+  }
+  if (!resp.ok || json?.code !== 200) {
+    const err = new Error(json?.message || `HTTP ${resp.status}`)
+    err.code = 'WHITELIST_FAILED'
+    throw err
+  }
+  return json.data
+}
+
+/* ───────────── V16 白名单审批工作流 ───────────── */
+
+/** 拉一级 / 二级审批人下拉名单 */
+export function getWhitelistApprovers() {
+  return request(`${PREFIX}/whitelist-applications/approvers`)
+}
+
+/**
+ * 申请白名单
+ * @param {Object} req {
+ *   sqlHash, namedSql, sqlText, projectName, env,
+ *   kindSource: 'odb' | 'nsql',
+ *   includeNamedSql: boolean,
+ *   applyReason: string,
+ *   l1Approver: string username,
+ *   sourceTable: 'item' | 'sql_pool',
+ *   sourceId: number,
+ *   applicant: string username (fallback)
+ * }
+ */
+export function applyWhitelist(req) {
+  return request(`${PREFIX}/whitelist-applications`, {
+    method: 'POST',
+    body: JSON.stringify(req),
+  })
+}
+
+/** 查单条申请 */
+export function getWhitelistApplication(id) {
+  return request(`${PREFIX}/whitelist-applications/${id}`)
+}
+
+/** 我的待办 */
+export function listWhitelistTodo(params = {}) {
+  const qs = toQuery(params)
+  return request(`${PREFIX}/whitelist-applications${qs}`)
+}
+
+/**
+ * 我的待办计数（铃铛红点用）
+ * @returns {Promise<{currentUser: string, count: number}>}
+ */
+export function getWhitelistTodoCount(params = {}) {
+  const qs = toQuery(params)
+  return request(`${PREFIX}/whitelist-applications/todo-count${qs}`)
+}
+
+function postAction(path, body) {
+  return request(path, { method: 'POST', body: JSON.stringify(body || {}) })
+}
+
+/** L1 通过：body = { opinion, l2Approver, currentUser? } */
+export function l1Approve(id, body) {
+  return postAction(`${PREFIX}/whitelist-applications/${id}/l1-approve`, body)
+}
+/** L1 退回：body = { opinion, currentUser? } */
+export function l1Reject(id, body) {
+  return postAction(`${PREFIX}/whitelist-applications/${id}/l1-reject`, body)
+}
+/** L2 通过：body = { opinion, currentUser? } */
+export function l2Approve(id, body) {
+  return postAction(`${PREFIX}/whitelist-applications/${id}/l2-approve`, body)
+}
+/** L2 退回：body = { opinion, currentUser? }（退回 L1，带 L2 意见） */
+export function l2Reject(id, body) {
+  return postAction(`${PREFIX}/whitelist-applications/${id}/l2-reject`, body)
+}
+/** 取消：body = { currentUser? } */
+export function cancelWhitelist(id, body) {
+  return postAction(`${PREFIX}/whitelist-applications/${id}/cancel`, body)
+}
+
+/**
+ * 切换 item（巡检明细）的白名单状态（受口令保护）
+ */
+export async function toggleItemWhitelist(id, value, token) {
+  const resp = await fetch(
+    `/api${PREFIX}/analysis-items/${id}/whitelist?value=${value === 0 ? 0 : 1}`,
+    {
+      method: 'POST',
+      headers: { 'X-DII-Trigger-Token': token || '' },
+    },
+  )
+  const json = await resp.json().catch(() => ({}))
+  if (resp.status === 401 || json?.code === 401) {
+    const err = new Error('口令错误')
+    err.code = 'TOKEN_INVALID'
+    throw err
+  }
+  if (!resp.ok || json?.code !== 200) {
+    const err = new Error(json?.message || `HTTP ${resp.status}`)
+    err.code = 'WHITELIST_FAILED'
+    throw err
+  }
+  return json.data
+}
+
 /* ───────────── 工具：把对象变成 ?a=1&b=2 ───────────── */
 
 function toQuery(params) {

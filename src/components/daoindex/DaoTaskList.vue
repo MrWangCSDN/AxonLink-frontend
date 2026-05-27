@@ -73,8 +73,14 @@
             <td>{{ elapsedLabel(row) }}</td>
             <td>{{ triggerLabel(row) }}</td>
             <td :title="row.created_at">{{ shortTime(row.created_at) }}</td>
-            <!-- 4 项统计：巡检总数 / 执行报错数 / AI 整改 / AI 报错 -->
-            <td class="dii-stat-cell dii-stat-total">{{ fmt(row.total_sqls) }}</td>
+            <!-- 4 项统计：巡检总数 / 执行报错数 / AI 整改 / AI 报错
+                 V14：巡检总数 = item 表本任务下的 total_sqls + 同 env 下 SQL 池条数（pool_count）
+                 后端 listBatchTasks 已 LEFT JOIN 池表按 env 聚合，前端只做相加；
+                 title 拆显源码扫描 / 导入池两段方便排查 -->
+            <td class="dii-stat-cell dii-stat-total"
+                :title="`源码扫描 ${fmt(row.total_sqls)} + 导入池 ${fmt(row.pool_count || 0)}`">
+              {{ fmt(mergedTotal(row)) }}
+            </td>
             <td class="dii-stat-cell dii-stat-err">{{ fmt(row.explain_err) }}</td>
             <td class="dii-stat-cell dii-stat-done">{{ fmt(row.llm_done) }}</td>
             <td class="dii-stat-cell dii-stat-fail">{{ fmt(row.llm_failed) }}</td>
@@ -228,6 +234,15 @@ function statusLabel(s) {
 function fmt(n) {
   if (n == null) return '-'
   return Number(n).toLocaleString('en-US')  // 千分位 3,839
+}
+/**
+ * 巡检总数 = 任务 SQL 总数（item 表 task.total_sqls）+ 同 env 下 SQL 池行数（pool_count）。
+ * 后端 listBatchTasks 已在响应中带 pool_count；前端只做防御性相加。
+ */
+function mergedTotal(row) {
+  const a = Number(row?.total_sqls) || 0
+  const b = Number(row?.pool_count) || 0
+  return a + b
 }
 function progressPct(row) {
   if (!row.total_sqls) return 0

@@ -34,6 +34,7 @@ export const DII_PAGES = [
     desc: 'DBA 聚合视图',
     color: '#F76707',
   },
+  // V16+：dii-sql-pool 独立子页下线；导入入口集成到 dii-sqls 头部
 ]
 
 /** 环境列表（颜色统一为 SG 蓝，符合"灰+蓝"双色基调） */

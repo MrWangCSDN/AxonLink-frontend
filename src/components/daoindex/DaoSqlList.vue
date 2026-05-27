@@ -32,6 +32,18 @@
             </button>
           </div>
 
+          <!-- V16：我的待审过滤 banner——从右上角铃铛跳来时显示，提示用户当前在"待办视图" -->
+          <div v-if="filter?.myWhitelistTodo" class="dii-todo-banner">
+            <span class="dii-todo-banner-text">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style="margin-right:6px;vertical-align:-2px;">
+                <path d="M18 16v-5a6 6 0 0 0-12 0v5l-2 2v1h16v-1l-2-2z M10 21a2 2 0 0 0 4 0"
+                      stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              我的待审批 · 共 <strong>{{ filteredItems.length }}</strong> 条
+            </span>
+            <button class="dii-todo-banner-clear" @click="emit('clear-todo-filter')">清除过滤</button>
+          </div>
+
           <!-- 第 2 行：搜索框 + 领域过滤 + 筛选汇总 -->
           <div class="hero-task-row">
             <!-- 搜索框：与任务编号同行 -->
@@ -87,6 +99,13 @@
               <path d="M12 7a5 5 0 1 1-1.46-3.54M12 2.5V6h-3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
             {{ loading ? '加载中' : '刷新' }}
+          </button>
+          <!-- V16+：导入 Excel/CSV（原 SQL 池独立页下线后入口移到这里） -->
+          <button class="btn btn-secondary" @click="importOpen = true" title="导入 IndexWarnLog 日志（.xlsx 或 .csv）到 SQL 池">
+            <svg class="btn-ico" width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <path d="M7 12.5v-8m0 0L4 7.5m3-3l3 3M2.5 2v1.5h9V2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            导入 Excel/CSV
           </button>
           <button class="btn btn-primary" :disabled="exporting || !latestTask || total === 0" :title="exportTitle" @click="doExport">
             <svg class="btn-ico" width="14" height="14" viewBox="0 0 14 14" fill="none">
@@ -194,6 +213,18 @@
                   {{ it.sql_kind || 'SQL' }}
                 </span>
 
+                <!-- V14：SQL 来源标签
+                     odb  = 源代码扫描（来自 dii_analysis_item，原本就在的 SQL）
+                     nsql = Excel 导入的 namedsql 警告日志（来自 dii_sql_pool）
+                     title 给鼠标悬停展示中文释义 -->
+                <span
+                  class="source-tag"
+                  :class="`source-${(it.source||'odb').toLowerCase()}`"
+                  :title="(it.source==='nsql') ? '来源：导入的 namedsql 警告日志' : '来源：源码扫描（odb）'"
+                >
+                  {{ (it.source || 'odb').toLowerCase() }}
+                </span>
+
                 <span class="table-chain" :title="(tableListOf(it) || []).join(', ')">
                   <span class="table-name">{{ tableListOf(it)[0] || '—' }}</span>
                   <span v-if="tableListOf(it).length > 1" class="table-more">
@@ -287,6 +318,12 @@
                       <AiBrandIcon v-else class="btn-ai-lead-ico" />
                       <span class="btn-ai-lead-label">{{ isRowRunning(it.id) ? '分析中…' : '重新分析' }}</span>
                     </button>
+                    <!-- V16：白名单申请按钮 -->
+                    <button
+                      class="btn btn-wl"
+                      :class="wlButtonClass(it)"
+                      @click.stop="openWhitelistDialog(it)"
+                    >{{ wlButtonText(it) }}</button>
                   </div>
                 </template>
 
@@ -420,6 +457,12 @@
                     <AiBrandIcon v-else class="btn-ai-lead-ico" />
                     <span class="btn-ai-lead-label">{{ isRowRunning(it.id) ? '分析中…' : '重新分析' }}</span>
                   </button>
+                  <!-- V16：白名单申请按钮 -->
+                  <button
+                    class="btn btn-wl"
+                    :class="wlButtonClass(it)"
+                    @click.stop="openWhitelistDialog(it)"
+                  >{{ wlButtonText(it) }}</button>
                 </div>
                 </div><!-- /.ai-block -->
               </div>
@@ -461,6 +504,23 @@
         <button class="btn btn-secondary btn-sm" @click="doJump">Go</button>
       </div>
     </div>
+
+    <!-- ════════════ V16：白名单审批弹窗（统一组件，按 mode 切换） ════════════ -->
+    <DiiWhitelistDialog
+      v-model:open="wlDlg.open"
+      :mode="wlDlg.mode"
+      :row="wlDlg.row"
+      :application="wlDlg.application"
+      :current-user="currentUser"
+      @action-done="onWlActionDone"
+    />
+
+    <!-- ════════════ V16+：SQL 池 Excel/CSV 导入弹窗（原独立页下线后挂这里） ════════════ -->
+    <DiiSqlPoolImportModal
+      v-model:open="importOpen"
+      :default-env="env"
+      @imported="onPoolImported"
+    />
 
     <!-- ════════════ 重新执行 AI 分析 · 模态框 ════════════ -->
     <transition name="rerun-modal">
@@ -543,6 +603,8 @@ import {
 import DiiEnvSwitcher from './widgets/DiiEnvSwitcher.vue'
 import DiiEmptyState from './widgets/DiiEmptyState.vue'
 import AiBrandIcon from './widgets/AiBrandIcon.vue'
+import DiiWhitelistDialog from './widgets/DiiWhitelistDialog.vue'
+import DiiSqlPoolImportModal from './widgets/DiiSqlPoolImportModal.vue'
 import {
   listDiiItemIssues,
   getDiiItemIssuesStats,
@@ -551,6 +613,7 @@ import {
   runDiiLlmAnalyzeAsync,
   getDiiItem,
   exportDiiItemIssues,
+  getWhitelistApplication,
 } from '../../api/daoIndex.js'
 import {
   splitTables,
@@ -565,7 +628,7 @@ const props = defineProps({
   filter: { type: Object, default: () => ({}) },
 })
 
-const emit = defineEmits(['update:env', 'back-to-tasks'])
+const emit = defineEmits(['update:env', 'back-to-tasks', 'clear-todo-filter'])
 
 /* ────────── 静态字典 ────────── */
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100]
@@ -704,7 +767,14 @@ const filteredItems = computed(() => {
   const kw = filters.value.keyword.trim().toLowerCase()
   const domainKey = filters.value.domain
   const issueKey = filters.value.issueSource
+  // V16：父级 filter.myWhitelistTodo=true 时只展示「待审批中」的 SQL
+  //   （PENDING_L1 / PENDING_L2）。终态 / REJECTED_L1 / CANCELLED 都排除
+  const myWlTodo = !!props.filter?.myWhitelistTodo
   const hit = rawItems.value.filter((it) => {
+    if (myWlTodo) {
+      const s = it.whitelist_status
+      if (s !== 'PENDING_L1' && s !== 'PENDING_L2') return false
+    }
     if (domainKey && domainOf(it).key !== domainKey) return false
     if (issueKey && issueOf(it).source !== issueKey) return false
     if (kw) {
@@ -934,6 +1004,91 @@ const aiRerun = ref({
 /** 正在重跑 AI 的行 id 集合（用于行级蒙版） */
 const aiRunningIds = ref(new Set())
 function isRowRunning(id) { return aiRunningIds.value.has(id) }
+
+/* ═════════════════ V16+：SQL 池导入（独立页合并后的入口） ═════════════════ */
+const importOpen = ref(false)
+/** 导入完成后刷新列表——后端已串接白名单继承 + 池数据合并显示 */
+function onPoolImported() {
+  if (typeof doLoad === 'function') doLoad()
+}
+
+/* ═════════════════ V16：白名单审批工作流 ═════════════════ */
+
+/**
+ * 当前用户：优先从全局登录态读（LDAP B 档），fallback 到本地 storage
+ * 简化方案——若都拿不到则提示用户在 yml 上 SecurityContextHolder 兜底
+ */
+const currentUser = ref(
+  (typeof window !== 'undefined' && window.localStorage?.getItem('dii-user')) || 'guest'
+)
+
+const wlDlg = ref({
+  open: false,
+  mode: 'apply',   // 'apply' | 'view' | 'l1' | 'l2'
+  row: null,
+  application: null,
+})
+
+/**
+ * 根据当前行的 whitelist_status 决定按钮文案与样式。
+ */
+function wlButtonText(it) {
+  const s = it?.whitelist_status
+  // V16+：APPROVED 行附带 target_type 信息——区分"单条 SQL 白名单"vs"同名 nsql 共享白名单"
+  const t = it?.whitelist_target_type    // 'HASH' / 'NAMED_SQL' / undefined
+  if (!s)                  return '申请白名单'
+  if (s === 'PENDING_L1')  return '白名单申请中 · 一审'
+  if (s === 'PENDING_L2')  return '白名单申请中 · 二审'
+  if (s === 'REJECTED_L1') return '白名单已退回'
+  if (s === 'APPROVED') {
+    return t === 'NAMED_SQL' ? '已白名单 · 同名 nsql' : '已白名单 · 单条'
+  }
+  return '申请白名单'
+}
+function wlButtonClass(it) {
+  const s = it?.whitelist_status
+  return {
+    'btn-wl-empty':    !s,
+    'btn-wl-pending':  s === 'PENDING_L1' || s === 'PENDING_L2',
+    'btn-wl-rejected': s === 'REJECTED_L1',
+    'btn-wl-approved': s === 'APPROVED',
+  }
+}
+
+/**
+ * 点击按钮：
+ *   - 无 wl 状态：apply 模式
+ *   - 有 wl 状态：拉 application 详情 → 按 user 角色决定 mode (l1/l2/view)
+ */
+async function openWhitelistDialog(it) {
+  if (!it?.whitelist_app_id) {
+    wlDlg.value = { open: true, mode: 'apply', row: it, application: null }
+    return
+  }
+  try {
+    const app = await getWhitelistApplication(it.whitelist_app_id)
+    const user = currentUser.value
+    let mode = 'view'
+    // 状态机：根据当前用户 + status 推导显示哪个 mode
+    if (app?.status === 'PENDING_L1' && app?.l1_approver === user) mode = 'l1'
+    else if (app?.status === 'PENDING_L2' && app?.l2_approver === user) mode = 'l2'
+    // 其他情况一律 view（含申请人 / 旁观者）
+    wlDlg.value = { open: true, mode, row: it, application: app }
+  } catch (e) {
+    alert(`加载白名单申请详情失败：${e?.message || e}`)
+  }
+}
+
+/**
+ * 操作完成后回调：刷新当前行 wl 状态。简单做：整页重载（与重新分析等其他动作风格一致）。
+ */
+function onWlActionDone() {
+  // 触发列表重载——doLoad() 已存在于本组件
+  // 注意：不重置过滤器；用户刚做完操作还想留在原位
+  if (typeof doLoad === 'function') {
+    doLoad()
+  }
+}
 
 /** 点击 "重新执行 AI 分析" → 打开模态框，预填当前 SQL */
 function rerunLlm(id) {
@@ -1198,6 +1353,40 @@ watch(
   background: var(--bg-info-hover, #dbe7ff);
 }
 
+/* V16：我的待审过滤 banner（黄色提示色） */
+.dii-todo-banner {
+  display: flex; align-items: center; justify-content: space-between;
+  margin: 12px 0 8px;
+  padding: 10px 14px;
+  background: var(--bg-warning-soft, #fffbe6);
+  border: 1px solid var(--border-warning, #ffd591);
+  border-radius: 6px;
+}
+.dii-todo-banner-text {
+  font-size: 13px;
+  color: var(--text-warning, #c08c00);
+  display: inline-flex; align-items: center;
+}
+.dii-todo-banner-clear {
+  padding: 4px 10px;
+  background: transparent;
+  border: 1px solid var(--border-warning, #ffd591);
+  border-radius: 4px;
+  color: var(--text-warning, #c08c00);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.dii-todo-banner-clear:hover { background: var(--bg-warning-soft-hover, #fff3bf); }
+[data-theme="dark"] .dii-todo-banner {
+  background: var(--bg-warning-soft-dark, #3a2e15);
+  border-color: var(--border-warning-dark, #7a5e1f);
+}
+[data-theme="dark"] .dii-todo-banner-text { color: var(--text-warning-dark, #f5c062); }
+[data-theme="dark"] .dii-todo-banner-clear {
+  color: var(--text-warning-dark, #f5c062);
+  border-color: var(--border-warning-dark, #7a5e1f);
+}
+
 /* dark 模式：用更柔和的蓝调，避免在深色背景上"扎眼" */
 [data-theme="dark"] .dii-task-banner {
   background: var(--bg-info-soft-dark, #1e2a4a);
@@ -1378,6 +1567,70 @@ watch(
 }
 .btn-ai-lead-label {
   font-weight: 600;
+}
+
+/* V16：白名单按钮 4 态样式 */
+.btn-wl {
+  padding: 4px 12px;
+  font-size: 12.5px;
+  border-radius: 4px;
+  font-weight: 500;
+  cursor: pointer;
+  margin-left: 8px;
+  border: 1px solid transparent;
+  transition: background 0.12s;
+}
+.btn-wl-empty {
+  background: var(--bg-card, #fff);
+  color: var(--text-secondary, #5a6172);
+  border-color: var(--border, #d4d8dd);
+}
+.btn-wl-empty:hover {
+  background: var(--bg-domain-hover, #f5f7fa);
+  color: var(--text-primary, #14171c);
+}
+.btn-wl-pending {
+  background: var(--bg-warning-soft, #fffbe6);
+  color: var(--text-warning, #c08c00);
+  border-color: var(--border-warning, #ffd591);
+}
+.btn-wl-pending:hover {
+  background: var(--bg-warning-soft-hover, #fff3bf);
+}
+.btn-wl-rejected {
+  background: var(--bg-error-soft, #fff1f0);
+  color: var(--text-error, #cf1124);
+  border-color: var(--border-error, #ffccc7);
+}
+.btn-wl-rejected:hover {
+  background: var(--bg-error-soft-hover, #ffe0dc);
+}
+.btn-wl-approved {
+  background: var(--bg-success-soft, #f6ffed);
+  color: var(--text-success, #137333);
+  border-color: var(--border-success, #b7eb8f);
+}
+.btn-wl-approved:hover { cursor: default; }
+
+[data-theme="dark"] .btn-wl-empty {
+  background: var(--bg-card-dark, #1f2733);
+  color: var(--text-secondary-dark, #9aa3b0);
+  border-color: var(--border-dark, #2a3340);
+}
+[data-theme="dark"] .btn-wl-pending {
+  background: var(--bg-warning-soft-dark, #3a2e15);
+  color: var(--text-warning-dark, #f5c062);
+  border-color: var(--border-warning-dark, #7a5e1f);
+}
+[data-theme="dark"] .btn-wl-rejected {
+  background: var(--bg-error-soft-dark, #3d1f1f);
+  color: var(--text-error-dark, #ff7a7e);
+  border-color: var(--border-error-dark, #6b3030);
+}
+[data-theme="dark"] .btn-wl-approved {
+  background: var(--bg-success-soft-dark, #1e3320);
+  color: var(--text-success-dark, #6ec78a);
+  border-color: var(--border-success-dark, #2f5a32);
 }
 
 /* "AI" 文字图标：用 monospace 字体在小框里居中，模拟图标 */
@@ -1657,6 +1910,41 @@ watch(
   color: var(--c-text-2);
   border: 1px solid var(--c-border);
   flex-shrink: 0;
+}
+
+/* V14：SQL 来源标签（odb / nsql）—— 与 .kind 同高，颜色按主题 token 分两套
+   odb  = 蓝色（信息色，与 link 同色调）
+   nsql = 紫色（区分新来源，配色取自 SQL 池子菜单 accent #0CA678 的克制版） */
+.source-tag {
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  flex-shrink: 0;
+  text-transform: lowercase;
+}
+.source-odb {
+  background: var(--c-info-bg, #e6f0fc);
+  color: var(--c-info-text, #0b70db);
+  border: 1px solid var(--c-info-border, #b6d4f5);
+}
+.source-nsql {
+  background: var(--c-accent-bg, #e6fcf2);
+  color: var(--c-accent-text, #0a8559);
+  border: 1px solid var(--c-accent-border, #a7e4c8);
+}
+/* dark 主题：亮一档 */
+[data-theme="dark"] .source-odb {
+  background: var(--c-info-bg-dark, #1f3050);
+  color: var(--c-info-text-dark, #7eb8fd);
+  border-color: var(--c-info-border-dark, #2f4a78);
+}
+[data-theme="dark"] .source-nsql {
+  background: var(--c-accent-bg-dark, #1d3329);
+  color: var(--c-accent-text-dark, #6ec78a);
+  border-color: var(--c-accent-border-dark, #2f5a3c);
 }
 
 .table-chain {

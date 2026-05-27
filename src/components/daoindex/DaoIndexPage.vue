@@ -17,6 +17,7 @@
       :filter="sqlListFilter"
       @update:env="env = $event"
       @back-to-tasks="handleBackToTasks"
+      @clear-todo-filter="sqlListFilter = {}"
     />
     <DaoTaskList
       v-show="currentPage === 'dii-tasks'"
@@ -30,6 +31,7 @@
       :env="env"
       @update:env="env = $event"
     />
+    <!-- V16+：SQL 池独立子页 DaoSqlPool 下线，导入入口集成到 DaoSqlList 头部 -->
 
     <!-- 二级覆盖页：仅保留巡检任务详情；SQL 详情页已下线 -->
     <DaoTaskDetail
@@ -88,6 +90,16 @@ function handleBackToTasks() {
   overlay.value = null
   emit('navigate-page', 'dii-tasks')
 }
+
+/**
+ * V16：父级（TransactionAnalysis）通过 ref 调用——打开 SQL 巡检页并启用「我的待审」过滤
+ */
+function openMyWhitelistTodo() {
+  sqlListFilter.value = { myWhitelistTodo: true }
+  overlay.value = null
+  emit('navigate-page', 'dii-sqls')
+}
+defineExpose({ openMyWhitelistTodo })
 
 /**
  * Dashboard 卡片 / 趋势图点击 → 跳到 SQL 列表并带上筛选

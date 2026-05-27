@@ -39,7 +39,19 @@
         <button class="dii-retry-btn" @click="doLoad">重试</button>
       </div>
       <div v-else-if="repos.length === 0" class="dii-state">
-        还没有配置代码仓库（code_repo_config.enabled=1），且需先跑过一次采集 + 聚合。
+        <div class="dii-state-title">还没有配置代码仓库</div>
+        <div class="dii-state-hint">
+          请先在 <code>code_repo_config</code> 表配置仓库（设 <code>enabled=1</code>），
+          再 <code>POST /api/code/dashboard/scan?repoId=...</code> 跑一次采集 + 聚合。
+        </div>
+      </div>
+      <div v-else-if="!overview" class="dii-state">
+        <div class="dii-state-title">当前仓库还没有聚合数据</div>
+        <div class="dii-state-hint">
+          仓库 <code>{{ currentRepo?.repo_name || selectedRepoId }}</code> 尚未跑过采集。
+          请运维 <code>POST /api/code/dashboard/scan?repoId={{ selectedRepoId }}</code>
+          完成 commit 入库 + 快照聚合后再来看。
+        </div>
       </div>
 
       <template v-else>
@@ -494,6 +506,31 @@ function fmtTime(s) {
 
 .dii-scroll { flex: 1; overflow-y: auto; padding: 16px 24px 32px; }
 .dii-state { text-align: center; padding: 64px 24px; color: var(--text-secondary, #5a6172); font-size: 13.5px; }
+.dii-state-title {
+  font-size: 15px; font-weight: 600;
+  color: var(--text-primary, #14171c);
+  margin-bottom: 10px;
+}
+.dii-state-hint {
+  font-size: 12.5px;
+  color: var(--text-secondary, #5a6172);
+  max-width: 540px;
+  margin: 0 auto;
+  line-height: 1.6;
+}
+.dii-state-hint code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  padding: 1px 6px;
+  background: var(--bg-domain-hover, #f5f7fa);
+  border: 1px solid var(--border-subtle, #ebeef2);
+  border-radius: 3px;
+  color: var(--text-primary, #14171c);
+}
+[data-theme="dark"] .dii-state-hint code {
+  background: var(--bg-card-dark, #1f2733);
+  border-color: var(--border-subtle-dark, #2a3340);
+}
 .dii-state-err { color: var(--text-error, #cf1124); }
 .dii-retry-btn {
   margin-left: 12px; padding: 4px 10px; background: transparent;

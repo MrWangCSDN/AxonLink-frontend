@@ -43,7 +43,17 @@
     </div>
 
     <div class="header-right">
-<div class="user-info" @click="toggleUserMenu">
+      <!-- V16：白名单审批铃铛——展示「该我审批」的条数，点击跳到 SQL 巡检页 + 待审过滤
+           todoCount=0 时铃铛仍展示但无红点；>0 时显示数字徽章 -->
+      <div class="todo-bell" title="待审批的 SQL 白名单申请" @click="onClickBell">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+          <path d="M18 16v-5a6 6 0 0 0-12 0v5l-2 2v1h16v-1l-2-2z M10 21a2 2 0 0 0 4 0"
+                stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span v-if="todoCount > 0" class="todo-bell-badge">{{ todoCountText }}</span>
+      </div>
+
+      <div class="user-info" @click="toggleUserMenu">
         <div class="avatar">{{ avatarText }}</div>
         <span class="username">{{ displayName }}</span>
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
@@ -81,16 +91,18 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { getCurrentUser, logout as apiLogout } from '../api/auth.js'
 import { clearCurrentUser } from '../router/index.js'
+import { getWhitelistTodoCount } from '../api/daoIndex.js'
 
 const props = defineProps({
   isDark: { type: Boolean, default: false }
 })
 
-const emit = defineEmits(['search', 'toggleTheme'])
+// 加 navigate-todo 事件：点击铃铛通知父级跳转到 SQL 巡检页并打开"我的待审"过滤
+const emit = defineEmits(['search', 'toggleTheme', 'navigate-todo'])
 
 const router = useRouter()
 
@@ -146,6 +158,27 @@ async function onLogout() {
   router.push('/login')
 }
 
+// V16：白名单待办计数（铃铛红点）
+const todoCount = ref(0)
+const todoCountText = computed(() => (todoCount.value > 99 ? '99+' : String(todoCount.value)))
+let todoPollTimer = null
+
+async function refreshTodoCount() {
+  try {
+    const data = await getWhitelistTodoCount({
+      currentUser: currentUsername.value || undefined,
+    })
+    todoCount.value = Number(data?.count) || 0
+  } catch (_) {
+    // 鉴权未启用 / 网络错误：保持原数字不变（不闪烁清零）
+  }
+}
+
+function onClickBell() {
+  // 让父级（TransactionAnalysis）切到 SQL 巡检页并打开"我的待审"过滤
+  emit('navigate-todo')
+}
+
 onMounted(async () => {
   // 接入登录用户名显示：成功就更新；失败（未启用/未登录/网络异常）保留缺省"管理员"
   try {
@@ -153,6 +186,16 @@ onMounted(async () => {
     if (user?.username) currentUsername.value = user.username
   } catch (_) {
     // 静默：未登录会被 axios 拦截器跳 /login，鉴权未启用就保留缺省文案
+  }
+  // 启动计数轮询：每 30s 拉一次
+  refreshTodoCount()
+  todoPollTimer = setInterval(refreshTodoCount, 30_000)
+})
+
+onBeforeUnmount(() => {
+  if (todoPollTimer) {
+    clearInterval(todoPollTimer)
+    todoPollTimer = null
   }
 })
 
@@ -341,6 +384,42 @@ defineExpose({ setResult })
 .theme-icon-leave-to {
   opacity: 0;
   transform: rotate(90deg) scale(0.6);
+}
+
+/* V16：白名单审批铃铛 */
+.todo-bell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: #cfd6e4;
+  transition: background 0.18s, color 0.18s;
+  margin-right: 4px;
+}
+.todo-bell:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+.todo-bell-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  background: #ff4d4f;
+  color: #fff;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+  border: 1.5px solid var(--header-bg, #1f2733);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 }
 
 .user-info {

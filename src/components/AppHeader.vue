@@ -183,7 +183,12 @@ onMounted(async () => {
   // 接入登录用户名显示：成功就更新；失败（未启用/未登录/网络异常）保留缺省"管理员"
   try {
     const user = await getCurrentUser()
-    if (user?.username) currentUsername.value = user.username
+    if (user?.username) {
+      currentUsername.value = user.username
+      // V16+：写入 localStorage 供 DaoSqlList 等其他组件 fast-path 读取
+      // （白名单审批 mode 检测需要真实 LDAP username 匹配 application.l1/l2_approver）
+      try { window.localStorage?.setItem('dii-user', user.username) } catch {}
+    }
   } catch (_) {
     // 静默：未登录会被 axios 拦截器跳 /login，鉴权未启用就保留缺省文案
   }

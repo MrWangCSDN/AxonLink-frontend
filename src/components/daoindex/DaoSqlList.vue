@@ -613,6 +613,7 @@ import DiiEmptyState from './widgets/DiiEmptyState.vue'
 import AiBrandIcon from './widgets/AiBrandIcon.vue'
 import DiiWhitelistDialog from './widgets/DiiWhitelistDialog.vue'
 import DiiSqlPoolImportModal from './widgets/DiiSqlPoolImportModal.vue'
+import { getCurrentUser } from '../../api/auth.js'
 import {
   listDiiItemIssues,
   getDiiItemIssuesStats,
@@ -1023,12 +1024,30 @@ function onPoolImported() {
 /* ═════════════════ V16：白名单审批工作流 ═════════════════ */
 
 /**
- * 当前用户：优先从全局登录态读（LDAP B 档），fallback 到本地 storage
- * 简化方案——若都拿不到则提示用户在 yml 上 SecurityContextHolder 兜底
+ * 当前用户：从 /api/auth/me 拉真实 LDAP 登录态。
+ *
+ * <p>V16+ 修复：原来用 localStorage('dii-user') 默认 'guest'——永远匹配不上
+ * application.l1_approver / l2_approver（这些是真实 LDAP username），导致
+ * 审批人打开弹窗时永远落到 view mode，看不到「退回 / 确认」按钮。
+ * <p>现在 onMounted 异步拉 /auth/me；同时把上次结果存进 localStorage 作为
+ * 二次进入页面的 fast-path（避免短暂的"无 currentUser"窗口）。
  */
 const currentUser = ref(
-  (typeof window !== 'undefined' && window.localStorage?.getItem('dii-user')) || 'guest'
+  (typeof window !== 'undefined' && window.localStorage?.getItem('dii-user')) || ''
 )
+
+async function refreshCurrentUser() {
+  try {
+    const u = await getCurrentUser()
+    if (u?.username) {
+      currentUser.value = u.username
+      try { window.localStorage?.setItem('dii-user', u.username) } catch {}
+    }
+  } catch (_) {
+    // 鉴权未启用 / 网络异常：保留 localStorage 值；空也行（fallback 到后端 SecurityContext）
+  }
+}
+onMounted(refreshCurrentUser)
 
 const wlDlg = ref({
   open: false,

@@ -13,7 +13,11 @@
       <div class="dii-header">
         <div>
           <h2 class="dii-title">代码提交大屏</h2>
-          <p class="dii-subtitle" v-if="currentRepo">
+          <p class="dii-subtitle" v-if="isAllMode">
+            <strong>ALL 汇总</strong>（{{ repos.length }} 个工程）
+            <template v-if="snapshotTime"> · 最新快照 {{ fmtTime(snapshotTime) }}</template>
+          </p>
+          <p class="dii-subtitle" v-else-if="currentRepo">
             仓库 <strong>{{ currentRepo.repo_name }}</strong>
             <template v-if="snapshotTime"> · 快照 {{ fmtTime(snapshotTime) }}</template>
             <template v-if="currentRepo.last_sync_status"> · {{ currentRepo.last_sync_status }}</template>
@@ -26,6 +30,8 @@
             :value="selectedRepoId"
             @change="selectedRepoId = $event.target.value"
           >
+            <!-- V2：ALL 汇总——后端 repoId=0 触发跨仓聚合 -->
+            <option value="0">ALL（所有工程汇总）</option>
             <option v-for="r in repos" :key="r.id" :value="r.id">{{ r.repo_name }}</option>
           </select>
         </div>
@@ -46,11 +52,17 @@
         </div>
       </div>
       <div v-else-if="!overview" class="dii-state">
-        <div class="dii-state-title">当前仓库还没有聚合数据</div>
+        <div class="dii-state-title">{{ isAllMode ? '所有工程都还没有聚合数据' : '当前仓库还没有聚合数据' }}</div>
         <div class="dii-state-hint">
-          仓库 <code>{{ currentRepo?.repo_name || selectedRepoId }}</code> 尚未跑过采集。
-          请运维 <code>POST /api/code/dashboard/scan?repoId={{ selectedRepoId }}</code>
-          完成 commit 入库 + 快照聚合后再来看。
+          <template v-if="isAllMode">
+            还没有任何工程跑过采集。请运维至少对一个仓库执行
+            <code>POST /api/code/dashboard/scan?repoId=&lt;id&gt;</code>。
+          </template>
+          <template v-else>
+            仓库 <code>{{ currentRepo?.repo_name || selectedRepoId }}</code> 尚未跑过采集。
+            请运维 <code>POST /api/code/dashboard/scan?repoId={{ selectedRepoId }}</code>
+            完成 commit 入库 + 快照聚合后再来看。
+          </template>
         </div>
       </div>
 
@@ -240,13 +252,16 @@ import { getCodeRepos, getCodeOverview } from '../../api/codeDashboard.js'
 const loading = ref(false)
 const errorMsg = ref('')
 const repos = ref([])
-const selectedRepoId = ref(localStorage.getItem('code-dash-repo') || '')
+// V2：默认 '0' 表示 ALL 汇总（用户最常关心全量视图）；localStorage 还原上次选择
+const selectedRepoId = ref(localStorage.getItem('code-dash-repo') || '0')
 const overview = ref(null)
 
 const currentRepo = computed(
   () => repos.value.find(r => String(r.id) === String(selectedRepoId.value)) || null
 )
 const snapshotTime = computed(() => overview.value?.snapshotTime || null)
+// V2：ALL 模式哨兵——selectedRepoId='0' 触发后端跨仓汇总
+const isAllMode = computed(() => String(selectedRepoId.value) === '0')
 
 watch(selectedRepoId, (v) => {
   if (v) localStorage.setItem('code-dash-repo', v)
@@ -263,8 +278,11 @@ async function doLoad() {
       overview.value = null
       return
     }
-    const has = repos.value.some(r => String(r.id) === String(selectedRepoId.value))
-    if (!has) selectedRepoId.value = String(repos.value[0].id)
+    // ALL 模式 '0' 总是有效，不需要存在性校验；其他值若不在 repos 列表则回退到 ALL
+    if (!isAllMode.value
+        && !repos.value.some(r => String(r.id) === String(selectedRepoId.value))) {
+      selectedRepoId.value = '0'   // 回退 ALL 而非随便挑一个 repo
+    }
     await loadOverview()
   } catch (e) {
     errorMsg.value = `加载失败：${e?.message || e}`
@@ -274,7 +292,8 @@ async function doLoad() {
 }
 
 async function loadOverview() {
-  if (!selectedRepoId.value) return
+  // V2：'0' = ALL 汇总，照样调接口；selectedRepoId 为空才跳
+  if (selectedRepoId.value === '' || selectedRepoId.value == null) return
   try {
     overview.value = await getCodeOverview(selectedRepoId.value)
   } catch (e) {

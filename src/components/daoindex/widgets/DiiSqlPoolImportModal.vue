@@ -1,16 +1,16 @@
 <template>
-  <!-- 导入 SQL 池 Excel 弹窗：与 DiiTaskTriggerModal 同款骨架
+  <!-- 导入 SQL 池 弹窗：支持 .xlsx 与 .csv 两种格式（v3）
        v-model:open 双向绑定父级控制开关 -->
   <div v-if="open" class="dii-modal-mask" @click.self="onMaskClick">
     <div class="dii-modal" role="dialog" @keydown.esc="onCancel">
       <div class="dii-modal-header">
-        <h3>导入 SQL 池（Excel）</h3>
+        <h3>导入 SQL 池（Excel / CSV）</h3>
         <button class="dii-modal-close" @click="onCancel" aria-label="关闭">×</button>
       </div>
 
       <div class="dii-modal-body">
         <div class="dii-form-tip">
-          工程名（dept-bcc / loan-bcc / sett-bcc / comm-bcc / other）由后端按命名 SQL 前缀自动识别，无需填写。
+          支持 .xlsx 和 .csv 两种格式。工程名（dept-bcc / loan-bcc / sett-bcc / comm-bcc / other）由后端按命名 SQL 前缀自动识别，无需填写。
         </div>
 
         <div class="dii-form-row">
@@ -30,7 +30,7 @@
             ref="fileInputRef"
             type="file"
             class="dii-form-input dii-file-input"
-            accept=".xlsx"
+            accept=".xlsx,.csv"
             :disabled="submitting"
             @change="onFileChange"
           />

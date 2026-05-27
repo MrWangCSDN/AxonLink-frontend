@@ -1,6 +1,9 @@
 <template>
   <div class="page-layout">
-    <AppHeader ref="appHeaderRef" :isDark="isDark" @search="handleGlobalSearch" @toggleTheme="toggleTheme" />
+    <AppHeader ref="appHeaderRef" :isDark="isDark"
+               @search="handleGlobalSearch"
+               @toggleTheme="toggleTheme"
+               @navigate-todo="onNavigateTodo" />
 
     <div class="page-body">
       <ChainImpactSidebar
@@ -193,6 +196,7 @@
 
       <!-- ══════════ SQL 巡检模块 ══════════ -->
       <DaoIndexPage
+        ref="daoIndexPageRef"
         v-show="currentPage.startsWith('dii-')"
         class="impact-main"
         :current-page="currentPage"
@@ -257,6 +261,12 @@ const toggleTheme = () => {
 
 // ── 状态 ──
 const appHeaderRef = ref(null)
+// V16：DaoIndexPage 引用，铃铛点击后调用 openMyWhitelistTodo() 切页 + 启用过滤
+const daoIndexPageRef = ref(null)
+function onNavigateTodo() {
+  // 切到 SQL 分析页（v-show 不会立刻挂载组件，但 DaoIndexPage 一直挂载所以 ref 可用）
+  daoIndexPageRef.value?.openMyWhitelistTodo()
+}
 const domains      = ref([])
 const activeDomain = ref(null)
 const systemStats  = ref({ totalDomains: 0, totalTransactions: 0, status: 'normal', statusText: '系统运行正常' })

@@ -359,6 +359,78 @@ export async function toggleSqlPoolWhitelist(id, value, token) {
   return json.data
 }
 
+/* ───────────── V16 白名单审批工作流 ───────────── */
+
+/** 拉一级 / 二级审批人下拉名单 */
+export function getWhitelistApprovers() {
+  return request(`${PREFIX}/whitelist-applications/approvers`)
+}
+
+/**
+ * 申请白名单
+ * @param {Object} req {
+ *   sqlHash, namedSql, sqlText, projectName, env,
+ *   kindSource: 'odb' | 'nsql',
+ *   includeNamedSql: boolean,
+ *   applyReason: string,
+ *   l1Approver: string username,
+ *   sourceTable: 'item' | 'sql_pool',
+ *   sourceId: number,
+ *   applicant: string username (fallback)
+ * }
+ */
+export function applyWhitelist(req) {
+  return request(`${PREFIX}/whitelist-applications`, {
+    method: 'POST',
+    body: JSON.stringify(req),
+  })
+}
+
+/** 查单条申请 */
+export function getWhitelistApplication(id) {
+  return request(`${PREFIX}/whitelist-applications/${id}`)
+}
+
+/** 我的待办 */
+export function listWhitelistTodo(params = {}) {
+  const qs = toQuery(params)
+  return request(`${PREFIX}/whitelist-applications${qs}`)
+}
+
+/**
+ * 我的待办计数（铃铛红点用）
+ * @returns {Promise<{currentUser: string, count: number}>}
+ */
+export function getWhitelistTodoCount(params = {}) {
+  const qs = toQuery(params)
+  return request(`${PREFIX}/whitelist-applications/todo-count${qs}`)
+}
+
+function postAction(path, body) {
+  return request(path, { method: 'POST', body: JSON.stringify(body || {}) })
+}
+
+/** L1 通过：body = { opinion, l2Approver, currentUser? } */
+export function l1Approve(id, body) {
+  return postAction(`${PREFIX}/whitelist-applications/${id}/l1-approve`, body)
+}
+/** L1 退回：body = { opinion, currentUser? } */
+export function l1Reject(id, body) {
+  return postAction(`${PREFIX}/whitelist-applications/${id}/l1-reject`, body)
+}
+/** L2 通过：body = { opinion, currentUser? } */
+export function l2Approve(id, body) {
+  return postAction(`${PREFIX}/whitelist-applications/${id}/l2-approve`, body)
+}
+/** L2 退回：body = { opinion, currentUser? }（退回 L1，带 L2 意见） */
+export function l2Reject(id, body) {
+  return postAction(`${PREFIX}/whitelist-applications/${id}/l2-reject`, body)
+}
+/** 取消：body = { currentUser? } */
+export function cancelWhitelist(id, body) {
+  return postAction(`${PREFIX}/whitelist-applications/${id}/cancel`, body)
+}
+
 /**
  * 切换 item（巡检明细）的白名单状态（受口令保护）
  */

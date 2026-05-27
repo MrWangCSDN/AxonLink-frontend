@@ -514,9 +514,9 @@ const DII_MENU_ACCENT = '#0b70db'
 const diiMenu = [
   { key: 'dii-dashboard',     label: '概览仪表盘',     desc: '总览 · 评级分布' },
   { key: 'dii-tasks',         label: '巡检任务',       desc: '批量巡检进度' },
-  { key: 'dii-sqls',          label: 'SQL 维度分析',   desc: '逐条 SQL 详情' },
+  // V16+：SQL 池独立子页下线——导入入口合并到 SQL 维度分析页头部
+  { key: 'dii-sqls',          label: 'SQL 维度分析',   desc: '逐条 SQL · 含池导入' },
   { key: 'dii-table-advice',  label: 'TABLE 维度分析', desc: 'DBA 聚合视图' },
-  { key: 'dii-sql-pool',      label: 'SQL 池',         desc: 'Excel 导入的外部 SQL 库' },
 ]
 
 // ══════════ 代码提交 · 独立分区（与 SQL 巡检 / 影响分析 平级）子页菜单 ══════════
@@ -540,7 +540,7 @@ const diiIconMap = {
   'dii-sqls':         IconList,
   'dii-tasks':        IconClipboard,
   'dii-table-advice': IconTable,
-  'dii-sql-pool':     IconUpload,
+  // dii-sql-pool 已下线，IconUpload 改为用在 DaoSqlList 顶部导入按钮里
 }
 
 const codeIconMap = {

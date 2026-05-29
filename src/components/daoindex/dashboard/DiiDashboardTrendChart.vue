@@ -7,7 +7,7 @@
       </div>
     </div>
 
-    <!-- 两组多选：领域 / 整改类型 -->
+    <!-- 领域单选（radio）+ 整改类型多选 -->
     <div class="filters">
       <div class="filters__row">
         <span class="filters__label">领域</span>
@@ -15,9 +15,9 @@
           v-for="d in DOMAINS"
           :key="d"
           class="chk"
-          :class="{ 'is-on': selDomains.includes(d) }"
+          :class="{ 'is-on': selDomain === d }"
         >
-          <input type="checkbox" :value="d" v-model="selDomains" />
+          <input type="radio" name="trend-domain" :value="d" v-model="selDomain" />
           <span>{{ d }}</span>
         </label>
       </div>
@@ -57,7 +57,7 @@
         :series="series"
         :height="240"
       />
-      <div v-else class="trend-empty">请至少选择一个领域和一个整改类型</div>
+      <div v-else class="trend-empty">请选择一个领域并至少勾选一个整改类型</div>
     </div>
   </section>
 </template>
@@ -96,8 +96,8 @@ const DOMAIN_DASH = {
   结算: '18 8',
 }
 
-// 默认：汇总 + 报错/待整改 全选
-const selDomains = ref([SUMMARY])
+// 默认：领域单选=汇总；整改类型仍多选（报错 + 待整改）
+const selDomain = ref(SUMMARY)
 const selRatings = ref(['error', 'need_fix'])
 
 // 按后端返回顺序抽取 7 个任务（task_id 去重，保插入序 = 时间正序）
@@ -125,21 +125,19 @@ function valuesFor(domain, field) {
   })
 }
 
-// 笛卡尔积生成折线集合
+// 领域单选 × 整改类型多选 → 折线集合（最多 2 条：报错 / 待整改）
 const series = computed(() => {
-  if (!selDomains.value.length || !selRatings.value.length) return []
+  if (!selDomain.value || !selRatings.value.length) return []
+  const d = selDomain.value
   const out = []
-  for (const d of DOMAINS) {
-    if (!selDomains.value.includes(d)) continue
-    for (const r of RATINGS) {
-      if (!selRatings.value.includes(r.key)) continue
-      out.push({
-        name: `${d}·${r.label}`,
-        color: r.color,
-        dash: DOMAIN_DASH[d] || '',
-        values: valuesFor(d, r.field),
-      })
-    }
+  for (const r of RATINGS) {
+    if (!selRatings.value.includes(r.key)) continue
+    out.push({
+      name: `${d}·${r.label}`,
+      color: r.color,
+      dash: DOMAIN_DASH[d] || '',
+      values: valuesFor(d, r.field),
+    })
   }
   return out
 })

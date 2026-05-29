@@ -72,6 +72,20 @@
               >
                 <span class="seg-dot" :class="`d-${d.key}`"></span>{{ d.label }}
               </button>
+            </div>
+
+            <!-- V2：类型过滤（odb / nsql）-->
+            <div class="seg hero-seg">
+              <span class="seg-label">类型</span>
+              <button
+                v-for="t in TYPE_OPTIONS"
+                :key="t.key"
+                class="seg-btn"
+                :class="{ active: filters.type === t.key }"
+                @click="toggleType(t.key)"
+              >
+                <span class="seg-dot" :class="`src-${t.key}`"></span>{{ t.label }}
+              </button>
               <button
                 class="seg-btn seg-clear"
                 :class="{ disabled: !hasActiveFilter }"
@@ -616,7 +630,6 @@ import DiiSqlPoolImportModal from './widgets/DiiSqlPoolImportModal.vue'
 import { getCurrentUser } from '../../api/auth.js'
 import {
   listDiiItemIssues,
-  getDiiItemIssuesStats,
   getLatestDiiTask,
   runDiiLlmAnalyze,
   runDiiLlmAnalyzeAsync,
@@ -645,7 +658,13 @@ const PAGE_SIZE_OPTIONS = [10, 20, 50, 100]
 const DOMAIN_ORDER = Object.fromEntries(DAO_DOMAIN_OPTIONS.map((d, i) => [d.key, i]))
 
 /* ────────── 响应式状态 ────────── */
-const filters = ref({ domain: '', issueSource: '', keyword: '' })
+// V2：filters 加 type（'' / 'odb' / 'nsql'）——按来源类型筛选
+const filters = ref({ domain: '', type: '', issueSource: '', keyword: '' })
+// 类型筛选选项（与行内 source tag 一致）
+const TYPE_OPTIONS = [
+  { key: 'odb', label: 'odb' },
+  { key: 'nsql', label: 'nsql' },
+]
 const latestTask = ref(null)
 const rawItems = ref([])
 const total = ref(0)
@@ -743,7 +762,7 @@ async function copyText(text, key) {
 }
 
 const hasActiveFilter = computed(
-  () => !!(filters.value.domain || filters.value.issueSource || filters.value.keyword.trim()),
+  () => !!(filters.value.domain || filters.value.type || filters.value.issueSource || filters.value.keyword.trim()),
 )
 
 const exportTitle = computed(() => {
@@ -754,17 +773,45 @@ const exportTitle = computed(() => {
 })
 
 /**
- * 4 个 KPI：直接来自后端 /stats 端点（一次 SQL 出结果），不再本地 group。
- * 字段：{ total, explainError, llmFindings, llmError }
- * 模板里用的是 `kpis.findings`，为兼容保留同名（getter 形式见下方）
+ * V2：4 个 KPI 改为从「当前筛选后的集合」实时统计（不再用全局 /stats 端点）。
+ *
+ * <p>cardBaseItems = rawItems 过滤(领域 + 类型 + 关键字 + 待审)，但**不含 issueSource**——
+ * 因为 4 张卡片本身就是 4 个 issueSource 类别，卡片数字反映"在当前领域/类型/关键字范围内
+ * 各类别有多少"，点卡片再用 issueSource 过滤列表。
+ * <p>rawItems 已在 doLoad 里全量加载（500 一批拉完），客户端统计准确。
  */
-const kpisRaw = ref({ total: 0, explainError: 0, llmFindings: 0, llmPending: 0, llmError: 0 })
-const kpis = computed(() => ({
-  total: kpisRaw.value.total || 0,
-  explainError: kpisRaw.value.explainError || 0,
-  findings: kpisRaw.value.llmFindings || 0,   // 模板字段名兼容
-  llmError: kpisRaw.value.llmError || 0,
-}))
+const cardBaseItems = computed(() => {
+  const kw = filters.value.keyword.trim().toLowerCase()
+  const domainKey = filters.value.domain
+  const typeKey = filters.value.type
+  const myWlTodo = !!props.filter?.myWhitelistTodo
+  return rawItems.value.filter((it) => {
+    if (myWlTodo) {
+      const s = it.whitelist_status
+      if (s !== 'PENDING_L1' && s !== 'PENDING_L2') return false
+    }
+    if (domainKey && domainOf(it).key !== domainKey) return false
+    if (typeKey && (it.source || 'odb') !== typeKey) return false
+    if (kw) {
+      const hay = [it.sql_text, it.involved_tables, it.class_fqn, it.method_name, it.project_name]
+        .filter(Boolean).join(' ').toLowerCase()
+      if (!hay.includes(kw)) return false
+    }
+    return true
+  })
+})
+
+const kpis = computed(() => {
+  let total = 0, explainError = 0, findings = 0, llmError = 0
+  for (const it of cardBaseItems.value) {
+    total++
+    const src = issueOf(it).source
+    if (src === 'EXPLAIN_ERROR') explainError++
+    else if (src === 'LLM_FINDINGS') findings++
+    else if (src === 'LLM_ERROR') llmError++
+  }
+  return { total, explainError, findings, llmError }
+})
 
 function toggleExpand(id) {
   const next = new Set(expandedIds.value)
@@ -774,24 +821,10 @@ function toggleExpand(id) {
 }
 
 const filteredItems = computed(() => {
-  const kw = filters.value.keyword.trim().toLowerCase()
-  const domainKey = filters.value.domain
+  // 列表 = cardBaseItems（领域+类型+关键字+待审）再叠加 issueSource（点卡片选中的类别）
   const issueKey = filters.value.issueSource
-  // V16：父级 filter.myWhitelistTodo=true 时只展示「待审批中」的 SQL
-  //   （PENDING_L1 / PENDING_L2）。终态 / REJECTED_L1 / CANCELLED 都排除
-  const myWlTodo = !!props.filter?.myWhitelistTodo
-  const hit = rawItems.value.filter((it) => {
-    if (myWlTodo) {
-      const s = it.whitelist_status
-      if (s !== 'PENDING_L1' && s !== 'PENDING_L2') return false
-    }
-    if (domainKey && domainOf(it).key !== domainKey) return false
+  const hit = cardBaseItems.value.filter((it) => {
     if (issueKey && issueOf(it).source !== issueKey) return false
-    if (kw) {
-      const hay = [it.sql_text, it.involved_tables, it.class_fqn, it.method_name, it.project_name]
-        .filter(Boolean).join(' ').toLowerCase()
-      if (!hay.includes(kw)) return false
-    }
     return true
   })
   return hit.slice().sort((a, b) => {
@@ -910,9 +943,14 @@ function toggleDomain(key) {
   filters.value.domain = filters.value.domain === key ? '' : key
   page.value = 1
 }
+// V2：类型筛选（odb / nsql）
+function toggleType(key) {
+  filters.value.type = filters.value.type === key ? '' : key
+  page.value = 1
+}
 function doSearch() { page.value = 1 }
 function clearFilters() {
-  filters.value = { domain: '', issueSource: '', keyword: '' }
+  filters.value = { domain: '', type: '', issueSource: '', keyword: '' }
   page.value = 1
 }
 function doReload() { doLoad() }
@@ -943,7 +981,7 @@ async function doLoad() {
   loadedCount.value = 0
   serverTotal.value = 0
   total.value = 0
-  kpisRaw.value = { total: 0, explainError: 0, llmFindings: 0, llmPending: 0, llmError: 0 }
+  // V2：KPI 不再调 /stats 端点——改由 kpis computed 从 rawItems（全量加载后）按当前筛选实时算
   try {
     // 如果父组件通过 filter.taskId 指定了任务（从巡检任务页跳来），优先用；
     // 否则走原"取最新 DONE 任务"逻辑。
@@ -959,16 +997,7 @@ async function doLoad() {
     latestTask.value = task
     if (!task) return
 
-    // ① 一次拉 4 个 KPI 数字（后端单条 SQL 出结果，不依赖列表全量加载）
-    try {
-      const stats = await getDiiItemIssuesStats({ env: props.env, taskId: task.id })
-      kpisRaw.value = stats || { total: 0, explainError: 0, llmFindings: 0, llmPending: 0, llmError: 0 }
-    } catch (e) {
-      console.warn('[SQL分析] 加载 KPI stats 失败，KPI 暂为 0：', e?.message || e)
-      kpisRaw.value = { total: 0, explainError: 0, llmFindings: 0, llmPending: 0, llmError: 0 }
-    }
-
-    // ② 列表照旧分页拉
+    // 列表分页拉全量；kpis computed 会随 rawItems 增长实时更新
     const batchSize = 500
     const maxItems = 50_000
     let offset = 0
@@ -994,7 +1023,7 @@ async function doLoad() {
     total.value = 0
     serverTotal.value = 0
     loadedCount.value = 0
-    kpisRaw.value = { total: 0, explainError: 0, llmFindings: 0, llmPending: 0, llmError: 0 }
+    // kpis 随 rawItems=[] 自动归零，无需手动重置
   } finally {
     loading.value = false
   }
@@ -1852,6 +1881,16 @@ watch(
 .seg-btn .seg-dot.d-common     { background: #1890FF; }
 .seg-btn .seg-dot.d-settlement { background: #722ED1; }
 .seg-btn .seg-dot.d-other      { background: var(--c-text-3); }
+/* V2：类型筛选圆点（odb 蓝 / nsql 绿，与行内 source tag 同色系）*/
+.seg-btn .seg-dot.src-odb      { background: var(--c-info-text, #0b70db); }
+.seg-btn .seg-dot.src-nsql     { background: var(--c-accent-text, #0a8559); }
+/* 类型 segment 前的小标签 */
+.seg-label {
+  font-size: 12px;
+  color: var(--c-text-3, #8990a0);
+  margin-right: 2px;
+  align-self: center;
+}
 
 .toolbar-meta {
   display: inline-flex;

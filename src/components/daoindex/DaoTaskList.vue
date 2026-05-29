@@ -251,14 +251,24 @@ function progressPct(row) {
 function elapsedLabel(row) {
   if (!row.created_at) return '-'
   const start = new Date(row.created_at).getTime()
-  const end = row.status === 'DONE' || row.status === 'FAILED'
-    ? new Date(row.updated_at || row.created_at).getTime()
-    : Date.now()
+  // V2：耗时口径改用 inspect_done_at（EXPLAIN 巡检完成，不含 LLM/重跑）。
+  // 已完成任务优先用 inspect_done_at；老数据没这个字段则回退 updated_at；
+  // 进行中任务若已过 EXPLAIN 阶段（有 inspect_done_at）也定格，否则走实时计时。
+  let end
+  if (row.status === 'DONE' || row.status === 'FAILED') {
+    end = new Date(row.inspect_done_at || row.updated_at || row.created_at).getTime()
+  } else if (row.inspect_done_at) {
+    // 进行中但 EXPLAIN 已完成（正在跑 LLM）→ 耗时定格在 EXPLAIN 完成点
+    end = new Date(row.inspect_done_at).getTime()
+  } else {
+    end = Date.now()
+  }
   const sec = Math.max(0, Math.round((end - start) / 1000))
   const m = Math.floor(sec / 60)
   const s = sec % 60
   const txt = m > 0 ? `${m}m ${s}s` : `${s}s`
-  return isRunning(row) ? `进行中 ${txt}` : txt
+  // 进行中且 EXPLAIN 已完成 → 显示定格耗时但仍标"进行中"（LLM 还在跑）
+  return isRunning(row) && !row.inspect_done_at ? `进行中 ${txt}` : txt
 }
 function triggerLabel(row) {
   const t = row.trigger_type === 'SCHEDULED' ? '定时' : '手动'

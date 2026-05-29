@@ -320,7 +320,7 @@
                     <button
                       class="btn btn-primary btn-ai-lead"
                       :disabled="isRowRunning(it.id)"
-                      @click.stop="rerunLlm(it.id)"
+                      @click.stop="rerunLlm(it.id, it.source)"
                     >
                       <Loader2 v-if="isRowRunning(it.id)" :size="14" :stroke-width="2" class="btn-ico is-spin" />
                       <AiBrandIcon v-else class="btn-ai-lead-ico" />
@@ -620,6 +620,7 @@ import {
   getLatestDiiTask,
   runDiiLlmAnalyze,
   runDiiLlmAnalyzeAsync,
+  runDiiLlmAnalyzePoolAsync,
   getDiiItem,
   exportDiiItemIssues,
   getWhitelistApplication,
@@ -1009,6 +1010,8 @@ const aiRerun = ref({
   itemId: null,
   sql: '',
   model: 'minimax-2.7',
+  // V16+：source 用于决定调 item 接口还是池接口（前端按 odb/nsql 分派）
+  source: 'odb',
 })
 /** 正在重跑 AI 的行 id 集合（用于行级蒙版） */
 const aiRunningIds = ref(new Set())
@@ -1117,15 +1120,20 @@ function onWlActionDone() {
   }
 }
 
-/** 点击 "重新执行 AI 分析" → 打开模态框，预填当前 SQL */
-function rerunLlm(id) {
-  const row = rawItems.value.find(r => r.id === id)
+/**
+ * 点击 "重新执行 AI 分析" → 打开模态框，预填当前 SQL。
+ * <p>V16+：在合并视图下 odb item 与 nsql 池行可能同 id（item.id=4 + pool.id=4 都存在），
+ * 因此 find 必须用 (id, source) 复合 key 匹配，不能只比 id。
+ */
+function rerunLlm(id, source) {
+  const row = rawItems.value.find(r => r.id === id && (r.source || 'odb') === (source || 'odb'))
   if (!row) return
   aiRerun.value = {
     open: true,
     itemId: id,
     sql: row.sql_text || '',
     model: 'minimax-2.7',
+    source: source || row.source || 'odb',
   }
 }
 function closeRerunModal() {
@@ -1180,6 +1188,7 @@ async function submitRerun() {
   const id = aiRerun.value.itemId
   const sqlText = aiRerun.value.sql
   const model = aiRerun.value.model
+  const source = aiRerun.value.source || 'odb'
   if (id == null) return
   closeRerunModal()
   // 加入运行集合 → 行立即出现"AI 分析生成中..."蒙版
@@ -1187,12 +1196,25 @@ async function submitRerun() {
   next.add(id)
   aiRunningIds.value = next
   try {
-    // ① 触发异步任务，后端立即返回（不阻塞）
-    await runDiiLlmAnalyzeAsync(id, { sql: sqlText, model })
-    // ② 轮询行状态直到终态
-    const r = await pollRerunStatus(id)
-    if (!r.ok) {
-      console.warn('[SQL分析] 轮询超时（5 分钟），蒙版已撤除，可手动刷新查看最终状态')
+    // ① V16+ 按 source 分派：odb 走 item 路径；nsql 走 pool 路径
+    //    池接口不支持 overrideSql（池行不允许改 SQL 重跑）
+    if (source === 'nsql') {
+      await runDiiLlmAnalyzePoolAsync(id, { model })
+    } else {
+      await runDiiLlmAnalyzeAsync(id, { sql: sqlText, model })
+    }
+    // ② 轮询行状态直到终态（odb / nsql 都通过 doLoad 全量刷新，
+    //    避免针对两种 source 各做一个 GET 接口；超时上限 5 分钟，
+    //    超时后蒙版会自动撤除——pollRerunStatus 当前只走 item GET，
+    //    nsql 路径直接 sleep 30s 后撤蒙版让用户手动刷新查看）
+    if (source === 'nsql') {
+      // 简单等 30s 再撤蒙版（池行的 LLM 轮询接口尚未实现，避免 404 噪声）
+      await new Promise(r => setTimeout(r, 30_000))
+    } else {
+      const r = await pollRerunStatus(id)
+      if (!r.ok) {
+        console.warn('[SQL分析] 轮询超时（5 分钟），蒙版已撤除，可手动刷新查看最终状态')
+      }
     }
   } catch (e) {
     alert('重新分析触发失败：' + (e.message || e))

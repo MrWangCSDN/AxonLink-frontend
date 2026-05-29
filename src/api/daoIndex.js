@@ -164,6 +164,22 @@ export function runDiiLlmAnalyzeAsync(id, body) {
   })
 }
 
+/**
+ * V16+：池行（nsql）异步触发 LLM 重新分析。
+ *
+ * <p>与 {@link runDiiLlmAnalyzeAsync} 同款语义，只是路由到池表专用接口
+ * （POST /debug/llm-analyze-pool/{poolId}/async）。前端 it.source==='nsql'
+ * 时调本方法；'odb' 时调上面那个。
+ * @param {number|string} poolId  池行 id
+ * @param {object} [body]         { model?: string }（池行不支持 overrideSql）
+ */
+export function runDiiLlmAnalyzePoolAsync(poolId, body) {
+  return request(`${PREFIX}/debug/llm-analyze-pool/${poolId}/async`, {
+    method: 'POST',
+    body: body ? JSON.stringify(body) : undefined,
+  })
+}
+
 /** 预览当前 item 喂给 LLM 的完整 prompt（调试用） */
 export function previewDiiLlmPrompt(id) {
   return request(`${PREFIX}/debug/llm-preview-prompt/${id}`)

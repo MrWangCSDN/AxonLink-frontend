@@ -165,7 +165,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, nextTick } from 'vue'
+import { ref, reactive, computed, nextTick, onMounted, watch } from 'vue'
 import DiiEnvSwitcher from './widgets/DiiEnvSwitcher.vue'
 import { erTables, erGraph, erRebuild, setErStatus, exportErRelations } from '../../api/daoIndex.js'
 
@@ -180,7 +180,9 @@ const tableSuggest = ref([])
 const searchOpen = ref(false)
 const centerTable = ref('')
 const hops = ref(1)
-const minConfidence = ref('MEDIUM')
+// 默认显示全部（含 LOW）——银行表多为单列通用键，关系大多落 LOW，
+// 若默认 ≥MEDIUM 会让用户选了表也看不到关系。用户可再往上收。
+const minConfidence = ref('LOW')
 const graph = ref({ nodes: [], edges: [], nodeCount: 0, edgeCount: 0 })
 const loading = ref(false)
 const errorMsg = ref('')
@@ -213,6 +215,30 @@ async function selectCenter(t) {
   searchOpen.value = false
   await reloadGraph()
 }
+
+/**
+ * 自动选「关系最多的表」作中心（打开页面 / 重算后调用）。
+ * listTables 已按关系度降序，取第一个即最有料的表 → 画布立即有内容。
+ */
+async function autoSelectFirstTable() {
+  try {
+    const list = await erTables(props.env, '')
+    if (Array.isArray(list) && list.length > 0) {
+      await selectCenter(list[0])
+      return true
+    }
+  } catch { /* 无数据/失败：保持空状态，由空态引导去重算 */ }
+  return false
+}
+
+// 打开页面就尝试自动展示（有数据则直接画最有料的表）
+onMounted(autoSelectFirstTable)
+// 切 env 重新自动选
+watch(() => props.env, () => {
+  centerTable.value = ''
+  graph.value = { nodes: [], edges: [], nodeCount: 0, edgeCount: 0 }
+  autoSelectFirstTable()
+})
 
 /* ─── 加载子图 ─── */
 async function reloadGraph() {
@@ -347,7 +373,9 @@ async function confirmRebuild() {
     const r = await erRebuild(props.env, rebuildToken.value)
     sessionToken.value = rebuildToken.value
     rebuildAsk.result = `完成：扫描 ${r.scannedTables} 表，推断 ${r.inferred} 关系（高 ${r.high} / 中 ${r.medium} / 低 ${r.low}），清理失效 ${r.deletedStale}`
+    // 重算完自动展示：已选中心表则刷新，否则自动选最有料的表
     if (centerTable.value) await reloadGraph()
+    else await autoSelectFirstTable()
   } catch (e) {
     if (e?.code === 'TOKEN_INVALID') rebuildAsk.error = '口令错误，请重新输入'
     else rebuildAsk.error = `重算失败：${e?.message || e}`

@@ -271,6 +271,63 @@ export function getDiiTask(id) {
   return request(`${PREFIX}/batch-tasks/${id}`)
 }
 
+/* ───────────── V19 表关系 ER 图 ───────────── */
+
+/** 重算 ER 关系（口令保护，复用 X-DII-Trigger-Token）。返回统计。 */
+export async function erRebuild(env, token) {
+  const qs = toQuery({ env })
+  const resp = await fetch(`/api${PREFIX}/er/rebuild${qs}`, {
+    method: 'POST',
+    headers: { 'X-DII-Trigger-Token': token || '' },
+  })
+  const json = await resp.json().catch(() => ({}))
+  if (resp.status === 401 || json?.code === 401) {
+    const err = new Error('口令错误'); err.code = 'TOKEN_INVALID'; throw err
+  }
+  if (!resp.ok || json?.code !== 200) {
+    const err = new Error(json?.message || `HTTP ${resp.status}`); err.code = 'REBUILD_FAILED'; throw err
+  }
+  return json.data
+}
+
+/** 有关系的表搜索（画布选中心表）。 */
+export function erTables(env, keyword) {
+  const qs = toQuery({ env, keyword })
+  return request(`${PREFIX}/er/tables${qs}`)
+}
+
+/**
+ * 取子图。
+ * @param {Object} p { env, table, hops, full, minConfidence }
+ * @returns {Promise<{nodes, edges, nodeCount, edgeCount}>}
+ */
+export function erGraph(p = {}) {
+  const qs = toQuery(p)
+  return request(`${PREFIX}/er/graph${qs}`)
+}
+
+/** 人工修正关系 status（CONFIRMED/IGNORED/AUTO，口令保护）。 */
+export async function setErStatus(id, value, token) {
+  const resp = await fetch(`/api${PREFIX}/er/relations/${id}/status?value=${encodeURIComponent(value)}`, {
+    method: 'POST',
+    headers: { 'X-DII-Trigger-Token': token || '' },
+  })
+  const json = await resp.json().catch(() => ({}))
+  if (resp.status === 401 || json?.code === 401) {
+    const err = new Error('口令错误'); err.code = 'TOKEN_INVALID'; throw err
+  }
+  if (!resp.ok || json?.code !== 200) {
+    const err = new Error(json?.message || `HTTP ${resp.status}`); err.code = 'STATUS_FAILED'; throw err
+  }
+  return json.data
+}
+
+/** 导出关系清单 Excel。 */
+export function exportErRelations(env, minConfidence = 'LOW') {
+  const qs = toQuery({ env, minConfidence })
+  return download(`${PREFIX}/er/export${qs}`, `er-relations-${env || 'uat'}.xlsx`)
+}
+
 /** 新起一次巡检（异步） */
 export function startDiiBatch(env = 'uat') {
   return request(`${PREFIX}/batch-analyze?env=${encodeURIComponent(env)}`, {

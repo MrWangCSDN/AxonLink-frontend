@@ -34,6 +34,12 @@ export const DII_PAGES = [
     desc: 'DBA 聚合视图',
     color: '#F76707',
   },
+  {
+    key: 'dii-er',
+    label: 'ER 图',
+    desc: '表关系推断',
+    color: '#7048E8',
+  },
   // V16+：dii-sql-pool 独立子页下线；导入入口集成到 dii-sqls 头部
 ]
 

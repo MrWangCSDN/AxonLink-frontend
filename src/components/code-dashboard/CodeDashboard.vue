@@ -78,13 +78,13 @@
           <section class="dii-panel">
             <div class="dii-panel-head">
               <div>
-                <h3 class="dii-panel-title">作者掌握度 Top 10（行员）</h3>
-                <p class="dii-panel-desc">仅行员 · 按 blame 代码行数排序（衡量对源码掌握程度）</p>
+                <h3 class="dii-panel-title">工程代码行数 7 天趋势</h3>
+                <p class="dii-panel-desc">每日扫描总行数变化（含行员/厂商拆分）</p>
               </div>
             </div>
-            <DiiBarGroupChart
-              :categories="authorCats"
-              :series="authorSeries"
+            <DiiLineChart
+              :categories="trendCats"
+              :series="trendSeries"
               :height="240"
             />
           </section>
@@ -123,7 +123,7 @@
                 <input
                   v-model="personFilterName"
                   class="person-filter-input"
-                  placeholder="输入姓名搜索…"
+                  placeholder="搜索姓名或交易码…"
                   autocomplete="off"
                   type="text"
                   @input="personDropdownOpen = !!personFilterName.trim()"
@@ -140,7 +140,10 @@
                     :key="opt.email"
                     class="person-suggest-item"
                     @mousedown.prevent="selectPersonSuggest(opt.name)"
-                  >{{ opt.name }}</li>
+                  >
+                    <span class="suggest-name">{{ opt.name }}</span>
+                    <span v-if="opt.tx_ids" class="suggest-tx">涉及: {{ opt.tx_ids.split(',').slice(0,3).join(',') }}</span>
+                  </li>
                 </ul>
                 <button
                   v-if="personFilterName"
@@ -149,11 +152,6 @@
                   @click="personFilterName = ''; personDropdownOpen = false"
                 >×</button>
               </div>
-              <select v-model="personFilterTx" class="person-filter-select">
-                <option value="all">全部人员</option>
-                <option value="has-tx">有交易码</option>
-                <option value="no-tx">无交易码</option>
-              </select>
             </div>
 
             <div v-if="filteredPersonRows.length" class="person-table-wrap">
@@ -161,8 +159,6 @@
                 <thead>
                   <tr>
                     <th>姓名</th>
-                    <th class="col-r">代码行数</th>
-                    <th class="col-r">交易数</th>
                     <th>涉及交易码</th>
                   </tr>
                 </thead>
@@ -171,8 +167,6 @@
                     <td class="cell-name">
                       {{ p.person_name || p.author_email.split('@')[0] }}
                     </td>
-                    <td class="col-r cell-mono">{{ fmt(p.owned_lines) }}</td>
-                    <td class="col-r cell-mono">{{ p.tx_count || 0 }}</td>
                     <td class="cell-tx">
                       <template v-if="p.tx_ids">
                         <span v-for="tx in txList(p.tx_ids, 4)" :key="tx" class="tx-tag">{{ tx }}</span>
@@ -187,8 +181,8 @@
             <DiiEmptyState
               v-else
               variant="empty"
-              :title="personFilterName || personFilterTx !== 'all' ? '无匹配结果' : '暂无行员×交易归属数据'"
-              :desc="personFilterName || personFilterTx !== 'all' ? '请调整筛选条件后重试' : '需仓库中包含 *.flowtrans.xml 且完成采集'"
+              :title="personFilterName ? '无匹配结果' : '暂无行员×交易归属数据'"
+              :desc="personFilterName ? '请调整筛选条件后重试' : '需仓库中包含 *.flowtrans.xml 且完成采集'"
             />
 
             <!-- 分页控件 -->
@@ -223,7 +217,8 @@ import DiiBarGroupChart from '../daoindex/widgets/DiiBarGroupChart.vue'
 import DiiHorizontalStackBar from '../daoindex/widgets/DiiHorizontalStackBar.vue'
 import DiiPieChart from '../daoindex/widgets/DiiPieChart.vue'
 import DiiEmptyState from '../daoindex/widgets/DiiEmptyState.vue'
-import { getCodeRepos, getCodeOverview } from '../../api/codeDashboard.js'
+import DiiLineChart from '../daoindex/widgets/DiiLineChart.vue'
+import { getCodeRepos, getCodeOverview, getCodeTrend } from '../../api/codeDashboard.js'
 
 const loading = ref(false)
 const errorMsg = ref('')
@@ -239,6 +234,7 @@ const snapshotTime = computed(() => overview.value?.snapshotTime || null)
 watch(selectedRepoId, (v) => {
   if (v) localStorage.setItem('code-dash-repo', v)
   loadOverview()
+  loadTrend()
 })
 
 async function doLoad() {
@@ -308,18 +304,45 @@ const typeSeries = computed(() => [{
   values: [staffOwned.value, vendorOwned.value],
 }])
 
-/* ─── 作者 Top 10 ─── */
-const topAuthors = computed(() => {
-  return (overview.value?.topAuthors || []).slice(0, 10)
-})
-const authorCats = computed(() =>
-  topAuthors.value.map(a => a.person_name || String(a.author_email || '').split('@')[0] || '?')
+/* ─── 7 天趋势折线图（用每日增量放大斜率，展示仍用总量） ─── */
+const trendData = ref([])
+
+function toDelta(arr) {
+  return arr.map((v, i) => i === 0 ? 0 : Math.max(0, Number(v) - Number(arr[i - 1])))
+}
+
+const trendCats = computed(() =>
+  trendData.value.map(r => String(r.stat_date).slice(5))
 )
-const authorSeries = computed(() => [{
-  name: '存活行',
-  color: 'var(--c-bar-total, #6366f1)',
-  values: topAuthors.value.map(a => num(a.owned_lines)),
-}])
+
+const trendSeries = computed(() => {
+  const staffTotals = trendData.value.map(r => Number(r.staff_owned_lines) || 0)
+  const vendorTotals = trendData.value.map(r => Number(r.vendor_owned_lines) || 0)
+
+  return [
+    {
+      name: '行员',
+      color: 'var(--c-rating-good, #3b82f6)',
+      values: toDelta(staffTotals),
+      displayValues: staffTotals,
+    },
+    {
+      name: '厂商',
+      color: 'var(--c-rating-poor, #f59e0b)',
+      values: toDelta(vendorTotals),
+      displayValues: vendorTotals,
+    },
+  ]
+})
+
+async function loadTrend() {
+  if (!selectedRepoId.value) return
+  try {
+    trendData.value = await getCodeTrend(selectedRepoId.value, 7)
+  } catch (e) {
+    console.error('加载趋势数据失败', e)
+  }
+}
 
 /* ─── 领域分布（行员/厂商堆叠） ─── */
 // domain_key（后端 DomainKeyResolver 口径）→ 中文名。常见域用项目既有中文，
@@ -372,25 +395,30 @@ const txSeries = computed(() => [
 ])
 
 /* ─── 人员×交易归属 — 筛选 & 分页 ─── */
-// 全量人员选项（供自定义下拉使用）
+// 全量行员选项（供自定义下拉使用），仅包含 STAFF
 const allPersonOptions = computed(() =>
-  (overview.value?.topPersons || []).map(p => ({
-    email: p.author_email,
-    name: p.person_name || String(p.author_email || '').split('@')[0],
-  }))
+  (overview.value?.topPersons || [])
+    .filter(p => String(p.person_type).toUpperCase() === 'STAFF')
+    .map(p => ({
+      email: p.author_email,
+      name: p.person_name || String(p.author_email || '').split('@')[0],
+      tx_ids: p.tx_ids || '',
+    }))
 )
 
 const personFilterName    = ref('')
 const personDropdownOpen  = ref(false)
 
-// 仅在有输入时才过滤出匹配项
+// 仅在有输入时才过滤出匹配项，支持姓名/邮箱/交易码搜索
 const personSuggest = computed(() => {
   const q = personFilterName.value.trim().toLowerCase()
   if (!q) return []
-  return allPersonOptions.value.filter(p =>
-    p.name.toLowerCase().includes(q) ||
-    p.email.toLowerCase().includes(q)
-  )
+  return allPersonOptions.value.filter(p => {
+    const nameMatch = p.name.toLowerCase().includes(q)
+    const emailMatch = p.email.toLowerCase().includes(q)
+    const txMatch = p.tx_ids.toLowerCase().split(',').some(tx => tx.trim().includes(q))
+    return nameMatch || emailMatch || txMatch
+  }).slice(0, 20)
 })
 
 function onPersonBlur() {
@@ -401,23 +429,19 @@ function selectPersonSuggest(name) {
   personFilterName.value  = name
   personDropdownOpen.value = false
 }
-const personFilterTx   = ref('all')   // 'all' | 'has-tx' | 'no-tx'
 const personPage       = ref(1)
 const PERSON_PAGE_SIZE = 6
 
 const filteredPersonRows = computed(() => {
-  let rows = overview.value?.topPersons || []
+  let rows = (overview.value?.topPersons || [])
+    .filter(p => String(p.person_type).toUpperCase() === 'STAFF')
   const q = personFilterName.value.trim().toLowerCase()
   if (q) {
     rows = rows.filter(p =>
-      (p.person_name || '').toLowerCase().includes(q) ||
-      (p.author_email || '').toLowerCase().includes(q)
+      ((p.person_name || '').toLowerCase().includes(q)) ||
+      ((p.author_email || '').toLowerCase().includes(q)) ||
+      ((p.tx_ids || '').toLowerCase().split(',').some(tx => tx.trim().includes(q)))
     )
-  }
-  if (personFilterTx.value === 'has-tx') {
-    rows = rows.filter(p => (p.tx_count > 0) || (p.tx_ids && String(p.tx_ids).trim()))
-  } else if (personFilterTx.value === 'no-tx') {
-    rows = rows.filter(p => !p.tx_count && (!p.tx_ids || !String(p.tx_ids).trim()))
   }
   return rows
 })
@@ -432,12 +456,11 @@ const pagedPersonRows = computed(() => {
 })
 
 // 筛选变化时回到第 1 页
-watch([personFilterName, personFilterTx], () => { personPage.value = 1 })
+watch(personFilterName, () => { personPage.value = 1 })
 
 // 仓库切换时重置筛选状态
 watch(selectedRepoId, () => {
   personFilterName.value   = ''
-  personFilterTx.value     = 'all'
   personPage.value         = 1
   personDropdownOpen.value = false
 })
@@ -723,6 +746,13 @@ function fmtTime(s) {
   transition: background 0.1s;
 }
 .person-suggest-item:hover { background: var(--bg-hover, #f3f4f6); }
+.person-suggest-item .suggest-name { font-weight: 500; }
+.person-suggest-item .suggest-tx {
+  margin-left: 8px;
+  font-size: 11px;
+  color: var(--text-muted, #8c94a6);
+  font-family: ui-monospace, monospace;
+}
 [data-theme="dark"] .person-suggest-item:hover { background: rgba(255,255,255,0.07); }
 
 .person-filter-select {

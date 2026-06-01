@@ -33,6 +33,13 @@
     />
     <!-- V16+：SQL 池独立子页 DaoSqlPool 下线，导入入口集成到 DaoSqlList 头部 -->
 
+    <!-- V19：表关系 ER 图 -->
+    <DaoErDiagram
+      v-show="currentPage === 'dii-er'"
+      :env="env"
+      @update:env="env = $event"
+    />
+
     <!-- 二级覆盖页：仅保留巡检任务详情；SQL 详情页已下线 -->
     <DaoTaskDetail
       v-if="overlay?.type === 'task-detail'"
@@ -48,6 +55,7 @@ import DaoDashboard from './DaoDashboard.vue'
 import DaoSqlList from './DaoSqlList.vue'
 import DaoTaskList from './DaoTaskList.vue'
 import DaoTableAdvice from './DaoTableAdvice.vue'
+import DaoErDiagram from './DaoErDiagram.vue'
 import DaoTaskDetail from './DaoTaskDetail.vue'
 
 const props = defineProps({

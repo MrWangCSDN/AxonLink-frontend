@@ -78,7 +78,7 @@
               stroke-width="1.5"
               vector-effect="non-scaling-stroke"
             >
-              <title>{{ s.name }}: {{ formatValue(s.values?.[ci] || 0) }}（{{ categories[ci] }}）</title>
+              <title>{{ s.name }}: {{ tooltipValue(s, ci) }}（{{ categories[ci] }}）</title>
             </circle>
           </g>
         </svg>
@@ -118,12 +118,12 @@ const hasData = computed(() => {
 const maxValue = computed(() => {
   let m = 0
   for (const s of props.series || []) {
-    for (const v of s?.values || []) {
+    for (const v of (s?.displayValues || s?.values || [])) {
       const n = Number(v) || 0
       if (n > m) m = n
     }
   }
-  return Math.max(m * 1.1, 1)  // 留 10% 顶部余量，避免最高点贴边
+  return Math.max(m * 1.1, 1)
 })
 
 /** Y 轴 4 档刻度（从大到小） */
@@ -131,6 +131,7 @@ const yAxisLabels = computed(() => {
   const max = maxValue.value
   return [max, max * 2 / 3, max / 3, 0].map(v => formatValue(v))
 })
+
 /** 4 档刻度对应的 top 百分比（0% 在顶部，100% 在底部） */
 const yAxisPositions = computed(() => [0, 33.3, 66.6, 100])
 
@@ -147,10 +148,11 @@ function yCoord(v) {
   return props.height - (ratio * props.height)
 }
 
-/** 一个 series 的 polyline points 字符串 */
+/** 一个 series 的 polyline points 字符串（用 displayValues 优先） */
 function polylinePoints(s) {
+  const vals = s?.displayValues || s?.values || []
   return props.categories
-    .map((_, ci) => `${xCoord(ci)},${yCoord(s.values?.[ci] || 0)}`)
+    .map((_, ci) => `${xCoord(ci)},${yCoord(vals[ci] || 0)}`)
     .join(' ')
 }
 
@@ -158,6 +160,11 @@ function formatValue(v) {
   const n = Number(v) || 0
   if (Number.isInteger(n)) return n.toLocaleString('en-US')
   return n.toFixed(1)
+}
+
+function tooltipValue(s, ci) {
+  const vals = s?.displayValues || s?.values || []
+  return formatValue(vals[ci] || 0)
 }
 </script>
 

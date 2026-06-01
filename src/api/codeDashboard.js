@@ -30,8 +30,6 @@ function toQuery(params) {
 
 /**
  * 已配置代码仓库及最近同步状态（大屏仓库选择器）。
- * <p>后端返回数组；空数组属正常空态（运维还没配仓库 / 还没跑扫描）。
- * <p>抛错的两类情形：未登录 401（已自动跳 /login）/ HTTP 错（500/404）。
  */
 export async function getCodeRepos() {
   const res = await request(`${PREFIX}/repos`)
@@ -49,8 +47,8 @@ export async function getCodeRepos() {
  */
 export async function getCodeOverview(repoId) {
   const res = await request(`${PREFIX}/overview${toQuery({ repoId })}`)
-  if (!res || typeof res !== 'object') {
-    throw new Error('overview 返回不是对象：' + (typeof res))
+  if (!res || typeof res !== 'object' || (res.byType === undefined && res.totalOwnedLines === undefined)) {
+    throw new Error('overview 返回结构异常')
   }
   return res
 }
@@ -73,4 +71,9 @@ export function getCodeDomainAuthors(repoId, domain, limit = 50) {
 /** 交易维度排行（Phase② 落地 code_tx_file_map 后才有数据）。 */
 export function getCodeTx(repoId, limit = 50) {
   return request(`${PREFIX}/tx${toQuery({ repoId, limit })}`)
+}
+
+/** 工程代码行数 7 天趋势折线图数据。 */
+export function getCodeTrend(repoId, days = 7) {
+  return request(`${PREFIX}/trend${toQuery({ repoId, days })}`)
 }

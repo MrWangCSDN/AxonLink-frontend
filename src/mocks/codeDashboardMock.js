@@ -63,10 +63,30 @@ export function getCodeOverviewMock(repoId) {
       { person_type: 'STAFF',  author_count: 18, owned_lines: 260000, file_count: 2410, added_lines: 331000, deleted_lines: 88000, share_pct: 61.9, snapshot_time: SNAPSHOT },
       { person_type: 'VENDOR', author_count: 10, owned_lines: 160000, file_count: 1456, added_lines: 248000, deleted_lines: 92000, share_pct: 38.1, snapshot_time: SNAPSHOT },
     ],
-    topPersons: TOP_PERSONS,   // 行员×交易归属（新）
+    topPersons: TOP_PERSONS,
     topAuthors: TOP_AUTHORS,
     byDomain: BY_DOMAIN,
     topTx: [],
     snapshotTime: SNAPSHOT,
   }
+}
+
+export function getCodeTrendMock() {
+  const now = new Date()
+  const result = []
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(now)
+    d.setDate(d.getDate() - i)
+    const date = d.toISOString().slice(0, 10)
+    const base = 420000 + (6 - i) * 1200
+    result.push({
+      stat_date: date,
+      total_owned_lines: base,
+      staff_owned_lines: Math.floor(base * 0.62),
+      vendor_owned_lines: Math.floor(base * 0.38),
+      author_count: 25 + (6 - i),
+      file_count: 3800 + (6 - i) * 15,
+    })
+  }
+  return result
 }

@@ -50,9 +50,9 @@
                 <p class="dii-panel-desc">巡检 SQL 总数 / EXPLAIN 报错 / LLM 已给出整改建议</p>
               </div>
               <div class="dii-legend">
-                <span class="dii-legend-item"><i class="dii-swatch dii-sw-total"></i>巡检</span>
+                <span class="dii-legend-item"><i class="dii-swatch dii-sw-total"></i>SQL总数</span>
                 <span class="dii-legend-item"><i class="dii-swatch dii-sw-err"></i>报错</span>
-                <span class="dii-legend-item"><i class="dii-swatch dii-sw-fix"></i>整改</span>
+                <span class="dii-legend-item"><i class="dii-swatch dii-sw-fix"></i>需整改</span>
               </div>
             </div>
             <DiiBarGroupChart
@@ -62,18 +62,17 @@
             />
           </section>
 
-          <!-- 第二块：评级分布（按领域 4 档）→ 改用横向堆叠条 -->
+          <!-- 第二块：整改分布（按领域 2 档）→ 横向堆叠条
+               只展示 EXPLAIN 报错 + 全表扫描且 AI 判定待整改；AI 判无需整改的已过滤 -->
           <section class="dii-panel">
             <div class="dii-panel-head">
               <div>
-                <h3 class="dii-panel-title">评级分布（按领域）</h3>
-                <p class="dii-panel-desc">优 / 良 / 差 / 报错 四档互斥占比</p>
+                <h3 class="dii-panel-title">整改分布（按领域）</h3>
+                <p class="dii-panel-desc">仅 EXPLAIN 报错 + 全表扫描且 AI 判定待整改（AI 判无需整改已过滤）</p>
               </div>
               <div class="dii-legend">
-                <span class="dii-legend-item"><i class="dii-swatch dii-sw-excellent"></i>优</span>
-                <span class="dii-legend-item"><i class="dii-swatch dii-sw-good"></i>良</span>
-                <span class="dii-legend-item"><i class="dii-swatch dii-sw-poor"></i>差</span>
                 <span class="dii-legend-item"><i class="dii-swatch dii-sw-error"></i>报错</span>
+                <span class="dii-legend-item"><i class="dii-swatch dii-sw-poor"></i>待整改</span>
               </div>
             </div>
             <DiiHorizontalStackBar
@@ -82,26 +81,9 @@
             />
           </section>
 
-          <!-- 第三块：7 天评级趋势（最近 7 个 DONE 任务）→ 折线图 -->
-          <section class="dii-panel">
-            <div class="dii-panel-head">
-              <div>
-                <h3 class="dii-panel-title">近 7 天评级趋势</h3>
-                <p class="dii-panel-desc">每个数据点 = 一次 DONE 任务，按时间正序</p>
-              </div>
-              <div class="dii-legend">
-                <span class="dii-legend-item"><i class="dii-swatch dii-sw-excellent"></i>优</span>
-                <span class="dii-legend-item"><i class="dii-swatch dii-sw-good"></i>良</span>
-                <span class="dii-legend-item"><i class="dii-swatch dii-sw-poor"></i>差</span>
-                <span class="dii-legend-item"><i class="dii-swatch dii-sw-error"></i>报错</span>
-              </div>
-            </div>
-            <DiiLineChart
-              :categories="trendCats"
-              :series="trendSeries"
-              :height="220"
-            />
-          </section>
+          <!-- 第三块：7 天评级趋势 → 四档堆叠柱 + 领域单选切换
+               组件自带面板/标题/图例/tab，直接传后端 trend7d 明细行即可 -->
+          <DiiDashboardTrendChart :items="trend7d" />
 
           <!-- 第四块：7 天巡检任务执行时长 → 饼图（看每天耗时占比） -->
           <section class="dii-panel">
@@ -129,8 +111,8 @@ import { ref, computed, onMounted, watch } from 'vue'
 import DiiEnvSwitcher from './widgets/DiiEnvSwitcher.vue'
 import DiiBarGroupChart from './widgets/DiiBarGroupChart.vue'
 import DiiHorizontalStackBar from './widgets/DiiHorizontalStackBar.vue'
-import DiiLineChart from './widgets/DiiLineChart.vue'
 import DiiPieChart from './widgets/DiiPieChart.vue'
+import DiiDashboardTrendChart from './dashboard/DiiDashboardTrendChart.vue'
 import { getDiiDashboard } from '../../api/daoIndex.js'
 
 const props = defineProps({ env: { type: String, default: 'uat' } })
@@ -178,39 +160,31 @@ const filteredRatingByDomain = computed(() =>
 /* ─────── 第一块：按领域聚合 ─────── */
 const byDomainCats = computed(() => filteredByDomain.value.map(d => d.domain))
 const byDomainSeries = computed(() => [
-  { name: '巡检 SQL', color: 'var(--c-bar-total, #6366f1)',
+  { name: 'SQL总数', color: 'var(--c-bar-total, #6366f1)',
     values: filteredByDomain.value.map(d => Number(d.total) || 0) },
   { name: 'EXPLAIN 报错', color: 'var(--c-bar-err, #ef4444)',
     values: filteredByDomain.value.map(d => Number(d.explain_err) || 0) },
-  { name: 'LLM 整改', color: 'var(--c-bar-fix, #10b981)',
+  { name: '需整改', color: 'var(--c-bar-fix, #10b981)',
     values: filteredByDomain.value.map(d => Number(d.llm_fix) || 0) },
 ])
 
-/* ─────── 第二块：评级分布按领域 ─────── */
+/* ─────── 第二块：整改分布按领域（2 档：报错 / 待整改）───────
+   后端 ratingByDomain 新结构 [{domain, error_count, need_fix}]
+   error_count = EXPLAIN 报错；need_fix = 非报错+overall_rating=POOR+llm_fix_verdict=NEED_FIX
+   AI 判定无需整改 / EXCELLENT / GOOD / 未分析 天然不计入 */
 const ratingDomainCats = computed(() => filteredRatingByDomain.value.map(d => d.domain))
 const ratingDomainSeries = computed(() => [
-  { name: '优', color: 'var(--c-rating-excellent, #14b8a6)',
-    values: filteredRatingByDomain.value.map(d => Number(d.excellent) || 0) },
-  { name: '良', color: 'var(--c-rating-good, #3b82f6)',
-    values: filteredRatingByDomain.value.map(d => Number(d.good) || 0) },
-  { name: '差', color: 'var(--c-rating-poor, #f59e0b)',
-    values: filteredRatingByDomain.value.map(d => Number(d.poor) || 0) },
   { name: '报错', color: 'var(--c-rating-error, #ef4444)',
     values: filteredRatingByDomain.value.map(d => Number(d.error_count) || 0) },
+  { name: '待整改', color: 'var(--c-rating-poor, #f59e0b)',
+    values: filteredRatingByDomain.value.map(d => Number(d.need_fix) || 0) },
 ])
 
-/* ─────── 第三块：7 天趋势 ─────── */
-const trendCats = computed(() => trend7d.value.map(t => fmtDay(t.day)))
-const trendSeries = computed(() => [
-  { name: '优', color: 'var(--c-rating-excellent, #14b8a6)',
-    values: trend7d.value.map(t => Number(t.excellent) || 0) },
-  { name: '良', color: 'var(--c-rating-good, #3b82f6)',
-    values: trend7d.value.map(t => Number(t.good) || 0) },
-  { name: '差', color: 'var(--c-rating-poor, #f59e0b)',
-    values: trend7d.value.map(t => Number(t.poor) || 0) },
-  { name: '报错', color: 'var(--c-rating-error, #ef4444)',
-    values: trend7d.value.map(t => Number(t.error_count) || 0) },
-])
+/* ─────── 第三块：7 天评级趋势 ───────
+   已迁移到自带逻辑的 DiiDashboardTrendChart 组件：
+   后端 trend7d 现按 (task, domain) 返回明细行，组件内部按
+   选中领域（汇总/各领域）折叠成每任务一根四档堆叠柱。
+   原 trendCats/trendSeries（折线图数据）已不再需要。 */
 
 /* ─────── 第四块：7 天执行时长 ─────── */
 const elapsedCats = computed(() => elapsed7d.value.map(t => fmtDay(t.day)))
@@ -340,8 +314,6 @@ function fmtDay(s) {
 .dii-sw-total     { background: var(--c-bar-total, #6366f1); }
 .dii-sw-err       { background: var(--c-bar-err, #ef4444); }
 .dii-sw-fix       { background: var(--c-bar-fix, #10b981); }
-.dii-sw-excellent { background: var(--c-rating-excellent, #14b8a6); }
-.dii-sw-good      { background: var(--c-rating-good, #3b82f6); }
 .dii-sw-poor      { background: var(--c-rating-poor, #f59e0b); }
 .dii-sw-error     { background: var(--c-rating-error, #ef4444); }
 .dii-sw-elapsed   { background: var(--c-bar-elapsed, #8b5cf6); }
@@ -350,8 +322,6 @@ function fmtDay(s) {
 [data-theme="dark"] .dii-sw-total     { background: var(--c-bar-total-dark, #818cf8); }
 [data-theme="dark"] .dii-sw-err       { background: var(--c-bar-err-dark, #ff7a7e); }
 [data-theme="dark"] .dii-sw-fix       { background: var(--c-bar-fix-dark, #34d399); }
-[data-theme="dark"] .dii-sw-excellent { background: var(--c-rating-excellent-dark, #2dd4bf); }
-[data-theme="dark"] .dii-sw-good      { background: var(--c-rating-good-dark, #60a5fa); }
 [data-theme="dark"] .dii-sw-poor      { background: var(--c-rating-poor-dark, #fbbf24); }
 [data-theme="dark"] .dii-sw-error     { background: var(--c-rating-error-dark, #ff7a7e); }
 [data-theme="dark"] .dii-sw-elapsed   { background: var(--c-bar-elapsed-dark, #a78bfa); }

@@ -73,8 +73,14 @@
             <td>{{ elapsedLabel(row) }}</td>
             <td>{{ triggerLabel(row) }}</td>
             <td :title="row.created_at">{{ shortTime(row.created_at) }}</td>
-            <!-- 4 项统计：巡检总数 / 执行报错数 / AI 整改 / AI 报错 -->
-            <td class="dii-stat-cell dii-stat-total">{{ fmt(row.total_sqls) }}</td>
+            <!-- 4 项统计：巡检总数 / 执行报错数 / AI 整改 / AI 报错
+                 V14：巡检总数 = item 表本任务下的 total_sqls + 同 env 下 SQL 池条数（pool_count）
+                 后端 listBatchTasks 已 LEFT JOIN 池表按 env 聚合，前端只做相加；
+                 title 拆显源码扫描 / 导入池两段方便排查 -->
+            <td class="dii-stat-cell dii-stat-total"
+                :title="`源码扫描 ${fmt(row.total_sqls)} + 导入池 ${fmt(row.pool_count || 0)}`">
+              {{ fmt(mergedTotal(row)) }}
+            </td>
             <td class="dii-stat-cell dii-stat-err">{{ fmt(row.explain_err) }}</td>
             <td class="dii-stat-cell dii-stat-done">{{ fmt(row.llm_done) }}</td>
             <td class="dii-stat-cell dii-stat-fail">{{ fmt(row.llm_failed) }}</td>
@@ -229,6 +235,15 @@ function fmt(n) {
   if (n == null) return '-'
   return Number(n).toLocaleString('en-US')  // 千分位 3,839
 }
+/**
+ * 巡检总数 = 任务 SQL 总数（item 表 task.total_sqls）+ 同 env 下 SQL 池行数（pool_count）。
+ * 后端 listBatchTasks 已在响应中带 pool_count；前端只做防御性相加。
+ */
+function mergedTotal(row) {
+  const a = Number(row?.total_sqls) || 0
+  const b = Number(row?.pool_count) || 0
+  return a + b
+}
 function progressPct(row) {
   if (!row.total_sqls) return 0
   return Math.min(100, Math.round((row.analyzed_sqls / row.total_sqls) * 100))
@@ -236,14 +251,24 @@ function progressPct(row) {
 function elapsedLabel(row) {
   if (!row.created_at) return '-'
   const start = new Date(row.created_at).getTime()
-  const end = row.status === 'DONE' || row.status === 'FAILED'
-    ? new Date(row.updated_at || row.created_at).getTime()
-    : Date.now()
+  // V2：耗时口径改用 inspect_done_at（EXPLAIN 巡检完成，不含 LLM/重跑）。
+  // 已完成任务优先用 inspect_done_at；老数据没这个字段则回退 updated_at；
+  // 进行中任务若已过 EXPLAIN 阶段（有 inspect_done_at）也定格，否则走实时计时。
+  let end
+  if (row.status === 'DONE' || row.status === 'FAILED') {
+    end = new Date(row.inspect_done_at || row.updated_at || row.created_at).getTime()
+  } else if (row.inspect_done_at) {
+    // 进行中但 EXPLAIN 已完成（正在跑 LLM）→ 耗时定格在 EXPLAIN 完成点
+    end = new Date(row.inspect_done_at).getTime()
+  } else {
+    end = Date.now()
+  }
   const sec = Math.max(0, Math.round((end - start) / 1000))
   const m = Math.floor(sec / 60)
   const s = sec % 60
   const txt = m > 0 ? `${m}m ${s}s` : `${s}s`
-  return isRunning(row) ? `进行中 ${txt}` : txt
+  // 进行中且 EXPLAIN 已完成 → 显示定格耗时但仍标"进行中"（LLM 还在跑）
+  return isRunning(row) && !row.inspect_done_at ? `进行中 ${txt}` : txt
 }
 function triggerLabel(row) {
   const t = row.trigger_type === 'SCHEDULED' ? '定时' : '手动'
@@ -421,8 +446,7 @@ watch(() => props.env, () => { page.value = 1; doLoad() })
   font-family: ui-monospace, monospace;
   font-size: 12.5px;
 }
-/* 4 项统计文字色：总数=中性靛蓝 / 报错=红 / AI 整改=绿 / AI 报错=红
-   旧的 .dii-stat-poor / .dii-stat-running 不再被表格使用，但保留以免外部样式被破坏 */
+/* 4 项统计文字色：总数=中性靛蓝 / 报错=红 / AI 整改=绿 / AI 报错=红 */
 .dii-stat-total   { color: var(--text-link, #2563eb); }
 .dii-stat-err     { color: var(--text-error, #cf1124); }
 .dii-stat-done    { color: var(--text-success, #137333); }

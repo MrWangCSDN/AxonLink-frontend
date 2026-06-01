@@ -514,7 +514,8 @@ const DII_MENU_ACCENT = '#0b70db'
 const diiMenu = [
   { key: 'dii-dashboard',     label: '概览仪表盘',     desc: '总览 · 评级分布' },
   { key: 'dii-tasks',         label: '巡检任务',       desc: '批量巡检进度' },
-  { key: 'dii-sqls',          label: 'SQL 维度分析',   desc: '逐条 SQL 详情' },
+  // V16+：SQL 池独立子页下线——导入入口合并到 SQL 维度分析页头部
+  { key: 'dii-sqls',          label: 'SQL 维度分析',   desc: '逐条 SQL · 含池导入' },
   { key: 'dii-table-advice',  label: 'TABLE 维度分析', desc: 'DBA 聚合视图' },
 ]
 
@@ -532,12 +533,14 @@ const IconList = iconLucide('M8 6h13M8 12h13M8 18h13 M3 6h.01M3 12h.01M3 18h.01'
 const IconClipboard = iconLucide('M9 2h6a2 2 0 0 1 2 2v2H7V4a2 2 0 0 1 2-2z M7 6v14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V6', 15)
 const IconTable = iconLucide('M3 6h18M3 12h18M3 18h18 M9 3v18M15 3v18', 15)
 const IconCodeDash = iconLucide('M9 7l-4 5 4 5 M15 7l4 5-4 5', 15)
+const IconUpload = iconLucide('M12 3v12 M7 8l5-5 5 5 M3 19h18', 15)
 
 const diiIconMap = {
   'dii-dashboard':    IconGauge,
   'dii-sqls':         IconList,
   'dii-tasks':        IconClipboard,
   'dii-table-advice': IconTable,
+  // dii-sql-pool 已下线，IconUpload 改为用在 DaoSqlList 顶部导入按钮里
 }
 
 const codeIconMap = {

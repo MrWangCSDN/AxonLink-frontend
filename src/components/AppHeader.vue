@@ -43,9 +43,19 @@
     </div>
 
     <div class="header-right">
-<div class="user-info" @click="toggleUserMenu">
-        <div class="avatar">管</div>
-        <span class="username">管理员</span>
+      <!-- V16：白名单审批铃铛——展示「该我审批」的条数，点击跳到 SQL 巡检页 + 待审过滤
+           todoCount=0 时铃铛仍展示但无红点；>0 时显示数字徽章 -->
+      <div class="todo-bell" title="待审批的 SQL 白名单申请" @click="onClickBell">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+          <path d="M18 16v-5a6 6 0 0 0-12 0v5l-2 2v1h16v-1l-2-2z M10 21a2 2 0 0 0 4 0"
+                stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span v-if="todoCount > 0" class="todo-bell-badge">{{ todoCountText }}</span>
+      </div>
+
+      <div class="user-info" @click="toggleUserMenu">
+        <div class="avatar">{{ avatarText }}</div>
+        <span class="username">{{ displayName }}</span>
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
           <path d="M3 4.5L6 7.5L9 4.5" stroke="#8C94A6" stroke-width="1.5" stroke-linecap="round"/>
         </svg>
@@ -66,7 +76,7 @@
             操作日志
           </div>
           <div class="dropdown-divider"></div>
-          <div class="dropdown-item logout">
+          <div class="dropdown-item logout" @click.stop="onLogout">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
               <path d="M5 2H2.5A1.5 1.5 0 0 0 1 3.5v7A1.5 1.5 0 0 0 2.5 12H5" stroke="currentColor" stroke-width="1.3"/>
               <path d="M9 4.5L12.5 7 9 9.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
@@ -81,18 +91,35 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { useRouter } from 'vue-router'
+import { getCurrentUser, logout as apiLogout } from '../api/auth.js'
+import { clearCurrentUser } from '../router/index.js'
+import { getWhitelistTodoCount } from '../api/daoIndex.js'
 
 const props = defineProps({
   isDark: { type: Boolean, default: false }
 })
 
-const emit = defineEmits(['search', 'toggleTheme'])
+// 加 navigate-todo 事件：点击铃铛通知父级跳转到 SQL 巡检页并打开"我的待审"过滤
+const emit = defineEmits(['search', 'toggleTheme', 'navigate-todo'])
+
+const router = useRouter()
 
 const searchText   = ref('')
 const showUserMenu = ref(false)
 const isLoading    = ref(false)
 const isNotFound   = ref(false)
+// 当前登录用户名（鉴权未启用 或 还没探测到时 显示"管理员"作为缺省）
+const currentUsername = ref('')
+
+const displayName = computed(() => currentUsername.value || '管理员')
+const avatarText = computed(() => {
+  const name = currentUsername.value
+  if (!name) return '管'
+  // 取用户名首字符大写（英文/数字账号都适用；中文则取首个汉字）
+  return name.charAt(0).toUpperCase()
+})
 
 const setResult = (found) => {
   isLoading.value  = false
@@ -117,6 +144,65 @@ const clearSearch = () => {
 }
 
 const toggleUserMenu = () => { showUserMenu.value = !showUserMenu.value }
+
+/** 退出登录：调后端 → 清前端缓存 → 跳 /login */
+async function onLogout() {
+  showUserMenu.value = false
+  try {
+    await apiLogout()
+  } catch (_) {
+    // 网络错误也照样清缓存跳 /login，避免用户卡在中间态
+  }
+  clearCurrentUser()
+  currentUsername.value = ''
+  router.push('/login')
+}
+
+// V16：白名单待办计数（铃铛红点）
+const todoCount = ref(0)
+const todoCountText = computed(() => (todoCount.value > 99 ? '99+' : String(todoCount.value)))
+let todoPollTimer = null
+
+async function refreshTodoCount() {
+  try {
+    const data = await getWhitelistTodoCount({
+      currentUser: currentUsername.value || undefined,
+    })
+    todoCount.value = Number(data?.count) || 0
+  } catch (_) {
+    // 鉴权未启用 / 网络错误：保持原数字不变（不闪烁清零）
+  }
+}
+
+function onClickBell() {
+  // 让父级（TransactionAnalysis）切到 SQL 巡检页并打开"我的待审"过滤
+  emit('navigate-todo')
+}
+
+onMounted(async () => {
+  // 接入登录用户名显示：成功就更新；失败（未启用/未登录/网络异常）保留缺省"管理员"
+  try {
+    const user = await getCurrentUser()
+    if (user?.username) {
+      currentUsername.value = user.username
+      // V16+：写入 localStorage 供 DaoSqlList 等其他组件 fast-path 读取
+      // （白名单审批 mode 检测需要真实 LDAP username 匹配 application.l1/l2_approver）
+      try { window.localStorage?.setItem('dii-user', user.username) } catch {}
+    }
+  } catch (_) {
+    // 静默：未登录会被 axios 拦截器跳 /login，鉴权未启用就保留缺省文案
+  }
+  // 启动计数轮询：每 30s 拉一次
+  refreshTodoCount()
+  todoPollTimer = setInterval(refreshTodoCount, 30_000)
+})
+
+onBeforeUnmount(() => {
+  if (todoPollTimer) {
+    clearInterval(todoPollTimer)
+    todoPollTimer = null
+  }
+})
 
 defineExpose({ setResult })
 </script>
@@ -303,6 +389,42 @@ defineExpose({ setResult })
 .theme-icon-leave-to {
   opacity: 0;
   transform: rotate(90deg) scale(0.6);
+}
+
+/* V16：白名单审批铃铛 */
+.todo-bell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: #cfd6e4;
+  transition: background 0.18s, color 0.18s;
+  margin-right: 4px;
+}
+.todo-bell:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+.todo-bell-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  background: #ff4d4f;
+  color: #fff;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+  border: 1.5px solid var(--header-bg, #1f2733);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 }
 
 .user-info {

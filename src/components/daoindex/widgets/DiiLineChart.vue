@@ -5,10 +5,11 @@
     数据契约（与 DiiBarGroupChart / DiiHorizontalStackBar 完全一致，便于互换）：
       categories: ['05-07', '05-08', ...]    横轴分类
       series: [
-        { name: '优', color: '#xxx', values: [1355, 1458, ...] },
+        { name: '优', color: '#xxx', values: [1355, 1458, ...], dash: '10 6' },
         ...
       ]
       values 长度必须 = categories 长度，否则按 categories 截断/补 0。
+      dash 可选：SVG stroke-dasharray 字符串（如 '10 6'）；不传 = 实线。
 
     渲染规则：
       - 多系列同图，每个 series 一条折线 + 圆点
@@ -62,6 +63,7 @@
               stroke-width="2"
               stroke-linecap="round"
               stroke-linejoin="round"
+              :stroke-dasharray="s.dash || undefined"
               vector-effect="non-scaling-stroke"
             />
             <!-- 数据点（圆 + 鼠标悬停 title） -->

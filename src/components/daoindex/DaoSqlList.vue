@@ -32,6 +32,18 @@
             </button>
           </div>
 
+          <!-- V16：我的待审过滤 banner——从右上角铃铛跳来时显示，提示用户当前在"待办视图" -->
+          <div v-if="filter?.myWhitelistTodo" class="dii-todo-banner">
+            <span class="dii-todo-banner-text">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style="margin-right:6px;vertical-align:-2px;">
+                <path d="M18 16v-5a6 6 0 0 0-12 0v5l-2 2v1h16v-1l-2-2z M10 21a2 2 0 0 0 4 0"
+                      stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              我的待审批 · 共 <strong>{{ filteredItems.length }}</strong> 条
+            </span>
+            <button class="dii-todo-banner-clear" @click="emit('clear-todo-filter')">清除过滤</button>
+          </div>
+
           <!-- 第 2 行：搜索框 + 领域过滤 + 筛选汇总 -->
           <div class="hero-task-row">
             <!-- 搜索框：与任务编号同行 -->
@@ -60,6 +72,20 @@
               >
                 <span class="seg-dot" :class="`d-${d.key}`"></span>{{ d.label }}
               </button>
+            </div>
+
+            <!-- V2：类型过滤（odb / nsql）-->
+            <div class="seg hero-seg">
+              <span class="seg-label">类型</span>
+              <button
+                v-for="t in TYPE_OPTIONS"
+                :key="t.key"
+                class="seg-btn"
+                :class="{ active: filters.type === t.key }"
+                @click="toggleType(t.key)"
+              >
+                <span class="seg-dot" :class="`src-${t.key}`"></span>{{ t.label }}
+              </button>
               <button
                 class="seg-btn seg-clear"
                 :class="{ disabled: !hasActiveFilter }"
@@ -87,6 +113,13 @@
               <path d="M12 7a5 5 0 1 1-1.46-3.54M12 2.5V6h-3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
             {{ loading ? '加载中' : '刷新' }}
+          </button>
+          <!-- V16+：导入 Excel/CSV（原 SQL 池独立页下线后入口移到这里） -->
+          <button class="btn btn-secondary" @click="importOpen = true" title="导入 IndexWarnLog 日志（.xlsx 或 .csv）到 SQL 池">
+            <svg class="btn-ico" width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <path d="M7 12.5v-8m0 0L4 7.5m3-3l3 3M2.5 2v1.5h9V2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            导入 Excel/CSV
           </button>
           <button class="btn btn-primary" :disabled="exporting || !latestTask || total === 0" :title="exportTitle" @click="doExport">
             <svg class="btn-ico" width="14" height="14" viewBox="0 0 14 14" fill="none">
@@ -151,7 +184,7 @@
         <DiiEmptyState
           v-if="!loading && pageItems.length === 0"
           :title="hasActiveFilter ? '没有匹配的 SQL' : '当前任务没有「有问题」的 SQL'"
-          :desc="hasActiveFilter ? '试试清空筛选条件' : '所有 SQL 要么规则评级良好、要么还在待分析'"
+          :desc="hasActiveFilter ? '试试清空筛选条件' : '当前任务下没有报错或待整改的 SQL（或仍在 AI 分析中）'"
         />
 
         <ol v-else class="rows">
@@ -193,6 +226,26 @@
                 <span class="kind" :class="`k-${(it.sql_kind||'other').toLowerCase()}`">
                   {{ it.sql_kind || 'SQL' }}
                 </span>
+
+                <!-- V14：SQL 来源标签
+                     odb  = 源代码扫描（来自 dii_analysis_item，原本就在的 SQL）
+                     nsql = Excel 导入的 namedsql 警告日志（来自 dii_sql_pool）
+                     title 给鼠标悬停展示中文释义 -->
+                <span
+                  class="source-tag"
+                  :class="`source-${(it.source||'odb').toLowerCase()}`"
+                  :title="(it.source==='nsql') ? '来源：导入的 namedsql 警告日志' : '来源：源码扫描（odb）'"
+                >
+                  {{ (it.source || 'odb').toLowerCase() }}
+                </span>
+
+                <!-- V16+：nsql 行紧接 source tag 后展示完整 named_sql（全量、不截断、长则自动换行）
+                     pool DAO 把 named_sql 放进了 class_fqn 字段（兼容 odb 列名）；同时多带原始 named_sql 字段 -->
+                <code
+                  v-if="it.source === 'nsql' && (it.named_sql || it.class_fqn)"
+                  class="named-sql-full"
+                  :title="it.named_sql || it.class_fqn"
+                >{{ it.named_sql || it.class_fqn }}</code>
 
                 <span class="table-chain" :title="(tableListOf(it) || []).join(', ')">
                   <span class="table-name">{{ tableListOf(it)[0] || '—' }}</span>
@@ -281,12 +334,18 @@
                     <button
                       class="btn btn-primary btn-ai-lead"
                       :disabled="isRowRunning(it.id)"
-                      @click.stop="rerunLlm(it.id)"
+                      @click.stop="rerunLlm(it.id, it.source)"
                     >
                       <Loader2 v-if="isRowRunning(it.id)" :size="14" :stroke-width="2" class="btn-ico is-spin" />
                       <AiBrandIcon v-else class="btn-ai-lead-ico" />
                       <span class="btn-ai-lead-label">{{ isRowRunning(it.id) ? '分析中…' : '重新分析' }}</span>
                     </button>
+                    <!-- V16：白名单申请按钮 -->
+                    <button
+                      class="btn btn-wl"
+                      :class="wlButtonClass(it)"
+                      @click.stop="openWhitelistDialog(it)"
+                    >{{ wlButtonText(it) }}</button>
                   </div>
                 </template>
 
@@ -420,6 +479,12 @@
                     <AiBrandIcon v-else class="btn-ai-lead-ico" />
                     <span class="btn-ai-lead-label">{{ isRowRunning(it.id) ? '分析中…' : '重新分析' }}</span>
                   </button>
+                  <!-- V16：白名单申请按钮 -->
+                  <button
+                    class="btn btn-wl"
+                    :class="wlButtonClass(it)"
+                    @click.stop="openWhitelistDialog(it)"
+                  >{{ wlButtonText(it) }}</button>
                 </div>
                 </div><!-- /.ai-block -->
               </div>
@@ -461,6 +526,23 @@
         <button class="btn btn-secondary btn-sm" @click="doJump">Go</button>
       </div>
     </div>
+
+    <!-- ════════════ V16：白名单审批弹窗（统一组件，按 mode 切换） ════════════ -->
+    <DiiWhitelistDialog
+      v-model:open="wlDlg.open"
+      :mode="wlDlg.mode"
+      :row="wlDlg.row"
+      :application="wlDlg.application"
+      :current-user="currentUser"
+      @action-done="onWlActionDone"
+    />
+
+    <!-- ════════════ V16+：SQL 池 Excel/CSV 导入弹窗（原独立页下线后挂这里） ════════════ -->
+    <DiiSqlPoolImportModal
+      v-model:open="importOpen"
+      :default-env="env"
+      @imported="onPoolImported"
+    />
 
     <!-- ════════════ 重新执行 AI 分析 · 模态框 ════════════ -->
     <transition name="rerun-modal">
@@ -543,14 +625,18 @@ import {
 import DiiEnvSwitcher from './widgets/DiiEnvSwitcher.vue'
 import DiiEmptyState from './widgets/DiiEmptyState.vue'
 import AiBrandIcon from './widgets/AiBrandIcon.vue'
+import DiiWhitelistDialog from './widgets/DiiWhitelistDialog.vue'
+import DiiSqlPoolImportModal from './widgets/DiiSqlPoolImportModal.vue'
+import { getCurrentUser } from '../../api/auth.js'
 import {
   listDiiItemIssues,
-  getDiiItemIssuesStats,
   getLatestDiiTask,
   runDiiLlmAnalyze,
   runDiiLlmAnalyzeAsync,
+  runDiiLlmAnalyzePoolAsync,
   getDiiItem,
   exportDiiItemIssues,
+  getWhitelistApplication,
 } from '../../api/daoIndex.js'
 import {
   splitTables,
@@ -565,14 +651,20 @@ const props = defineProps({
   filter: { type: Object, default: () => ({}) },
 })
 
-const emit = defineEmits(['update:env', 'back-to-tasks'])
+const emit = defineEmits(['update:env', 'back-to-tasks', 'clear-todo-filter'])
 
 /* ────────── 静态字典 ────────── */
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100]
 const DOMAIN_ORDER = Object.fromEntries(DAO_DOMAIN_OPTIONS.map((d, i) => [d.key, i]))
 
 /* ────────── 响应式状态 ────────── */
-const filters = ref({ domain: '', issueSource: '', keyword: '' })
+// V2：filters 加 type（'' / 'odb' / 'nsql'）——按来源类型筛选
+const filters = ref({ domain: '', type: '', issueSource: '', keyword: '' })
+// 类型筛选选项（与行内 source tag 一致）
+const TYPE_OPTIONS = [
+  { key: 'odb', label: 'odb' },
+  { key: 'nsql', label: 'nsql' },
+]
 const latestTask = ref(null)
 const rawItems = ref([])
 const total = ref(0)
@@ -670,7 +762,7 @@ async function copyText(text, key) {
 }
 
 const hasActiveFilter = computed(
-  () => !!(filters.value.domain || filters.value.issueSource || filters.value.keyword.trim()),
+  () => !!(filters.value.domain || filters.value.type || filters.value.issueSource || filters.value.keyword.trim()),
 )
 
 const exportTitle = computed(() => {
@@ -681,17 +773,45 @@ const exportTitle = computed(() => {
 })
 
 /**
- * 4 个 KPI：直接来自后端 /stats 端点（一次 SQL 出结果），不再本地 group。
- * 字段：{ total, explainError, llmFindings, llmError }
- * 模板里用的是 `kpis.findings`，为兼容保留同名（getter 形式见下方）
+ * V2：4 个 KPI 改为从「当前筛选后的集合」实时统计（不再用全局 /stats 端点）。
+ *
+ * <p>cardBaseItems = rawItems 过滤(领域 + 类型 + 关键字 + 待审)，但**不含 issueSource**——
+ * 因为 4 张卡片本身就是 4 个 issueSource 类别，卡片数字反映"在当前领域/类型/关键字范围内
+ * 各类别有多少"，点卡片再用 issueSource 过滤列表。
+ * <p>rawItems 已在 doLoad 里全量加载（500 一批拉完），客户端统计准确。
  */
-const kpisRaw = ref({ total: 0, explainError: 0, llmFindings: 0, llmPending: 0, llmError: 0 })
-const kpis = computed(() => ({
-  total: kpisRaw.value.total || 0,
-  explainError: kpisRaw.value.explainError || 0,
-  findings: kpisRaw.value.llmFindings || 0,   // 模板字段名兼容
-  llmError: kpisRaw.value.llmError || 0,
-}))
+const cardBaseItems = computed(() => {
+  const kw = filters.value.keyword.trim().toLowerCase()
+  const domainKey = filters.value.domain
+  const typeKey = filters.value.type
+  const myWlTodo = !!props.filter?.myWhitelistTodo
+  return rawItems.value.filter((it) => {
+    if (myWlTodo) {
+      const s = it.whitelist_status
+      if (s !== 'PENDING_L1' && s !== 'PENDING_L2') return false
+    }
+    if (domainKey && domainOf(it).key !== domainKey) return false
+    if (typeKey && (it.source || 'odb') !== typeKey) return false
+    if (kw) {
+      const hay = [it.sql_text, it.involved_tables, it.class_fqn, it.method_name, it.project_name]
+        .filter(Boolean).join(' ').toLowerCase()
+      if (!hay.includes(kw)) return false
+    }
+    return true
+  })
+})
+
+const kpis = computed(() => {
+  let total = 0, explainError = 0, findings = 0, llmError = 0
+  for (const it of cardBaseItems.value) {
+    total++
+    const src = issueOf(it).source
+    if (src === 'EXPLAIN_ERROR') explainError++
+    else if (src === 'LLM_FINDINGS') findings++
+    else if (src === 'LLM_ERROR') llmError++
+  }
+  return { total, explainError, findings, llmError }
+})
 
 function toggleExpand(id) {
   const next = new Set(expandedIds.value)
@@ -701,17 +821,10 @@ function toggleExpand(id) {
 }
 
 const filteredItems = computed(() => {
-  const kw = filters.value.keyword.trim().toLowerCase()
-  const domainKey = filters.value.domain
+  // 列表 = cardBaseItems（领域+类型+关键字+待审）再叠加 issueSource（点卡片选中的类别）
   const issueKey = filters.value.issueSource
-  const hit = rawItems.value.filter((it) => {
-    if (domainKey && domainOf(it).key !== domainKey) return false
+  const hit = cardBaseItems.value.filter((it) => {
     if (issueKey && issueOf(it).source !== issueKey) return false
-    if (kw) {
-      const hay = [it.sql_text, it.involved_tables, it.class_fqn, it.method_name, it.project_name]
-        .filter(Boolean).join(' ').toLowerCase()
-      if (!hay.includes(kw)) return false
-    }
     return true
   })
   return hit.slice().sort((a, b) => {
@@ -830,9 +943,14 @@ function toggleDomain(key) {
   filters.value.domain = filters.value.domain === key ? '' : key
   page.value = 1
 }
+// V2：类型筛选（odb / nsql）
+function toggleType(key) {
+  filters.value.type = filters.value.type === key ? '' : key
+  page.value = 1
+}
 function doSearch() { page.value = 1 }
 function clearFilters() {
-  filters.value = { domain: '', issueSource: '', keyword: '' }
+  filters.value = { domain: '', type: '', issueSource: '', keyword: '' }
   page.value = 1
 }
 function doReload() { doLoad() }
@@ -863,7 +981,7 @@ async function doLoad() {
   loadedCount.value = 0
   serverTotal.value = 0
   total.value = 0
-  kpisRaw.value = { total: 0, explainError: 0, llmFindings: 0, llmPending: 0, llmError: 0 }
+  // V2：KPI 不再调 /stats 端点——改由 kpis computed 从 rawItems（全量加载后）按当前筛选实时算
   try {
     // 如果父组件通过 filter.taskId 指定了任务（从巡检任务页跳来），优先用；
     // 否则走原"取最新 DONE 任务"逻辑。
@@ -879,16 +997,7 @@ async function doLoad() {
     latestTask.value = task
     if (!task) return
 
-    // ① 一次拉 4 个 KPI 数字（后端单条 SQL 出结果，不依赖列表全量加载）
-    try {
-      const stats = await getDiiItemIssuesStats({ env: props.env, taskId: task.id })
-      kpisRaw.value = stats || { total: 0, explainError: 0, llmFindings: 0, llmPending: 0, llmError: 0 }
-    } catch (e) {
-      console.warn('[SQL分析] 加载 KPI stats 失败，KPI 暂为 0：', e?.message || e)
-      kpisRaw.value = { total: 0, explainError: 0, llmFindings: 0, llmPending: 0, llmError: 0 }
-    }
-
-    // ② 列表照旧分页拉
+    // 列表分页拉全量；kpis computed 会随 rawItems 增长实时更新
     const batchSize = 500
     const maxItems = 50_000
     let offset = 0
@@ -914,7 +1023,7 @@ async function doLoad() {
     total.value = 0
     serverTotal.value = 0
     loadedCount.value = 0
-    kpisRaw.value = { total: 0, explainError: 0, llmFindings: 0, llmPending: 0, llmError: 0 }
+    // kpis 随 rawItems=[] 自动归零，无需手动重置
   } finally {
     loading.value = false
   }
@@ -930,20 +1039,130 @@ const aiRerun = ref({
   itemId: null,
   sql: '',
   model: 'minimax-2.7',
+  // V16+：source 用于决定调 item 接口还是池接口（前端按 odb/nsql 分派）
+  source: 'odb',
 })
 /** 正在重跑 AI 的行 id 集合（用于行级蒙版） */
 const aiRunningIds = ref(new Set())
 function isRowRunning(id) { return aiRunningIds.value.has(id) }
 
-/** 点击 "重新执行 AI 分析" → 打开模态框，预填当前 SQL */
-function rerunLlm(id) {
-  const row = rawItems.value.find(r => r.id === id)
+/* ═════════════════ V16+：SQL 池导入（独立页合并后的入口） ═════════════════ */
+const importOpen = ref(false)
+/** 导入完成后刷新列表——后端已串接白名单继承 + 池数据合并显示 */
+function onPoolImported() {
+  if (typeof doLoad === 'function') doLoad()
+}
+
+/* ═════════════════ V16：白名单审批工作流 ═════════════════ */
+
+/**
+ * 当前用户：从 /api/auth/me 拉真实 LDAP 登录态。
+ *
+ * <p>V16+ 修复：原来用 localStorage('dii-user') 默认 'guest'——永远匹配不上
+ * application.l1_approver / l2_approver（这些是真实 LDAP username），导致
+ * 审批人打开弹窗时永远落到 view mode，看不到「退回 / 确认」按钮。
+ * <p>现在 onMounted 异步拉 /auth/me；同时把上次结果存进 localStorage 作为
+ * 二次进入页面的 fast-path（避免短暂的"无 currentUser"窗口）。
+ */
+const currentUser = ref(
+  (typeof window !== 'undefined' && window.localStorage?.getItem('dii-user')) || ''
+)
+
+async function refreshCurrentUser() {
+  try {
+    const u = await getCurrentUser()
+    if (u?.username) {
+      currentUser.value = u.username
+      try { window.localStorage?.setItem('dii-user', u.username) } catch {}
+    }
+  } catch (_) {
+    // 鉴权未启用 / 网络异常：保留 localStorage 值；空也行（fallback 到后端 SecurityContext）
+  }
+}
+onMounted(refreshCurrentUser)
+
+const wlDlg = ref({
+  open: false,
+  mode: 'apply',   // 'apply' | 'view' | 'l1' | 'l2'
+  row: null,
+  application: null,
+})
+
+/**
+ * 根据当前行的 whitelist_status 决定按钮文案与样式。
+ */
+function wlButtonText(it) {
+  const s = it?.whitelist_status
+  // V16+：APPROVED 行附带 target_type 信息——区分"单条 SQL 白名单"vs"同名 nsql 共享白名单"
+  const t = it?.whitelist_target_type    // 'HASH' / 'NAMED_SQL' / undefined
+  if (!s)                  return '申请白名单'
+  if (s === 'PENDING_L1')  return '白名单申请中 · 一审'
+  if (s === 'PENDING_L2')  return '白名单申请中 · 二审'
+  if (s === 'REJECTED_L1') return '白名单已退回'
+  if (s === 'APPROVED') {
+    return t === 'NAMED_SQL' ? '已白名单 · 同名 nsql' : '已白名单 · 单条'
+  }
+  return '申请白名单'
+}
+function wlButtonClass(it) {
+  const s = it?.whitelist_status
+  return {
+    'btn-wl-empty':    !s,
+    'btn-wl-pending':  s === 'PENDING_L1' || s === 'PENDING_L2',
+    'btn-wl-rejected': s === 'REJECTED_L1',
+    'btn-wl-approved': s === 'APPROVED',
+  }
+}
+
+/**
+ * 点击按钮：
+ *   - 无 wl 状态：apply 模式
+ *   - 有 wl 状态：拉 application 详情 → 按 user 角色决定 mode (l1/l2/view)
+ */
+async function openWhitelistDialog(it) {
+  if (!it?.whitelist_app_id) {
+    wlDlg.value = { open: true, mode: 'apply', row: it, application: null }
+    return
+  }
+  try {
+    const app = await getWhitelistApplication(it.whitelist_app_id)
+    const user = currentUser.value
+    let mode = 'view'
+    // 状态机：根据当前用户 + status 推导显示哪个 mode
+    if (app?.status === 'PENDING_L1' && app?.l1_approver === user) mode = 'l1'
+    else if (app?.status === 'PENDING_L2' && app?.l2_approver === user) mode = 'l2'
+    // 其他情况一律 view（含申请人 / 旁观者）
+    wlDlg.value = { open: true, mode, row: it, application: app }
+  } catch (e) {
+    alert(`加载白名单申请详情失败：${e?.message || e}`)
+  }
+}
+
+/**
+ * 操作完成后回调：刷新当前行 wl 状态。简单做：整页重载（与重新分析等其他动作风格一致）。
+ */
+function onWlActionDone() {
+  // 触发列表重载——doLoad() 已存在于本组件
+  // 注意：不重置过滤器；用户刚做完操作还想留在原位
+  if (typeof doLoad === 'function') {
+    doLoad()
+  }
+}
+
+/**
+ * 点击 "重新执行 AI 分析" → 打开模态框，预填当前 SQL。
+ * <p>V16+：在合并视图下 odb item 与 nsql 池行可能同 id（item.id=4 + pool.id=4 都存在），
+ * 因此 find 必须用 (id, source) 复合 key 匹配，不能只比 id。
+ */
+function rerunLlm(id, source) {
+  const row = rawItems.value.find(r => r.id === id && (r.source || 'odb') === (source || 'odb'))
   if (!row) return
   aiRerun.value = {
     open: true,
     itemId: id,
     sql: row.sql_text || '',
     model: 'minimax-2.7',
+    source: source || row.source || 'odb',
   }
 }
 function closeRerunModal() {
@@ -998,6 +1217,7 @@ async function submitRerun() {
   const id = aiRerun.value.itemId
   const sqlText = aiRerun.value.sql
   const model = aiRerun.value.model
+  const source = aiRerun.value.source || 'odb'
   if (id == null) return
   closeRerunModal()
   // 加入运行集合 → 行立即出现"AI 分析生成中..."蒙版
@@ -1005,12 +1225,25 @@ async function submitRerun() {
   next.add(id)
   aiRunningIds.value = next
   try {
-    // ① 触发异步任务，后端立即返回（不阻塞）
-    await runDiiLlmAnalyzeAsync(id, { sql: sqlText, model })
-    // ② 轮询行状态直到终态
-    const r = await pollRerunStatus(id)
-    if (!r.ok) {
-      console.warn('[SQL分析] 轮询超时（5 分钟），蒙版已撤除，可手动刷新查看最终状态')
+    // ① V16+ 按 source 分派：odb 走 item 路径；nsql 走 pool 路径
+    //    池接口不支持 overrideSql（池行不允许改 SQL 重跑）
+    if (source === 'nsql') {
+      await runDiiLlmAnalyzePoolAsync(id, { model })
+    } else {
+      await runDiiLlmAnalyzeAsync(id, { sql: sqlText, model })
+    }
+    // ② 轮询行状态直到终态（odb / nsql 都通过 doLoad 全量刷新，
+    //    避免针对两种 source 各做一个 GET 接口；超时上限 5 分钟，
+    //    超时后蒙版会自动撤除——pollRerunStatus 当前只走 item GET，
+    //    nsql 路径直接 sleep 30s 后撤蒙版让用户手动刷新查看）
+    if (source === 'nsql') {
+      // 简单等 30s 再撤蒙版（池行的 LLM 轮询接口尚未实现，避免 404 噪声）
+      await new Promise(r => setTimeout(r, 30_000))
+    } else {
+      const r = await pollRerunStatus(id)
+      if (!r.ok) {
+        console.warn('[SQL分析] 轮询超时（5 分钟），蒙版已撤除，可手动刷新查看最终状态')
+      }
     }
   } catch (e) {
     alert('重新分析触发失败：' + (e.message || e))
@@ -1198,6 +1431,40 @@ watch(
   background: var(--bg-info-hover, #dbe7ff);
 }
 
+/* V16：我的待审过滤 banner（黄色提示色） */
+.dii-todo-banner {
+  display: flex; align-items: center; justify-content: space-between;
+  margin: 12px 0 8px;
+  padding: 10px 14px;
+  background: var(--bg-warning-soft, #fffbe6);
+  border: 1px solid var(--border-warning, #ffd591);
+  border-radius: 6px;
+}
+.dii-todo-banner-text {
+  font-size: 13px;
+  color: var(--text-warning, #c08c00);
+  display: inline-flex; align-items: center;
+}
+.dii-todo-banner-clear {
+  padding: 4px 10px;
+  background: transparent;
+  border: 1px solid var(--border-warning, #ffd591);
+  border-radius: 4px;
+  color: var(--text-warning, #c08c00);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.dii-todo-banner-clear:hover { background: var(--bg-warning-soft-hover, #fff3bf); }
+[data-theme="dark"] .dii-todo-banner {
+  background: var(--bg-warning-soft-dark, #3a2e15);
+  border-color: var(--border-warning-dark, #7a5e1f);
+}
+[data-theme="dark"] .dii-todo-banner-text { color: var(--text-warning-dark, #f5c062); }
+[data-theme="dark"] .dii-todo-banner-clear {
+  color: var(--text-warning-dark, #f5c062);
+  border-color: var(--border-warning-dark, #7a5e1f);
+}
+
 /* dark 模式：用更柔和的蓝调，避免在深色背景上"扎眼" */
 [data-theme="dark"] .dii-task-banner {
   background: var(--bg-info-soft-dark, #1e2a4a);
@@ -1380,6 +1647,70 @@ watch(
   font-weight: 600;
 }
 
+/* V16：白名单按钮 4 态样式 */
+.btn-wl {
+  padding: 4px 12px;
+  font-size: 12.5px;
+  border-radius: 4px;
+  font-weight: 500;
+  cursor: pointer;
+  margin-left: 8px;
+  border: 1px solid transparent;
+  transition: background 0.12s;
+}
+.btn-wl-empty {
+  background: var(--bg-card, #fff);
+  color: var(--text-secondary, #5a6172);
+  border-color: var(--border, #d4d8dd);
+}
+.btn-wl-empty:hover {
+  background: var(--bg-domain-hover, #f5f7fa);
+  color: var(--text-primary, #14171c);
+}
+.btn-wl-pending {
+  background: var(--bg-warning-soft, #fffbe6);
+  color: var(--text-warning, #c08c00);
+  border-color: var(--border-warning, #ffd591);
+}
+.btn-wl-pending:hover {
+  background: var(--bg-warning-soft-hover, #fff3bf);
+}
+.btn-wl-rejected {
+  background: var(--bg-error-soft, #fff1f0);
+  color: var(--text-error, #cf1124);
+  border-color: var(--border-error, #ffccc7);
+}
+.btn-wl-rejected:hover {
+  background: var(--bg-error-soft-hover, #ffe0dc);
+}
+.btn-wl-approved {
+  background: var(--bg-success-soft, #f6ffed);
+  color: var(--text-success, #137333);
+  border-color: var(--border-success, #b7eb8f);
+}
+.btn-wl-approved:hover { cursor: default; }
+
+[data-theme="dark"] .btn-wl-empty {
+  background: var(--bg-card-dark, #1f2733);
+  color: var(--text-secondary-dark, #9aa3b0);
+  border-color: var(--border-dark, #2a3340);
+}
+[data-theme="dark"] .btn-wl-pending {
+  background: var(--bg-warning-soft-dark, #3a2e15);
+  color: var(--text-warning-dark, #f5c062);
+  border-color: var(--border-warning-dark, #7a5e1f);
+}
+[data-theme="dark"] .btn-wl-rejected {
+  background: var(--bg-error-soft-dark, #3d1f1f);
+  color: var(--text-error-dark, #ff7a7e);
+  border-color: var(--border-error-dark, #6b3030);
+}
+[data-theme="dark"] .btn-wl-approved {
+  background: var(--bg-success-soft-dark, #1e3320);
+  color: var(--text-success-dark, #6ec78a);
+  border-color: var(--border-success-dark, #2f5a32);
+}
+
 /* "AI" 文字图标：用 monospace 字体在小框里居中，模拟图标 */
 .ai-text-ico {
   display: inline-flex;
@@ -1550,6 +1881,16 @@ watch(
 .seg-btn .seg-dot.d-common     { background: #1890FF; }
 .seg-btn .seg-dot.d-settlement { background: #722ED1; }
 .seg-btn .seg-dot.d-other      { background: var(--c-text-3); }
+/* V2：类型筛选圆点（odb 蓝 / nsql 绿，与行内 source tag 同色系）*/
+.seg-btn .seg-dot.src-odb      { background: var(--c-info-text, #0b70db); }
+.seg-btn .seg-dot.src-nsql     { background: var(--c-accent-text, #0a8559); }
+/* 类型 segment 前的小标签 */
+.seg-label {
+  font-size: 12px;
+  color: var(--c-text-3, #8990a0);
+  margin-right: 2px;
+  align-self: center;
+}
 
 .toolbar-meta {
   display: inline-flex;
@@ -1657,6 +1998,69 @@ watch(
   color: var(--c-text-2);
   border: 1px solid var(--c-border);
   flex-shrink: 0;
+}
+
+/* V14：SQL 来源标签（odb / nsql）—— 与 .kind 同高，颜色按主题 token 分两套
+   odb  = 蓝色（信息色，与 link 同色调）
+   nsql = 紫色（区分新来源，配色取自 SQL 池子菜单 accent #0CA678 的克制版） */
+.source-tag {
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  flex-shrink: 0;
+  text-transform: lowercase;
+}
+.source-odb {
+  background: var(--c-info-bg, #e6f0fc);
+  color: var(--c-info-text, #0b70db);
+  border: 1px solid var(--c-info-border, #b6d4f5);
+}
+.source-nsql {
+  background: var(--c-accent-bg, #e6fcf2);
+  color: var(--c-accent-text, #0a8559);
+  border: 1px solid var(--c-accent-border, #a7e4c8);
+}
+/* dark 主题：亮一档 */
+[data-theme="dark"] .source-odb {
+  background: var(--c-info-bg-dark, #1f3050);
+  color: var(--c-info-text-dark, #7eb8fd);
+  border-color: var(--c-info-border-dark, #2f4a78);
+}
+[data-theme="dark"] .source-nsql {
+  background: var(--c-accent-bg-dark, #1d3329);
+  color: var(--c-accent-text-dark, #6ec78a);
+  border-color: var(--c-accent-border-dark, #2f5a3c);
+}
+
+/* V16+：nsql 行专属——完整 named_sql 显示
+   - 不截断（白名单审批 / 巡检定位都要看完整名）
+   - 长名自动 break-word 而不是省略号；行高紧凑避免破坏 row-head 视觉
+   - 配色继承 source-nsql 弱化版（绿色，但比 badge 浅，避免与 badge 撞色） */
+.named-sql-full {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--c-accent-text, #0a8559);
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--c-accent-bg-soft, #f0fdf6);
+  border: 1px solid var(--c-accent-border-soft, #cfeede);
+  /* 关键：全量展示，不省略号 */
+  word-break: break-all;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+  /* 占据剩余横向空间，避免与右侧 table-chain / domain 挤一行 */
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 100%;
+}
+[data-theme="dark"] .named-sql-full {
+  background: var(--c-accent-bg-soft-dark, #16271f);
+  color: var(--c-accent-text-dark, #6ec78a);
+  border-color: var(--c-accent-border-soft-dark, #2a4a37);
 }
 
 .table-chain {

@@ -41,18 +41,8 @@
           </div>
         </div>
 
-        <span class="er-tb-label">跳数</span>
-        <select v-model.number="hops" class="er-select" @change="reloadGraph">
-          <option :value="1">1 跳</option>
-          <option :value="2">2 跳</option>
-        </select>
-
-        <span class="er-tb-label">置信度</span>
-        <select v-model="minConfidence" class="er-select" @change="reloadGraph">
-          <option value="HIGH">≥ 高</option>
-          <option value="MEDIUM">≥ 中</option>
-          <option value="LOW">≥ 低（全部）</option>
-        </select>
+        <!-- v3：固定 1 跳 + 仅联合主键全覆盖（HIGH），不再提供选择器 -->
+        <span class="er-scope-tag">1 跳 · 仅联合主键全覆盖关系</span>
 
         <span v-if="centerTable" class="er-center-pill">
           中心：<code>{{ centerTable }}</code>
@@ -69,11 +59,11 @@
         <button class="er-retry" @click="reloadGraph">重试</button>
       </div>
       <div v-else-if="!centerTable" class="er-state">
-        请在上方搜索框选择一张「中心表」，将展示它的 {{ hops }} 跳关系。
-        <div class="er-hint">提示：若无数据，先点右上角「重算关系」扫描目标库推断隐式外键。</div>
+        请在上方搜索框选择一张「中心表」，将展示它的 1 跳关系。
+        <div class="er-hint">提示：若无数据，先点右上角「重算关系」扫描目标库推断主键关系。</div>
       </div>
       <div v-else-if="nodes.length === 0" class="er-state">
-        <code>{{ centerTable }}</code> 在当前置信度下没有关系。试试把置信度调到「≥ 低」。
+        <code>{{ centerTable }}</code> 没有「联合主键全覆盖」关系（本页仅展示该类强关系）。
       </div>
 
       <svg
@@ -179,10 +169,9 @@ const tableQuery = ref('')
 const tableSuggest = ref([])
 const searchOpen = ref(false)
 const centerTable = ref('')
-const hops = ref(1)
-// 默认显示全部（含 LOW）——银行表多为单列通用键，关系大多落 LOW，
-// 若默认 ≥MEDIUM 会让用户选了表也看不到关系。用户可再往上收。
-const minConfidence = ref('LOW')
+// v3：固定 1 跳 + 仅 HIGH（联合主键全覆盖）。不再提供 UI 选择，常量即可。
+const hops = 1
+const minConfidence = 'HIGH'
 const graph = ref({ nodes: [], edges: [], nodeCount: 0, edgeCount: 0 })
 const loading = ref(false)
 const errorMsg = ref('')
@@ -247,7 +236,7 @@ async function reloadGraph() {
   errorMsg.value = ''
   try {
     const g = await erGraph({
-      env: props.env, table: centerTable.value, hops: hops.value, minConfidence: minConfidence.value,
+      env: props.env, table: centerTable.value, hops, minConfidence,
     })
     graph.value = g || { nodes: [], edges: [], nodeCount: 0, edgeCount: 0 }
     computeInitialLayout()
@@ -387,7 +376,7 @@ async function confirmRebuild() {
 /* ─── 导出 ─── */
 async function doExport() {
   try {
-    await exportErRelations(props.env, 'LOW')
+    await exportErRelations(props.env, 'HIGH')
   } catch (e) {
     alert(`导出失败：${e?.message || e}`)
   }
@@ -416,6 +405,8 @@ function statusLabel(s) { return ({ AUTO: '自动推断', CONFIRMED: '已确认'
 .er-suggest-item:hover { background: var(--bg-domain-hover, #f5f7fa); }
 .er-tb-label { font-size: 12.5px; color: var(--text-secondary, #5a6172); margin-left: 6px; }
 .er-select { padding: 5px 8px; background: var(--bg-input, #fff); border: 1px solid var(--border, #d4d8dd); color: var(--text-primary, #14171c); border-radius: 4px; font-size: 13px; }
+/* v3：固定口径标签（替代原跳数/置信度选择器）*/
+.er-scope-tag { font-size: 12px; color: var(--text-secondary, #5a6172); padding: 4px 10px; background: var(--bg-domain-hover, #f5f7fa); border: 1px solid var(--border-subtle, #ebeef2); border-radius: 4px; }
 .er-center-pill { margin-left: auto; font-size: 12.5px; color: var(--text-secondary, #5a6172); }
 .er-center-pill code { font-family: ui-monospace, Menlo, monospace; color: var(--text-primary, #14171c); }
 .er-center-stat { margin-left: 8px; opacity: .8; }

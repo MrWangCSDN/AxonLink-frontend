@@ -374,9 +374,11 @@ async function confirmRebuild() {
 }
 
 /* ─── 导出 ─── */
+// v4：导出 = 当前画布（中心表 + 1 跳 + HIGH + 排除 IGNORED），所见即所导。
 async function doExport() {
+  if (!centerTable.value) return
   try {
-    await exportErRelations(props.env, 'HIGH')
+    await exportErRelations(props.env, minConfidence, centerTable.value, hops)
   } catch (e) {
     alert(`导出失败：${e?.message || e}`)
   }

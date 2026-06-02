@@ -322,10 +322,15 @@ export async function setErStatus(id, value, token) {
   return json.data
 }
 
-/** 导出关系清单 Excel。 */
-export function exportErRelations(env, minConfidence = 'LOW') {
-  const qs = toQuery({ env, minConfidence })
-  return download(`${PREFIX}/er/export${qs}`, `er-relations-${env || 'uat'}.xlsx`)
+/**
+ * 导出关系清单 Excel。
+ * v4：传 table + hops → 与画布完全一致（只导该中心表的 N 跳子图，默认 HIGH、排除 IGNORED）。
+ * 不传 table 退化为全量（一般不用）。
+ */
+export function exportErRelations(env, minConfidence = 'HIGH', table, hops) {
+  const qs = toQuery({ env, minConfidence, table, hops })
+  const suffix = table ? `-${table}` : ''
+  return download(`${PREFIX}/er/export${qs}`, `er-relations-${env || 'uat'}${suffix}.xlsx`)
 }
 
 /** 新起一次巡检（异步） */

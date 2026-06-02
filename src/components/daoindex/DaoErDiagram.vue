@@ -41,8 +41,8 @@
           </div>
         </div>
 
-        <!-- v3：固定 1 跳 + 仅联合主键全覆盖（HIGH），不再提供选择器 -->
-        <span class="er-scope-tag">1 跳 · 仅联合主键全覆盖关系</span>
+        <!-- v4：固定 1 跳 + 仅主键全覆盖（HIGH），不再提供选择器 -->
+        <span class="er-scope-tag">1 跳 · 仅主键全覆盖关系</span>
 
         <span v-if="centerTable" class="er-center-pill">
           中心：<code>{{ centerTable }}</code>
@@ -63,7 +63,7 @@
         <div class="er-hint">提示：若无数据，先点右上角「重算关系」扫描目标库推断主键关系。</div>
       </div>
       <div v-else-if="nodes.length === 0" class="er-state">
-        <code>{{ centerTable }}</code> 没有「联合主键全覆盖」关系（本页仅展示该类强关系）。
+        <code>{{ centerTable }}</code> 没有「主键全覆盖」关系（本页仅展示该类强关系）。
       </div>
 
       <svg
@@ -169,7 +169,7 @@ const tableQuery = ref('')
 const tableSuggest = ref([])
 const searchOpen = ref(false)
 const centerTable = ref('')
-// v3：固定 1 跳 + 仅 HIGH（联合主键全覆盖）。不再提供 UI 选择，常量即可。
+// v4：固定 1 跳 + 仅 HIGH（主键全覆盖，不分列数）。不再提供 UI 选择，常量即可。
 const hops = 1
 const minConfidence = 'HIGH'
 const graph = ref({ nodes: [], edges: [], nodeCount: 0, edgeCount: 0 })

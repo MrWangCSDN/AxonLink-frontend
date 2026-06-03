@@ -534,6 +534,45 @@ export async function toggleItemWhitelist(id, value, token) {
   return json.data
 }
 
+/* ───────────── V20 慢SQL维度分析 ───────────── */
+
+/** 导入慢SQL明细（.xlsx/.xls/.csv，口令保护） */
+export async function importSlowSql(file, env, token) {
+  const fd = new FormData()
+  fd.append('file', file)
+  if (env) fd.append('env', env)
+  const resp = await fetch(`/api${PREFIX}/slow-sql/import`, {
+    method: 'POST',
+    headers: { 'X-DII-Trigger-Token': token || '' },
+    body: fd,
+  })
+  const json = await resp.json().catch(() => ({}))
+  if (resp.status === 401 || json?.code === 401) {
+    const err = new Error('口令错误'); err.code = 'TOKEN_INVALID'; throw err
+  }
+  if (!resp.ok || json?.code !== 200) {
+    const err = new Error(json?.message || `HTTP ${resp.status}`); err.code = 'IMPORT_FAILED'; throw err
+  }
+  return json.data
+}
+
+/** 慢SQL聚合列表 { total, items } */
+export function listSlowSql(params = {}) {
+  const qs = toQuery(params)
+  return request(`${PREFIX}/slow-sql${qs}`)
+}
+
+/** 慢SQL领域下拉 */
+export function listSlowSqlDomains() {
+  return request(`${PREFIX}/slow-sql/domains`)
+}
+
+/** 导出慢SQL透视 Excel（全量，仅 env） */
+export function exportSlowSql(env) {
+  const qs = toQuery({ env })
+  return download(`${PREFIX}/slow-sql/export${qs}`, `slow-sql-${env || 'uat'}.xlsx`)
+}
+
 /* ───────────── 工具：把对象变成 ?a=1&b=2 ───────────── */
 
 function toQuery(params) {

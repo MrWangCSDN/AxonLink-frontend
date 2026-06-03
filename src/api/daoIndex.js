@@ -562,9 +562,14 @@ export function listSlowSql(params = {}) {
   return request(`${PREFIX}/slow-sql${qs}`)
 }
 
-/** 慢SQL领域下拉 */
+/** 慢SQL领域下拉（中文领域） */
 export function listSlowSqlDomains() {
   return request(`${PREFIX}/slow-sql/domains`)
+}
+
+/** 慢SQL类型下拉（中文类型：联机/热点账户/批量） */
+export function listSlowSqlBizTypes() {
+  return request(`${PREFIX}/slow-sql/biz-types`)
 }
 
 /** 导出慢SQL透视 Excel（全量，仅 env） */

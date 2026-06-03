@@ -3,10 +3,14 @@
     <!-- 顶部工具条 -->
     <div class="slow-toolbar">
       <div class="slow-tb-left">
-        <input v-model="keyword" class="slow-input" placeholder="搜索 抽象SQL / 领域" @keyup.enter="reload" />
+        <input v-model="keyword" class="slow-input" placeholder="搜索 抽象SQL / 服务名" @keyup.enter="reload" />
         <select v-model="domain" class="slow-select" @change="reload">
           <option value="">全部领域</option>
           <option v-for="d in domains" :key="d" :value="d">{{ d }}</option>
+        </select>
+        <select v-model="bizType" class="slow-select" @change="reload">
+          <option value="">全部类型</option>
+          <option v-for="t in bizTypes" :key="t" :value="t">{{ t }}</option>
         </select>
         <select v-model="whitelistStatus" class="slow-select" @change="reload">
           <option value="">全部白名单状态</option>
@@ -33,12 +37,13 @@
     <table v-else class="slow-table">
       <thead>
         <tr>
-          <th>领域</th><th>抽象SQL</th><th>执行参数</th><th class="num">最大耗时</th><th>轮次</th><th>白名单</th><th>操作</th>
+          <th>领域</th><th>类型</th><th>抽象SQL</th><th>执行参数</th><th class="num">最大耗时</th><th>轮次</th><th>白名单</th><th>操作</th>
         </tr>
       </thead>
       <tbody>
         <tr v-for="it in items" :key="it.abstract_hash">
-          <td>{{ it.domain }}</td>
+          <td :title="it.service_name">{{ it.domain }}</td>
+          <td>{{ it.biz_type }}</td>
           <td class="sql-cell" :title="it.abstract_sql">{{ it.abstract_sql }}</td>
           <td class="param-cell" :title="it.exec_params">{{ it.exec_params }}</td>
           <td class="num">{{ it.time_cost_ms }}ms</td>
@@ -124,7 +129,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import {
-  listSlowSql, listSlowSqlDomains, importSlowSql, exportSlowSql,
+  listSlowSql, listSlowSqlDomains, listSlowSqlBizTypes, importSlowSql, exportSlowSql,
   getWhitelistApprovers, applyWhitelist, getWhitelistApplication,
   l1Approve, l1Reject, l2Approve, l2Reject,
 } from '../../api/daoIndex.js'
@@ -133,8 +138,8 @@ import { getCurrentUser } from '../../api/auth.js'
 const props = defineProps({ env: { type: String, default: 'uat' } })
 
 const items = ref([]); const total = ref(0); const loading = ref(false); const errorMsg = ref('')
-const keyword = ref(''); const domain = ref(''); const whitelistStatus = ref('')
-const domains = ref([]); const page = ref(0); const pageSize = 50
+const keyword = ref(''); const domain = ref(''); const bizType = ref(''); const whitelistStatus = ref('')
+const domains = ref([]); const bizTypes = ref([]); const page = ref(0); const pageSize = 50
 
 const currentUser = ref('')
 const l1Approvers = ref([]); const l2Approvers = ref([])
@@ -143,7 +148,8 @@ async function reload() {
   loading.value = true; errorMsg.value = ''
   try {
     const data = await listSlowSql({
-      keyword: keyword.value, domain: domain.value, whitelistStatus: whitelistStatus.value,
+      keyword: keyword.value, domain: domain.value, bizType: bizType.value,
+      whitelistStatus: whitelistStatus.value,
       limit: pageSize, offset: page.value * pageSize,
     })
     items.value = data.items || []; total.value = data.total || 0
@@ -156,6 +162,7 @@ async function reload() {
 
 onMounted(async () => {
   try { domains.value = await listSlowSqlDomains() } catch { /* ignore */ }
+  try { bizTypes.value = await listSlowSqlBizTypes() } catch { /* ignore */ }
   try { const u = await getCurrentUser(); if (u?.username) currentUser.value = u.username } catch { /* ignore */ }
   try {
     const ap = await getWhitelistApprovers()
@@ -178,6 +185,7 @@ async function doImport() {
     importMsg.value = `轮次 ${r.round}：导入 ${r.rowsImported} 行 / ${r.distinctAbstractSql} 条抽象SQL（跳过 ${r.skipped}）`
     page.value = 0
     domains.value = await listSlowSqlDomains()
+    bizTypes.value = await listSlowSqlBizTypes()
     await reload()
   } catch (e) {
     importMsg.value = e.code === 'TOKEN_INVALID' ? '口令错误' : `导入失败：${e?.message || e}`

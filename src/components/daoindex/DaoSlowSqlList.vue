@@ -19,7 +19,7 @@
         <button class="slow-btn" @click="reload">查询</button>
       </div>
       <div class="slow-tb-right">
-        <button class="slow-btn" @click="importOpen = true">导入 Excel/CSV</button>
+        <button class="slow-btn" @click="openImport">导入 Excel/CSV</button>
         <button class="slow-btn" @click="doExport">导出 Excel</button>
       </div>
     </div>
@@ -167,6 +167,8 @@ onMounted(async () => {
 /* ── 导入 ── */
 const importOpen = ref(false); const token = ref(''); const importing = ref(false); const importMsg = ref('')
 const importFileRef = ref(null)
+// 打开导入弹窗时清掉上一次的文件/提示，保证重复导入同名文件也能再次触发 @change
+function openImport() { importFileRef.value = null; importMsg.value = ''; importOpen.value = true }
 function onFile(e) { importFileRef.value = e.target.files?.[0] || null }
 async function doImport() {
   if (!importFileRef.value) return
@@ -260,6 +262,22 @@ function wlClass(s) {
 </script>
 
 <style scoped>
+/* ── design tokens（仅 token，不含 layout；补齐全局未定义的 panel/status/brand，亮暗分离）── */
+.slow-wrap {
+  --slow-panel: #ffffff;
+  --slow-brand: #0b70db;   --slow-on-brand: #ffffff;
+  --slow-ok: #137333;      --slow-ok-bg: #e6f4ea;
+  --slow-bad: #cf1124;     --slow-bad-bg: #fce8e6;
+  --slow-warn: #c08c00;    --slow-warn-bg: #fef7e0;
+}
+[data-theme="dark"] .slow-wrap {
+  --slow-panel: #1b2129;
+  --slow-brand: #4493f8;   --slow-on-brand: #ffffff;
+  --slow-ok: #6ec78a;      --slow-ok-bg: #1e3a28;
+  --slow-bad: #ff7a7e;     --slow-bad-bg: #3a1f21;
+  --slow-warn: #f5c062;    --slow-warn-bg: #3a3320;
+}
+
 .slow-wrap { padding: 16px; color: var(--text-primary, #14171c); }
 .slow-toolbar { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .slow-tb-left, .slow-tb-right { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -274,11 +292,11 @@ function wlClass(s) {
   border-radius: 6px; cursor: pointer; font-size: 13px;
 }
 .slow-btn:hover { background: var(--bg-domain-active, #eef1f5); }
-.slow-btn.primary { background: var(--brand, #0b70db); color: #fff; border-color: transparent; }
+.slow-btn.primary { background: var(--slow-brand); color: var(--slow-on-brand); border-color: transparent; }
 .slow-btn:disabled { opacity: .5; cursor: not-allowed; }
 .slow-kpi { margin: 12px 0; font-size: 13px; color: var(--text-secondary, #5a6172); }
 .slow-state { padding: 40px; text-align: center; color: var(--text-secondary, #5a6172); }
-.slow-err { color: var(--status-error, #ff7a7e); }
+.slow-err { color: var(--slow-bad); }
 .slow-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .slow-table th, .slow-table td {
   border-bottom: 1px solid var(--border-subtle, #ebeef2); padding: 8px 10px; text-align: left; vertical-align: top;
@@ -287,14 +305,14 @@ function wlClass(s) {
 .slow-table .num { text-align: right; white-space: nowrap; }
 .sql-cell { max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; }
 .param-cell { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary, #5a6172); }
-.slow-link { background: none; border: none; color: var(--brand, #0b70db); cursor: pointer; font-size: 13px; padding: 0; }
+.slow-link { background: none; border: none; color: var(--slow-brand); cursor: pointer; font-size: 13px; padding: 0; }
 .wl-tag { padding: 2px 8px; border-radius: 10px; font-size: 12px; background: var(--bg-domain-hover, #f5f7fa); color: var(--text-secondary, #5a6172); }
-.wl-tag.ok { background: var(--status-success-bg, #e6f4ea); color: var(--status-success, #137333); }
-.wl-tag.bad { background: var(--status-error-bg, #fce8e6); color: var(--status-error, #cf1124); }
-.wl-tag.pending { background: var(--status-warn-bg, #fef7e0); color: var(--status-warn, #c08c00); }
+.wl-tag.ok { background: var(--slow-ok-bg); color: var(--slow-ok); }
+.wl-tag.bad { background: var(--slow-bad-bg); color: var(--slow-bad); }
+.wl-tag.pending { background: var(--slow-warn-bg); color: var(--slow-warn); }
 .slow-pager { display: flex; gap: 12px; align-items: center; margin-top: 14px; font-size: 13px; }
 .slow-modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-.slow-modal { background: var(--bg-panel, #fff); color: var(--text-primary, #14171c); border-radius: 10px; padding: 20px; width: 520px; max-width: 92vw; box-shadow: 0 8px 32px rgba(0,0,0,.2); }
+.slow-modal { background: var(--slow-panel); color: var(--text-primary, #14171c); border-radius: 10px; padding: 20px; width: 520px; max-width: 92vw; box-shadow: 0 8px 32px rgba(0,0,0,.2); }
 .slow-modal h3 { margin: 0 0 12px; }
 .slow-hint { font-size: 12px; color: var(--text-secondary, #5a6172); margin: 8px 0; }
 .slow-sql-snip { font-family: monospace; font-size: 12px; background: var(--bg-domain-hover, #f5f7fa); padding: 10px; border-radius: 6px; max-height: 120px; overflow: auto; margin: 8px 0; }

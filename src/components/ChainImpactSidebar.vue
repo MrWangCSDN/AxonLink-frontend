@@ -518,6 +518,7 @@ const diiMenu = [
   { key: 'dii-sqls',          label: 'SQL 维度分析',   desc: '逐条 SQL · 含池导入' },
   { key: 'dii-table-advice',  label: 'TABLE 维度分析', desc: 'DBA 聚合视图' },
   { key: 'dii-er',            label: 'ER 图',          desc: '表关系推断' },
+  { key: 'dii-slow-sql',      label: '慢SQL维度分析',  desc: '慢SQL导入·轮次·白名单' },
 ]
 
 // ══════════ 代码提交 · 独立分区（与 SQL 巡检 / 影响分析 平级）子页菜单 ══════════
@@ -537,6 +538,8 @@ const IconCodeDash = iconLucide('M9 7l-4 5 4 5 M15 7l4 5-4 5', 15)
 const IconUpload = iconLucide('M12 3v12 M7 8l5-5 5 5 M3 19h18', 15)
 // ER 图：两节点 + 连线
 const IconEr = iconLucide('M5 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4z M19 21a2 2 0 1 0 0-4 2 2 0 0 0 0 4z M6.5 6.5l11 11', 15)
+// 慢SQL：时钟
+const IconSlow = iconLucide('M12 7v5l3 2 M12 21a9 9 0 1 1 0-18 9 9 0 0 1 0 18z', 15)
 
 const diiIconMap = {
   'dii-dashboard':    IconGauge,
@@ -544,6 +547,7 @@ const diiIconMap = {
   'dii-tasks':        IconClipboard,
   'dii-table-advice': IconTable,
   'dii-er':           IconEr,
+  'dii-slow-sql':     IconSlow,
   // dii-sql-pool 已下线，IconUpload 改为用在 DaoSqlList 顶部导入按钮里
 }
 

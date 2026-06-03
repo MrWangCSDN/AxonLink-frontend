@@ -40,6 +40,13 @@
       @update:env="env = $event"
     />
 
+    <!-- V20：慢SQL维度分析 -->
+    <DaoSlowSqlList
+      v-show="currentPage === 'dii-slow-sql'"
+      :env="env"
+      @update:env="env = $event"
+    />
+
     <!-- 二级覆盖页：仅保留巡检任务详情；SQL 详情页已下线 -->
     <DaoTaskDetail
       v-if="overlay?.type === 'task-detail'"
@@ -56,6 +63,7 @@ import DaoSqlList from './DaoSqlList.vue'
 import DaoTaskList from './DaoTaskList.vue'
 import DaoTableAdvice from './DaoTableAdvice.vue'
 import DaoErDiagram from './DaoErDiagram.vue'
+import DaoSlowSqlList from './DaoSlowSqlList.vue'
 import DaoTaskDetail from './DaoTaskDetail.vue'
 
 const props = defineProps({

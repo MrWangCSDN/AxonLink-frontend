@@ -296,6 +296,32 @@ export function erTables(env, keyword) {
   return request(`${PREFIX}/er/tables${qs}`)
 }
 
+/** 导入关系清单 Excel（口令保护，整库替换该 env，严格按导入内容绘制）。 */
+export async function erImport(file, env, token) {
+  const fd = new FormData()
+  fd.append('file', file)
+  if (env) fd.append('env', env)
+  const resp = await fetch(`/api${PREFIX}/er/import`, {
+    method: 'POST',
+    headers: { 'X-DII-Trigger-Token': token || '' },
+    body: fd,
+  })
+  const json = await resp.json().catch(() => ({}))
+  if (resp.status === 401 || json?.code === 401) {
+    const err = new Error('口令错误'); err.code = 'TOKEN_INVALID'; throw err
+  }
+  if (!resp.ok || json?.code !== 200) {
+    const err = new Error(json?.message || `HTTP ${resp.status}`); err.code = 'IMPORT_FAILED'; throw err
+  }
+  return json.data
+}
+
+/** 绘制元信息：{ source: 'REBUILD'|'IMPORT'|null, builtAt, relationCount }。 */
+export function erMeta(env) {
+  const qs = toQuery({ env })
+  return request(`${PREFIX}/er/meta${qs}`)
+}
+
 /**
  * 取子图。
  * @param {Object} p { env, table, hops, full, minConfidence }

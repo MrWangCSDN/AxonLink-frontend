@@ -17,6 +17,7 @@
           <button class="er-btn" :disabled="rebuilding" @click="openRebuild">
             {{ rebuilding ? '重算中…' : '重算关系' }}
           </button>
+          <button class="er-btn" @click="openImport">导入 Excel</button>
           <button class="er-btn" :disabled="!centerTable" @click="doExport">导出 Excel</button>
         </div>
       </div>
@@ -43,6 +44,8 @@
 
         <!-- v4：固定 1 跳 + 仅主键全覆盖（HIGH），不再提供选择器 -->
         <span class="er-scope-tag">1 跳 · 仅主键全覆盖关系</span>
+        <!-- v5：绘制时间描述（来源+时间+条数）-->
+        <span v-if="drawMetaText" class="er-draw-meta">{{ drawMetaText }}</span>
 
         <span v-if="centerTable" class="er-center-pill">
           中心：<code>{{ centerTable }}</code>
@@ -151,13 +154,38 @@
         </div>
       </div>
     </div>
+
+    <!-- v5：Excel 导入口令弹窗 -->
+    <div v-if="importAsk.open" class="er-modal-mask" @click.self="importAsk.open = false">
+      <div class="er-modal">
+        <div class="er-modal-h"><h3>导入 ER 关系（Excel/CSV）</h3><button class="er-modal-x" @click="importAsk.open = false">×</button></div>
+        <div class="er-modal-b">
+          <p class="er-modal-tip">导入「导出的关系清单」经人工修改后的文件，<b>整库替换 {{ env }} 的关系</b>，之后严格按导入内容绘制。列序同导出：主表/从表/关联列/…</p>
+          <div class="er-form-row">
+            <input type="file" accept=".xlsx,.xls,.csv" @change="onImportFile" />
+          </div>
+          <div class="er-form-row">
+            <label>口令</label>
+            <input v-model="importToken" type="password" class="er-input" placeholder="触发口令" />
+          </div>
+          <div v-if="importAsk.error" class="er-form-err">{{ importAsk.error }}</div>
+          <div v-if="importAsk.result" class="er-form-ok">{{ importAsk.result }}</div>
+        </div>
+        <div class="er-modal-f">
+          <button class="er-btn" @click="importAsk.open = false">关闭</button>
+          <button class="er-btn er-btn-primary" :disabled="!importFileRef || importing" @click="confirmImport">
+            {{ importing ? '导入中…' : '开始导入' }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, computed, nextTick, onMounted, watch } from 'vue'
 import DiiEnvSwitcher from './widgets/DiiEnvSwitcher.vue'
-import { erTables, erGraph, erRebuild, setErStatus, exportErRelations } from '../../api/daoIndex.js'
+import { erTables, erGraph, erRebuild, erImport, erMeta, setErStatus, exportErRelations } from '../../api/daoIndex.js'
 
 const props = defineProps({ env: { type: String, default: 'uat' } })
 defineEmits(['update:env'])
@@ -184,6 +212,22 @@ const svgRef = ref(null)
 
 // 会话内缓存口令（重算/改状态复用）
 const sessionToken = ref('')
+
+/* ─── v5：Excel 导入 + 绘制时间描述 ─── */
+const importAsk = reactive({ open: false, error: '', result: '' })
+const importToken = ref('')
+const importFileRef = ref(null)
+const importing = ref(false)
+const drawMeta = ref(null)   // { source, builtAt, relationCount }
+const drawMetaText = computed(() => {
+  const m = drawMeta.value
+  if (!m || !m.source) return ''
+  const src = m.source === 'IMPORT' ? 'Excel导入' : '重算'
+  return `当前绘制：${src} · ${m.builtAt || '-'} · ${m.relationCount || 0} 条关系`
+})
+async function loadMeta() {
+  try { drawMeta.value = await erMeta(props.env) } catch { drawMeta.value = null }
+}
 
 /* ─── 表搜索 ─── */
 let searchTimer = null
@@ -220,13 +264,14 @@ async function autoSelectFirstTable() {
   return false
 }
 
-// 打开页面就尝试自动展示（有数据则直接画最有料的表）
-onMounted(autoSelectFirstTable)
+// 打开页面就尝试自动展示（有数据则直接画最有料的表）+ 加载绘制时间
+onMounted(() => { autoSelectFirstTable(); loadMeta() })
 // 切 env 重新自动选
 watch(() => props.env, () => {
   centerTable.value = ''
   graph.value = { nodes: [], edges: [], nodeCount: 0, edgeCount: 0 }
   autoSelectFirstTable()
+  loadMeta()
 })
 
 /* ─── 加载子图 ─── */
@@ -365,11 +410,37 @@ async function confirmRebuild() {
     // 重算完自动展示：已选中心表则刷新，否则自动选最有料的表
     if (centerTable.value) await reloadGraph()
     else await autoSelectFirstTable()
+    await loadMeta()   // 刷新绘制时间描述（来源=重算）
   } catch (e) {
     if (e?.code === 'TOKEN_INVALID') rebuildAsk.error = '口令错误，请重新输入'
     else rebuildAsk.error = `重算失败：${e?.message || e}`
   } finally {
     rebuilding.value = false
+  }
+}
+
+/* ─── v5：Excel 导入 ─── */
+function openImport() {
+  importAsk.open = true; importAsk.error = ''; importAsk.result = ''
+  importFileRef.value = null
+  importToken.value = sessionToken.value || ''
+}
+function onImportFile(e) { importFileRef.value = e.target.files?.[0] || null }
+async function confirmImport() {
+  if (!importFileRef.value || importing.value) return
+  importing.value = true; importAsk.error = ''; importAsk.result = ''
+  try {
+    const r = await erImport(importFileRef.value, props.env, importToken.value)
+    sessionToken.value = importToken.value
+    importAsk.result = `导入完成：${r.imported} 条关系（清掉旧 ${r.deletedOld}，跳过 ${r.skipped}）`
+    // 整库替换后重新自动选中心表 + 重画 + 刷新绘制时间（来源=导入）
+    centerTable.value = ''
+    await autoSelectFirstTable()
+    await loadMeta()
+  } catch (e) {
+    importAsk.error = e?.code === 'TOKEN_INVALID' ? '口令错误，请重新输入' : `导入失败：${e?.message || e}`
+  } finally {
+    importing.value = false
   }
 }
 
@@ -409,6 +480,8 @@ function statusLabel(s) { return ({ AUTO: '自动推断', CONFIRMED: '已确认'
 .er-select { padding: 5px 8px; background: var(--bg-input, #fff); border: 1px solid var(--border, #d4d8dd); color: var(--text-primary, #14171c); border-radius: 4px; font-size: 13px; }
 /* v3：固定口径标签（替代原跳数/置信度选择器）*/
 .er-scope-tag { font-size: 12px; color: var(--text-secondary, #5a6172); padding: 4px 10px; background: var(--bg-domain-hover, #f5f7fa); border: 1px solid var(--border-subtle, #ebeef2); border-radius: 4px; }
+/* v5：绘制时间描述 */
+.er-draw-meta { font-size: 12px; color: var(--text-secondary, #5a6172); padding: 4px 8px; }
 .er-center-pill { margin-left: auto; font-size: 12.5px; color: var(--text-secondary, #5a6172); }
 .er-center-pill code { font-family: ui-monospace, Menlo, monospace; color: var(--text-primary, #14171c); }
 .er-center-stat { margin-left: 8px; opacity: .8; }

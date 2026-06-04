@@ -28,6 +28,10 @@
       </div>
     </div>
 
+    <div v-if="filter?.myApprovalTodo" class="slow-todo-banner">
+      🔔 仅显示「该我审批」的慢SQL（待一级 / 待二级）
+      <button class="slow-link" @click="clearTodo">清除筛选</button>
+    </div>
     <div class="slow-kpi">共 <b>{{ total }}</b> 条抽象SQL</div>
 
     <!-- 列表 -->
@@ -127,7 +131,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import {
   listSlowSql, listSlowSqlDomains, listSlowSqlBizTypes, importSlowSql, exportSlowSql,
   getWhitelistApprovers, applyWhitelist, getWhitelistApplication,
@@ -135,7 +139,11 @@ import {
 } from '../../api/daoIndex.js'
 import { getCurrentUser } from '../../api/auth.js'
 
-const props = defineProps({ env: { type: String, default: 'uat' } })
+const props = defineProps({
+  env: { type: String, default: 'uat' },
+  filter: { type: Object, default: () => ({}) },   // { myApprovalTodo } —— 铃铛慢SQL待办跳来
+})
+const emit = defineEmits(['update:env', 'clear-todo-filter'])
 
 const items = ref([]); const total = ref(0); const loading = ref(false); const errorMsg = ref('')
 const keyword = ref(''); const domain = ref(''); const bizType = ref(''); const whitelistStatus = ref('')
@@ -150,6 +158,8 @@ async function reload() {
     const data = await listSlowSql({
       keyword: keyword.value, domain: domain.value, bizType: bizType.value,
       whitelistStatus: whitelistStatus.value,
+      // 铃铛「慢SQL待办」跳来：只看该我审批的待审慢SQL
+      approverUser: props.filter?.myApprovalTodo ? (currentUser.value || undefined) : undefined,
       limit: pageSize, offset: page.value * pageSize,
     })
     items.value = data.items || []; total.value = data.total || 0
@@ -159,6 +169,10 @@ async function reload() {
     loading.value = false
   }
 }
+// 清除「我的待审」过滤（通知父级重置 filter）
+function clearTodo() { emit('clear-todo-filter') }
+// filter 变化（铃铛跳来 / 清除）→ 重新加载（组件 v-show 常驻不会重挂载）
+watch(() => props.filter, () => { page.value = 0; reload() }, { deep: true })
 
 onMounted(async () => {
   try { domains.value = await listSlowSqlDomains() } catch { /* ignore */ }
@@ -303,6 +317,8 @@ function wlClass(s) {
 .slow-btn.primary { background: var(--slow-brand); color: var(--slow-on-brand); border-color: transparent; }
 .slow-btn:disabled { opacity: .5; cursor: not-allowed; }
 .slow-kpi { margin: 12px 0; font-size: 13px; color: var(--text-secondary, #5a6172); }
+.slow-todo-banner { margin: 12px 0 0; padding: 8px 12px; border-radius: 6px; font-size: 13px;
+  background: var(--slow-warn-bg); color: var(--slow-warn); display: flex; justify-content: space-between; align-items: center; }
 .slow-state { padding: 40px; text-align: center; color: var(--text-secondary, #5a6172); }
 .slow-err { color: var(--slow-bad); }
 .slow-table { width: 100%; border-collapse: collapse; font-size: 13px; }

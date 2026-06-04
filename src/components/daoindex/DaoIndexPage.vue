@@ -44,7 +44,9 @@
     <DaoSlowSqlList
       v-show="currentPage === 'dii-slow-sql'"
       :env="env"
+      :filter="slowListFilter"
       @update:env="env = $event"
+      @clear-todo-filter="slowListFilter = {}"
     />
 
     <!-- 二级覆盖页：仅保留巡检任务详情；SQL 详情页已下线 -->
@@ -77,6 +79,8 @@ watch(env, (v) => localStorage.setItem('dii-env', v))
 
 // SQL 列表筛选条件，从 Dashboard 点击"未处理 POOR"等卡片跳转时传入
 const sqlListFilter = ref({})
+// 慢SQL 列表筛选（铃铛「慢SQL待办」跳来时 = 我的待审）
+const slowListFilter = ref({})
 
 // 详情页"覆盖"状态（简单栈，不做 Router）
 // { type: 'task-detail', id }
@@ -115,7 +119,13 @@ function openMyWhitelistTodo() {
   overlay.value = null
   emit('navigate-page', 'dii-sqls')
 }
-defineExpose({ openMyWhitelistTodo })
+/** v5：铃铛「慢SQL待办」→ 打开慢SQL页 + 我的待审过滤 */
+function openMySlowTodo() {
+  slowListFilter.value = { myApprovalTodo: true }
+  overlay.value = null
+  emit('navigate-page', 'dii-slow-sql')
+}
+defineExpose({ openMyWhitelistTodo, openMySlowTodo })
 
 /**
  * Dashboard 卡片 / 趋势图点击 → 跳到 SQL 列表并带上筛选

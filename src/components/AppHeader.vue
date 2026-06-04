@@ -51,7 +51,17 @@
                 stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
         <span v-if="todoCount > 0" class="todo-bell-badge">{{ todoCountText }}</span>
+        <!-- v5：含慢SQL待办时弹分流菜单 -->
+        <div v-if="bellOpen" class="todo-pop" @click.stop>
+          <button v-if="sqlInspectTodoCount > 0" class="todo-pop-item" @click="goTodo('sql')">
+            <span>SQL 巡检待办</span><b>{{ sqlInspectTodoCount }}</b>
+          </button>
+          <button v-if="slowSqlTodoCount > 0" class="todo-pop-item" @click="goTodo('slow')">
+            <span>慢SQL 待办</span><b>{{ slowSqlTodoCount }}</b>
+          </button>
+        </div>
       </div>
+      <div v-if="bellOpen" class="todo-pop-mask" @click="bellOpen = false"></div>
 
       <div class="user-info" @click="toggleUserMenu">
         <div class="avatar">{{ avatarText }}</div>
@@ -102,7 +112,7 @@ const props = defineProps({
 })
 
 // 加 navigate-todo 事件：点击铃铛通知父级跳转到 SQL 巡检页并打开"我的待审"过滤
-const emit = defineEmits(['search', 'toggleTheme', 'navigate-todo'])
+const emit = defineEmits(['search', 'toggleTheme', 'navigate-todo', 'navigate-slow-todo'])
 
 const router = useRouter()
 
@@ -158,9 +168,12 @@ async function onLogout() {
   router.push('/login')
 }
 
-// V16：白名单待办计数（铃铛红点）
+// V16：白名单待办计数（铃铛红点）；v5：拆 SQL巡检 / 慢SQL 两类，便于分流到对应页
 const todoCount = ref(0)
+const slowSqlTodoCount = ref(0)
+const sqlInspectTodoCount = ref(0)
 const todoCountText = computed(() => (todoCount.value > 99 ? '99+' : String(todoCount.value)))
+const bellOpen = ref(false)   // 有慢SQL待办时点铃铛弹出分流菜单
 let todoPollTimer = null
 
 async function refreshTodoCount() {
@@ -169,14 +182,24 @@ async function refreshTodoCount() {
       currentUser: currentUsername.value || undefined,
     })
     todoCount.value = Number(data?.count) || 0
+    slowSqlTodoCount.value = Number(data?.slowSqlCount) || 0
+    sqlInspectTodoCount.value = Number(data?.sqlInspectCount) || 0
   } catch (_) {
     // 鉴权未启用 / 网络错误：保持原数字不变（不闪烁清零）
   }
 }
 
 function onClickBell() {
-  // 让父级（TransactionAnalysis）切到 SQL 巡检页并打开"我的待审"过滤
-  emit('navigate-todo')
+  // 只有 SQL 巡检待办（无慢SQL）→ 老行为直接跳；含慢SQL → 弹菜单选去哪
+  if (slowSqlTodoCount.value > 0) {
+    bellOpen.value = !bellOpen.value
+  } else {
+    emit('navigate-todo')
+  }
+}
+function goTodo(kind) {
+  bellOpen.value = false
+  emit(kind === 'slow' ? 'navigate-slow-todo' : 'navigate-todo')
 }
 
 onMounted(async () => {
@@ -426,6 +449,36 @@ defineExpose({ setResult })
   border: 1.5px solid var(--header-bg, #1f2733);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 }
+
+/* v5：铃铛分流弹层 */
+.todo-pop {
+  position: absolute;
+  top: 38px;
+  right: 0;
+  z-index: 1000;
+  min-width: 180px;
+  background: var(--bg-panel, #fff);
+  border: 1px solid var(--border, #d4d8dd);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  padding: 6px;
+}
+.todo-pop-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  padding: 8px 10px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-primary, #14171c);
+}
+.todo-pop-item:hover { background: var(--bg-domain-hover, #f5f7fa); }
+.todo-pop-item b { color: var(--brand, #0b70db); }
+.todo-pop-mask { position: fixed; inset: 0; z-index: 999; background: transparent; }
 
 .user-info {
   position: relative;

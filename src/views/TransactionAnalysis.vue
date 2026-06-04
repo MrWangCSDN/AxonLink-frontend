@@ -3,7 +3,8 @@
     <AppHeader ref="appHeaderRef" :isDark="isDark"
                @search="handleGlobalSearch"
                @toggleTheme="toggleTheme"
-               @navigate-todo="onNavigateTodo" />
+               @navigate-todo="onNavigateTodo"
+               @navigate-slow-todo="onNavigateSlowTodo" />
 
     <div class="page-body">
       <ChainImpactSidebar
@@ -266,6 +267,10 @@ const daoIndexPageRef = ref(null)
 function onNavigateTodo() {
   // 切到 SQL 分析页（v-show 不会立刻挂载组件，但 DaoIndexPage 一直挂载所以 ref 可用）
   daoIndexPageRef.value?.openMyWhitelistTodo()
+}
+function onNavigateSlowTodo() {
+  // 切到慢SQL维度分析页并打开「我的待审」过滤
+  daoIndexPageRef.value?.openMySlowTodo()
 }
 const domains      = ref([])
 const activeDomain = ref(null)

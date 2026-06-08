@@ -44,6 +44,19 @@
             <button class="dii-todo-banner-clear" @click="emit('clear-todo-filter')">清除过滤</button>
           </div>
 
+          <!-- v7：白名单"我的待审"过滤 banner——从右上角铃铛「SQL巡检待办」跳来，
+               只显示由当前用户审批且处于待审（一审/二审）的白名单 SQL -->
+          <div v-if="filter?.myApprovalTodo" class="dii-todo-banner">
+            <span class="dii-todo-banner-text">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style="margin-right:6px;vertical-align:-2px;">
+                <path d="M18 16v-5a6 6 0 0 0-12 0v5l-2 2v1h16v-1l-2-2z M10 21a2 2 0 0 0 4 0"
+                      stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              我的待审批（白名单）· 共 <strong>{{ filteredItems.length }}</strong> 条
+            </span>
+            <button class="dii-todo-banner-clear" @click="emit('clear-todo-filter')">清除过滤</button>
+          </div>
+
           <!-- 第 2 行：搜索框 + 领域过滤 + 筛选汇总 -->
           <div class="hero-task-row">
             <!-- 搜索框：与任务编号同行 -->
@@ -94,8 +107,8 @@
               >清空</button>
             </div>
 
-            <!-- wl 模式专用：申请状态下拉 -->
-            <div v-if="props.whitelistScope === 'wl'" class="seg hero-seg hero-wl-status">
+            <!-- wl 模式专用：申请状态下拉（"我的待审"模式下隐藏，状态固定为待我审批） -->
+            <div v-if="props.whitelistScope === 'wl' && !filter?.myApprovalTodo" class="seg hero-seg hero-wl-status">
               <span class="seg-label">申请状态</span>
               <select class="select-sm" :value="wlStatus" @change="onWlStatusChange">
                 <option value="all">全部</option>
@@ -1024,10 +1037,21 @@ async function doLoad() {
     let offset = 0
     const acc = []
 
-    // 构造白名单 scope 参数：wl 模式时额外传 wlStatus（若选了具体状态）
+    // v7：铃铛「SQL巡检待办」=我的待审——需当前用户名做服务端审批人过滤。
+    // fast-path（localStorage）还没值时先同步拉一次 /auth/me，避免漏传 approverUser 把全部白名单都显示出来。
+    const myApprovalTodo = props.whitelistScope === 'wl' && !!props.filter?.myApprovalTodo
+    if (myApprovalTodo && !currentUser.value) {
+      await refreshCurrentUser()
+    }
+
+    // 构造白名单 scope 参数：
+    //   - 普通白名单页：按「申请状态」下拉传 wlStatus（全部时不传）
+    //   - 铃铛"我的待审"：传 approverUser=当前用户，服务端只回"待我审批且处于待审"的白名单行
     const wlParams = {}
     wlParams.whitelistScope = props.whitelistScope
-    if (props.whitelistScope === 'wl' && wlStatus.value !== 'all') {
+    if (myApprovalTodo) {
+      if (currentUser.value) wlParams.approverUser = currentUser.value
+    } else if (props.whitelistScope === 'wl' && wlStatus.value !== 'all') {
       wlParams.wlStatus = wlStatus.value
     }
 
@@ -1307,12 +1331,17 @@ watch(() => props.env, () => {
 })
 watch(
   () => props.filter,
-  (f) => {
+  (f, old) => {
     if (!f) return
     const next = { domain: '', issueSource: '', keyword: '' }
     if (f.domain) next.domain = f.domain
     filters.value = next
     page.value = 1
+    // v7：myApprovalTodo 是服务端过滤（approverUser），切换时必须重新拉数据；
+    // 其余筛选（domain/keyword）是客户端过滤，无需重载。
+    if (!!f.myApprovalTodo !== !!old?.myApprovalTodo) {
+      doLoad()
+    }
   },
   { deep: true },
 )

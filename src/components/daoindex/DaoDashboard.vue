@@ -153,13 +153,10 @@ async function doLoad() {
 onMounted(doLoad)
 watch(() => props.env, doLoad)
 
-/* "其他"领域在前端展示层过滤掉（业务上不关心兜底分类，只看明确的 4 个领域） */
-const filteredByDomain = computed(() =>
-  byDomain.value.filter(d => d.domain !== '其他')
-)
-const filteredRatingByDomain = computed(() =>
-  ratingByDomain.value.filter(d => d.domain !== '其他')
-)
+/* v6：保留「其他」领域——大屏数量需与 SQL维度分析/白名单 页面对得上（页面统计含其他），
+   故不再过滤；后端返回的所有领域（含其他）都展示。 */
+const filteredByDomain = computed(() => byDomain.value)
+const filteredRatingByDomain = computed(() => ratingByDomain.value)
 
 /* ─────── 第一块：按领域聚合 ─────── */
 const byDomainCats = computed(() => filteredByDomain.value.map(d => d.domain))

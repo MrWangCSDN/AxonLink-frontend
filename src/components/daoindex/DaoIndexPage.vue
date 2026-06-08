@@ -19,6 +19,13 @@
       @back-to-tasks="handleBackToTasks"
       @clear-todo-filter="sqlListFilter = {}"
     />
+    <!-- SQL 白名单列表：复用 DaoSqlList，传 whitelistScope='wl' 切换到白名单视图 -->
+    <DaoSqlList
+      v-show="currentPage === 'dii-sql-whitelist'"
+      :env="env"
+      :whitelist-scope="'wl'"
+      @update:env="env = $event"
+    />
     <DaoTaskList
       v-show="currentPage === 'dii-tasks'"
       :env="env"

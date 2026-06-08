@@ -46,13 +46,15 @@
           <section class="dii-panel">
             <div class="dii-panel-head">
               <div>
-                <h3 class="dii-panel-title">最新 SQL 任务分析中（按领域）</h3>
-                <p class="dii-panel-desc">巡检 SQL 总数 / EXPLAIN 报错 / LLM 已给出整改建议</p>
+                <h3 class="dii-panel-title">最新 SQL 任务分析（按领域）</h3>
+                <p class="dii-panel-desc">巡检 SQL 总数 / EXPLAIN 报错 / 需整改 / 白名单申请中 / 已申请白名单</p>
               </div>
               <div class="dii-legend">
                 <span class="dii-legend-item"><i class="dii-swatch dii-sw-total"></i>SQL总数</span>
                 <span class="dii-legend-item"><i class="dii-swatch dii-sw-err"></i>报错</span>
                 <span class="dii-legend-item"><i class="dii-swatch dii-sw-fix"></i>需整改</span>
+                <span class="dii-legend-item"><i class="dii-swatch dii-sw-wl-applying"></i>白名单申请中</span>
+                <span class="dii-legend-item"><i class="dii-swatch dii-sw-wl-approved"></i>已申请白名单</span>
               </div>
             </div>
             <DiiBarGroupChart
@@ -72,7 +74,9 @@
               </div>
               <div class="dii-legend">
                 <span class="dii-legend-item"><i class="dii-swatch dii-sw-error"></i>报错</span>
-                <span class="dii-legend-item"><i class="dii-swatch dii-sw-poor"></i>待整改</span>
+                <span class="dii-legend-item"><i class="dii-swatch dii-sw-fix"></i>需整改</span>
+                <span class="dii-legend-item"><i class="dii-swatch dii-sw-wl-applying"></i>白名单申请中</span>
+                <span class="dii-legend-item"><i class="dii-swatch dii-sw-wl-approved"></i>已申请白名单</span>
               </div>
             </div>
             <DiiHorizontalStackBar
@@ -162,22 +166,30 @@ const byDomainCats = computed(() => filteredByDomain.value.map(d => d.domain))
 const byDomainSeries = computed(() => [
   { name: 'SQL总数', color: 'var(--c-bar-total, #6366f1)',
     values: filteredByDomain.value.map(d => Number(d.total) || 0) },
-  { name: 'EXPLAIN 报错', color: 'var(--c-bar-err, #ef4444)',
+  { name: '报错', color: '#d4380d',
     values: filteredByDomain.value.map(d => Number(d.explain_err) || 0) },
-  { name: '需整改', color: 'var(--c-bar-fix, #10b981)',
-    values: filteredByDomain.value.map(d => Number(d.llm_fix) || 0) },
+  { name: '需整改', color: '#e6a23c',
+    values: filteredByDomain.value.map(d => Number(d.need_fix) || 0) },
+  { name: '白名单申请中', color: '#fa8c16',
+    values: filteredByDomain.value.map(d => Number(d.wl_applying) || 0) },
+  { name: '已申请白名单', color: '#722ed1',
+    values: filteredByDomain.value.map(d => Number(d.wl_approved) || 0) },
 ])
 
-/* ─────── 第二块：整改分布按领域（2 档：报错 / 待整改）───────
-   后端 ratingByDomain 新结构 [{domain, error_count, need_fix}]
+/* ─────── 第二块：整改分布按领域（4 档：报错 / 需整改 / 白名单申请中 / 已申请白名单）───────
+   后端 ratingByDomain 结构 [{domain, error_count, need_fix, wl_applying, wl_approved}]
    error_count = EXPLAIN 报错；need_fix = 非报错+overall_rating=POOR+llm_fix_verdict=NEED_FIX
-   AI 判定无需整改 / EXCELLENT / GOOD / 未分析 天然不计入 */
+   wl_applying = 白名单申请中；wl_approved = 已申请（审批通过）白名单 */
 const ratingDomainCats = computed(() => filteredRatingByDomain.value.map(d => d.domain))
 const ratingDomainSeries = computed(() => [
-  { name: '报错', color: 'var(--c-rating-error, #ef4444)',
+  { name: '报错', color: '#d4380d',
     values: filteredRatingByDomain.value.map(d => Number(d.error_count) || 0) },
-  { name: '待整改', color: 'var(--c-rating-poor, #f59e0b)',
+  { name: '需整改', color: '#e6a23c',
     values: filteredRatingByDomain.value.map(d => Number(d.need_fix) || 0) },
+  { name: '白名单申请中', color: '#fa8c16',
+    values: filteredRatingByDomain.value.map(d => Number(d.wl_applying) || 0) },
+  { name: '已申请白名单', color: '#722ed1',
+    values: filteredRatingByDomain.value.map(d => Number(d.wl_approved) || 0) },
 ])
 
 /* ─────── 第三块：7 天评级趋势 ───────
@@ -311,18 +323,22 @@ function fmtDay(s) {
   border-radius: 2px;
   display: inline-block;
 }
-.dii-sw-total     { background: var(--c-bar-total, #6366f1); }
-.dii-sw-err       { background: var(--c-bar-err, #ef4444); }
-.dii-sw-fix       { background: var(--c-bar-fix, #10b981); }
-.dii-sw-poor      { background: var(--c-rating-poor, #f59e0b); }
-.dii-sw-error     { background: var(--c-rating-error, #ef4444); }
-.dii-sw-elapsed   { background: var(--c-bar-elapsed, #8b5cf6); }
+.dii-sw-total       { background: var(--c-bar-total, #6366f1); }
+.dii-sw-err         { background: #d4380d; }
+.dii-sw-fix         { background: #e6a23c; }
+.dii-sw-poor        { background: #e6a23c; }
+.dii-sw-error       { background: #d4380d; }
+.dii-sw-elapsed     { background: var(--c-bar-elapsed, #8b5cf6); }
+.dii-sw-wl-applying { background: #fa8c16; }
+.dii-sw-wl-approved { background: #722ed1; }
 
 /* dark 主题：颜色亮一档保持对比度 */
-[data-theme="dark"] .dii-sw-total     { background: var(--c-bar-total-dark, #818cf8); }
-[data-theme="dark"] .dii-sw-err       { background: var(--c-bar-err-dark, #ff7a7e); }
-[data-theme="dark"] .dii-sw-fix       { background: var(--c-bar-fix-dark, #34d399); }
-[data-theme="dark"] .dii-sw-poor      { background: var(--c-rating-poor-dark, #fbbf24); }
-[data-theme="dark"] .dii-sw-error     { background: var(--c-rating-error-dark, #ff7a7e); }
-[data-theme="dark"] .dii-sw-elapsed   { background: var(--c-bar-elapsed-dark, #a78bfa); }
+[data-theme="dark"] .dii-sw-total       { background: var(--c-bar-total-dark, #818cf8); }
+[data-theme="dark"] .dii-sw-err         { background: #ff7a7e; }
+[data-theme="dark"] .dii-sw-fix         { background: #f5c062; }
+[data-theme="dark"] .dii-sw-poor        { background: #f5c062; }
+[data-theme="dark"] .dii-sw-error       { background: #ff7a7e; }
+[data-theme="dark"] .dii-sw-elapsed     { background: var(--c-bar-elapsed-dark, #a78bfa); }
+[data-theme="dark"] .dii-sw-wl-applying { background: #ffa940; }
+[data-theme="dark"] .dii-sw-wl-approved { background: #9254de; }
 </style>

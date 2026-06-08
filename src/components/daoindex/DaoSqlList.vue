@@ -9,7 +9,7 @@
             <div class="crumb">
               <span class="crumb-home">SQL 巡检</span>
               <span class="crumb-sep">/</span>
-              <span class="crumb-current">SQL 分析</span>
+              <span class="crumb-current">{{ props.whitelistScope === 'wl' ? 'SQL 白名单列表' : 'SQL 分析' }}</span>
             </div>
             <div v-if="latestTask" class="hero-task">
               <span class="task-pill" :class="`status-${String(latestTask.status||'').toLowerCase()}`">
@@ -94,6 +94,17 @@
               >清空</button>
             </div>
 
+            <!-- wl 模式专用：申请状态下拉 -->
+            <div v-if="props.whitelistScope === 'wl'" class="seg hero-seg hero-wl-status">
+              <span class="seg-label">申请状态</span>
+              <select class="select-sm" :value="wlStatus" @change="onWlStatusChange">
+                <option value="all">全部</option>
+                <option value="applying">申请中</option>
+                <option value="approved">已通过</option>
+                <option value="rejected">已退回</option>
+              </select>
+            </div>
+
             <!-- 筛选汇总（仅有筛选时显示） -->
             <span v-if="hasActiveFilter" class="hero-filter-summary">
               筛选后 <strong>{{ total }}</strong> / 全部 <strong>{{ serverTotal }}</strong>
@@ -114,8 +125,8 @@
             </svg>
             {{ loading ? '加载中' : '刷新' }}
           </button>
-          <!-- V16+：导入 Excel/CSV（原 SQL 池独立页下线后入口移到这里） -->
-          <button class="btn btn-secondary" @click="importOpen = true" title="导入 IndexWarnLog 日志（.xlsx 或 .csv）到 SQL 池">
+          <!-- V16+：导入 Excel/CSV（wl 模式下隐藏，白名单列表不支持导入） -->
+          <button v-if="props.whitelistScope !== 'wl'" class="btn btn-secondary" @click="importOpen = true" title="导入 IndexWarnLog 日志（.xlsx 或 .csv）到 SQL 池">
             <svg class="btn-ico" width="14" height="14" viewBox="0 0 14 14" fill="none">
               <path d="M7 12.5v-8m0 0L4 7.5m3-3l3 3M2.5 2v1.5h9V2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
@@ -649,6 +660,8 @@ import {
 const props = defineProps({
   env: { type: String, default: 'uat' },
   filter: { type: Object, default: () => ({}) },
+  // whitelistScope: 'plain'（默认，剔除活跃白名单）/ 'wl'（只看活跃白名单）
+  whitelistScope: { type: String, default: 'plain' },
 })
 
 const emit = defineEmits(['update:env', 'back-to-tasks', 'clear-todo-filter'])
@@ -665,6 +678,8 @@ const TYPE_OPTIONS = [
   { key: 'odb', label: 'odb' },
   { key: 'nsql', label: 'nsql' },
 ]
+// wl 模式专用：申请状态过滤（all / applying / approved / rejected）
+const wlStatus = ref('all')
 const latestTask = ref(null)
 const rawItems = ref([])
 const total = ref(0)
@@ -972,6 +987,12 @@ function onEnvChange(e) {
   page.value = 1
   doLoad()
 }
+// wl 模式：申请状态下拉变化时重新加载
+function onWlStatusChange(e) {
+  wlStatus.value = e.target.value
+  page.value = 1
+  doLoad()
+}
 
 /* ────────── 数据加载 ────────── */
 async function doLoad() {
@@ -1003,9 +1024,17 @@ async function doLoad() {
     let offset = 0
     const acc = []
 
+    // 构造白名单 scope 参数：wl 模式时额外传 wlStatus（若选了具体状态）
+    const wlParams = {}
+    wlParams.whitelistScope = props.whitelistScope
+    if (props.whitelistScope === 'wl' && wlStatus.value !== 'all') {
+      wlParams.wlStatus = wlStatus.value
+    }
+
     while (offset < maxItems) {
       const res = await listDiiItemIssues({
         env: props.env, taskId: task.id, limit: batchSize, offset,
+        ...wlParams,
       })
       const batch = Array.isArray(res) ? res : (res?.items || [])
       if (offset === 0) serverTotal.value = res?.total ?? batch.length

@@ -9,7 +9,7 @@
             <div class="crumb">
               <span class="crumb-home">SQL 巡检</span>
               <span class="crumb-sep">/</span>
-              <span class="crumb-current">SQL 分析</span>
+              <span class="crumb-current">{{ props.whitelistScope === 'wl' ? 'SQL 白名单列表' : 'SQL 分析' }}</span>
             </div>
             <div v-if="latestTask" class="hero-task">
               <span class="task-pill" :class="`status-${String(latestTask.status||'').toLowerCase()}`">
@@ -40,6 +40,19 @@
                       stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
               我的待审批 · 共 <strong>{{ filteredItems.length }}</strong> 条
+            </span>
+            <button class="dii-todo-banner-clear" @click="emit('clear-todo-filter')">清除过滤</button>
+          </div>
+
+          <!-- v7：白名单"我的待审"过滤 banner——从右上角铃铛「SQL巡检待办」跳来，
+               只显示由当前用户审批且处于待审（一审/二审）的白名单 SQL -->
+          <div v-if="filter?.myApprovalTodo" class="dii-todo-banner">
+            <span class="dii-todo-banner-text">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style="margin-right:6px;vertical-align:-2px;">
+                <path d="M18 16v-5a6 6 0 0 0-12 0v5l-2 2v1h16v-1l-2-2z M10 21a2 2 0 0 0 4 0"
+                      stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              我的待审批（白名单）· 共 <strong>{{ filteredItems.length }}</strong> 条
             </span>
             <button class="dii-todo-banner-clear" @click="emit('clear-todo-filter')">清除过滤</button>
           </div>
@@ -94,6 +107,17 @@
               >清空</button>
             </div>
 
+            <!-- wl 模式专用：申请状态下拉（"我的待审"模式下隐藏，状态固定为待我审批） -->
+            <div v-if="props.whitelistScope === 'wl' && !filter?.myApprovalTodo" class="seg hero-seg hero-wl-status">
+              <span class="seg-label">申请状态</span>
+              <select class="select-sm" :value="wlStatus" @change="onWlStatusChange">
+                <option value="all">全部</option>
+                <option value="applying">申请中</option>
+                <option value="approved">已通过</option>
+                <option value="rejected">已退回</option>
+              </select>
+            </div>
+
             <!-- 筛选汇总（仅有筛选时显示） -->
             <span v-if="hasActiveFilter" class="hero-filter-summary">
               筛选后 <strong>{{ total }}</strong> / 全部 <strong>{{ serverTotal }}</strong>
@@ -114,8 +138,8 @@
             </svg>
             {{ loading ? '加载中' : '刷新' }}
           </button>
-          <!-- V16+：导入 Excel/CSV（原 SQL 池独立页下线后入口移到这里） -->
-          <button class="btn btn-secondary" @click="importOpen = true" title="导入 IndexWarnLog 日志（.xlsx 或 .csv）到 SQL 池">
+          <!-- V16+：导入 Excel/CSV（wl 模式下隐藏，白名单列表不支持导入） -->
+          <button v-if="props.whitelistScope !== 'wl'" class="btn btn-secondary" @click="importOpen = true" title="导入 IndexWarnLog 日志（.xlsx 或 .csv）到 SQL 池">
             <svg class="btn-ico" width="14" height="14" viewBox="0 0 14 14" fill="none">
               <path d="M7 12.5v-8m0 0L4 7.5m3-3l3 3M2.5 2v1.5h9V2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
@@ -649,6 +673,8 @@ import {
 const props = defineProps({
   env: { type: String, default: 'uat' },
   filter: { type: Object, default: () => ({}) },
+  // whitelistScope: 'plain'（默认，剔除活跃白名单）/ 'wl'（只看活跃白名单）
+  whitelistScope: { type: String, default: 'plain' },
 })
 
 const emit = defineEmits(['update:env', 'back-to-tasks', 'clear-todo-filter'])
@@ -665,6 +691,8 @@ const TYPE_OPTIONS = [
   { key: 'odb', label: 'odb' },
   { key: 'nsql', label: 'nsql' },
 ]
+// wl 模式专用：申请状态过滤（all / applying / approved / rejected）
+const wlStatus = ref('all')
 const latestTask = ref(null)
 const rawItems = ref([])
 const total = ref(0)
@@ -972,6 +1000,12 @@ function onEnvChange(e) {
   page.value = 1
   doLoad()
 }
+// wl 模式：申请状态下拉变化时重新加载
+function onWlStatusChange(e) {
+  wlStatus.value = e.target.value
+  page.value = 1
+  doLoad()
+}
 
 /* ────────── 数据加载 ────────── */
 async function doLoad() {
@@ -1003,9 +1037,28 @@ async function doLoad() {
     let offset = 0
     const acc = []
 
+    // v7：铃铛「SQL巡检待办」=我的待审——需当前用户名做服务端审批人过滤。
+    // fast-path（localStorage）还没值时先同步拉一次 /auth/me，避免漏传 approverUser 把全部白名单都显示出来。
+    const myApprovalTodo = props.whitelistScope === 'wl' && !!props.filter?.myApprovalTodo
+    if (myApprovalTodo && !currentUser.value) {
+      await refreshCurrentUser()
+    }
+
+    // 构造白名单 scope 参数：
+    //   - 普通白名单页：按「申请状态」下拉传 wlStatus（全部时不传）
+    //   - 铃铛"我的待审"：传 approverUser=当前用户，服务端只回"待我审批且处于待审"的白名单行
+    const wlParams = {}
+    wlParams.whitelistScope = props.whitelistScope
+    if (myApprovalTodo) {
+      if (currentUser.value) wlParams.approverUser = currentUser.value
+    } else if (props.whitelistScope === 'wl' && wlStatus.value !== 'all') {
+      wlParams.wlStatus = wlStatus.value
+    }
+
     while (offset < maxItems) {
       const res = await listDiiItemIssues({
         env: props.env, taskId: task.id, limit: batchSize, offset,
+        ...wlParams,
       })
       const batch = Array.isArray(res) ? res : (res?.items || [])
       if (offset === 0) serverTotal.value = res?.total ?? batch.length
@@ -1278,12 +1331,17 @@ watch(() => props.env, () => {
 })
 watch(
   () => props.filter,
-  (f) => {
+  (f, old) => {
     if (!f) return
     const next = { domain: '', issueSource: '', keyword: '' }
     if (f.domain) next.domain = f.domain
     filters.value = next
     page.value = 1
+    // v7：myApprovalTodo 是服务端过滤（approverUser），切换时必须重新拉数据；
+    // 其余筛选（domain/keyword）是客户端过滤，无需重载。
+    if (!!f.myApprovalTodo !== !!old?.myApprovalTodo) {
+      doLoad()
+    }
   },
   { deep: true },
 )

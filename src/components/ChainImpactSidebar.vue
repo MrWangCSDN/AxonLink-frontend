@@ -512,11 +512,14 @@ const impactMenu = [
 // 单独的 color 字段保留是为了向后兼容，但 diiRowStyle / diiIcoWrapStyle 已不读它
 const DII_MENU_ACCENT = '#0b70db'
 const diiMenu = [
-  { key: 'dii-dashboard',     label: '概览仪表盘',     desc: '总览 · 评级分布' },
-  { key: 'dii-tasks',         label: '巡检任务',       desc: '批量巡检进度' },
+  { key: 'dii-dashboard',       label: '概览仪表盘',     desc: '总览 · 评级分布' },
+  { key: 'dii-tasks',           label: '巡检任务',       desc: '批量巡检进度' },
   // V16+：SQL 池独立子页下线——导入入口合并到 SQL 维度分析页头部
-  { key: 'dii-sqls',          label: 'SQL 维度分析',   desc: '逐条 SQL · 含池导入' },
-  { key: 'dii-table-advice',  label: 'TABLE 维度分析', desc: 'DBA 聚合视图' },
+  { key: 'dii-sqls',            label: 'SQL 维度分析',   desc: '逐条 SQL · 含池导入' },
+  { key: 'dii-sql-whitelist',   label: 'SQL 白名单列表', desc: '申请中/已通过' },
+  { key: 'dii-table-advice',    label: 'TABLE 维度分析', desc: 'DBA 聚合视图' },
+  { key: 'dii-er',              label: 'ER 图',          desc: '表关系推断' },
+  { key: 'dii-slow-sql',        label: '慢SQL维度分析',  desc: '慢SQL导入·轮次·白名单' },
 ]
 
 // ══════════ 代码提交 · 独立分区（与 SQL 巡检 / 影响分析 平级）子页菜单 ══════════
@@ -534,12 +537,25 @@ const IconClipboard = iconLucide('M9 2h6a2 2 0 0 1 2 2v2H7V4a2 2 0 0 1 2-2z M7 6
 const IconTable = iconLucide('M3 6h18M3 12h18M3 18h18 M9 3v18M15 3v18', 15)
 const IconCodeDash = iconLucide('M9 7l-4 5 4 5 M15 7l4 5-4 5', 15)
 const IconUpload = iconLucide('M12 3v12 M7 8l5-5 5 5 M3 19h18', 15)
+// ER 图：两节点 + 连线
+const IconEr = iconLucide('M5 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4z M19 21a2 2 0 1 0 0-4 2 2 0 0 0 0 4z M6.5 6.5l11 11', 15)
+// 慢SQL：时钟
+const IconSlow = iconLucide('M12 7v5l3 2 M12 21a9 9 0 1 1 0-18 9 9 0 0 1 0 18z', 15)
+
+// 白名单图标：shield + check（盾牌表示保护/白名单语义）
+const IconShieldCheck = iconLucide(
+  'M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z M9 12l2 2 4-4',
+  15
+)
 
 const diiIconMap = {
-  'dii-dashboard':    IconGauge,
-  'dii-sqls':         IconList,
-  'dii-tasks':        IconClipboard,
-  'dii-table-advice': IconTable,
+  'dii-dashboard':      IconGauge,
+  'dii-sqls':           IconList,
+  'dii-sql-whitelist':  IconShieldCheck,
+  'dii-tasks':          IconClipboard,
+  'dii-table-advice':   IconTable,
+  'dii-er':             IconEr,
+  'dii-slow-sql':       IconSlow,
   // dii-sql-pool 已下线，IconUpload 改为用在 DaoSqlList 顶部导入按钮里
 }
 

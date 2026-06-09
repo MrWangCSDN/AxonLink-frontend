@@ -19,6 +19,16 @@
       @back-to-tasks="handleBackToTasks"
       @clear-todo-filter="sqlListFilter = {}"
     />
+    <!-- SQL 白名单列表：复用 DaoSqlList，传 whitelistScope='wl' 切换到白名单视图。
+         filter.myApprovalTodo=true 时（铃铛跳来）只显示由我审批的待审白名单 -->
+    <DaoSqlList
+      v-show="currentPage === 'dii-sql-whitelist'"
+      :env="env"
+      :whitelist-scope="'wl'"
+      :filter="sqlWhitelistFilter"
+      @update:env="env = $event"
+      @clear-todo-filter="sqlWhitelistFilter = {}"
+    />
     <DaoTaskList
       v-show="currentPage === 'dii-tasks'"
       :env="env"
@@ -32,6 +42,22 @@
       @update:env="env = $event"
     />
     <!-- V16+：SQL 池独立子页 DaoSqlPool 下线，导入入口集成到 DaoSqlList 头部 -->
+
+    <!-- V19：表关系 ER 图 -->
+    <DaoErDiagram
+      v-show="currentPage === 'dii-er'"
+      :env="env"
+      @update:env="env = $event"
+    />
+
+    <!-- V20：慢SQL维度分析 -->
+    <DaoSlowSqlList
+      v-show="currentPage === 'dii-slow-sql'"
+      :env="env"
+      :filter="slowListFilter"
+      @update:env="env = $event"
+      @clear-todo-filter="slowListFilter = {}"
+    />
 
     <!-- 二级覆盖页：仅保留巡检任务详情；SQL 详情页已下线 -->
     <DaoTaskDetail
@@ -48,6 +74,8 @@ import DaoDashboard from './DaoDashboard.vue'
 import DaoSqlList from './DaoSqlList.vue'
 import DaoTaskList from './DaoTaskList.vue'
 import DaoTableAdvice from './DaoTableAdvice.vue'
+import DaoErDiagram from './DaoErDiagram.vue'
+import DaoSlowSqlList from './DaoSlowSqlList.vue'
 import DaoTaskDetail from './DaoTaskDetail.vue'
 
 const props = defineProps({
@@ -61,6 +89,10 @@ watch(env, (v) => localStorage.setItem('dii-env', v))
 
 // SQL 列表筛选条件，从 Dashboard 点击"未处理 POOR"等卡片跳转时传入
 const sqlListFilter = ref({})
+// SQL 白名单列表筛选（铃铛「SQL巡检待办」跳来时 = 我的待审，只看由我审批的待审白名单）
+const sqlWhitelistFilter = ref({})
+// 慢SQL 列表筛选（铃铛「慢SQL待办」跳来时 = 我的待审）
+const slowListFilter = ref({})
 
 // 详情页"覆盖"状态（简单栈，不做 Router）
 // { type: 'task-detail', id }
@@ -92,14 +124,22 @@ function handleBackToTasks() {
 }
 
 /**
- * V16：父级（TransactionAnalysis）通过 ref 调用——打开 SQL 巡检页并启用「我的待审」过滤
+ * V16/v7：父级（TransactionAnalysis）通过 ref 调用——铃铛「SQL巡检待办」点击。
+ * v7 改为跳「SQL白名单列表」页并启用「我的待审」过滤（只显示由当前用户审批且待审的白名单），
+ * 而不再跳 SQL 维度分析页（那里会混入别人待审的行）。
  */
 function openMyWhitelistTodo() {
-  sqlListFilter.value = { myWhitelistTodo: true }
+  sqlWhitelistFilter.value = { myApprovalTodo: true }
   overlay.value = null
-  emit('navigate-page', 'dii-sqls')
+  emit('navigate-page', 'dii-sql-whitelist')
 }
-defineExpose({ openMyWhitelistTodo })
+/** v5：铃铛「慢SQL待办」→ 打开慢SQL页 + 我的待审过滤 */
+function openMySlowTodo() {
+  slowListFilter.value = { myApprovalTodo: true }
+  overlay.value = null
+  emit('navigate-page', 'dii-slow-sql')
+}
+defineExpose({ openMyWhitelistTodo, openMySlowTodo })
 
 /**
  * Dashboard 卡片 / 趋势图点击 → 跳到 SQL 列表并带上筛选

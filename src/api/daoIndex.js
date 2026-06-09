@@ -271,6 +271,94 @@ export function getDiiTask(id) {
   return request(`${PREFIX}/batch-tasks/${id}`)
 }
 
+/* ───────────── V19 表关系 ER 图 ───────────── */
+
+/** 重算 ER 关系（口令保护，复用 X-DII-Trigger-Token）。返回统计。 */
+export async function erRebuild(env, token) {
+  const qs = toQuery({ env })
+  const resp = await fetch(`/api${PREFIX}/er/rebuild${qs}`, {
+    method: 'POST',
+    headers: { 'X-DII-Trigger-Token': token || '' },
+  })
+  const json = await resp.json().catch(() => ({}))
+  if (resp.status === 401 || json?.code === 401) {
+    const err = new Error('口令错误'); err.code = 'TOKEN_INVALID'; throw err
+  }
+  if (!resp.ok || json?.code !== 200) {
+    const err = new Error(json?.message || `HTTP ${resp.status}`); err.code = 'REBUILD_FAILED'; throw err
+  }
+  return json.data
+}
+
+/** 有关系的表搜索（画布选中心表）。 */
+export function erTables(env, keyword) {
+  const qs = toQuery({ env, keyword })
+  return request(`${PREFIX}/er/tables${qs}`)
+}
+
+/** 导入关系清单 Excel（口令保护，整库替换该 env，严格按导入内容绘制）。 */
+export async function erImport(file, env, token) {
+  const fd = new FormData()
+  fd.append('file', file)
+  if (env) fd.append('env', env)
+  const resp = await fetch(`/api${PREFIX}/er/import`, {
+    method: 'POST',
+    headers: { 'X-DII-Trigger-Token': token || '' },
+    body: fd,
+  })
+  const json = await resp.json().catch(() => ({}))
+  if (resp.status === 401 || json?.code === 401) {
+    const err = new Error('口令错误'); err.code = 'TOKEN_INVALID'; throw err
+  }
+  if (!resp.ok || json?.code !== 200) {
+    const err = new Error(json?.message || `HTTP ${resp.status}`); err.code = 'IMPORT_FAILED'; throw err
+  }
+  return json.data
+}
+
+/** 绘制元信息：{ source: 'REBUILD'|'IMPORT'|null, builtAt, relationCount }。 */
+export function erMeta(env) {
+  const qs = toQuery({ env })
+  return request(`${PREFIX}/er/meta${qs}`)
+}
+
+/**
+ * 取子图。
+ * @param {Object} p { env, table, hops, full, minConfidence }
+ * @returns {Promise<{nodes, edges, nodeCount, edgeCount}>}
+ */
+export function erGraph(p = {}) {
+  const qs = toQuery(p)
+  return request(`${PREFIX}/er/graph${qs}`)
+}
+
+/** 人工修正关系 status（CONFIRMED/IGNORED/AUTO，口令保护）。 */
+export async function setErStatus(id, value, token) {
+  const resp = await fetch(`/api${PREFIX}/er/relations/${id}/status?value=${encodeURIComponent(value)}`, {
+    method: 'POST',
+    headers: { 'X-DII-Trigger-Token': token || '' },
+  })
+  const json = await resp.json().catch(() => ({}))
+  if (resp.status === 401 || json?.code === 401) {
+    const err = new Error('口令错误'); err.code = 'TOKEN_INVALID'; throw err
+  }
+  if (!resp.ok || json?.code !== 200) {
+    const err = new Error(json?.message || `HTTP ${resp.status}`); err.code = 'STATUS_FAILED'; throw err
+  }
+  return json.data
+}
+
+/**
+ * 导出关系清单 Excel。
+ * v4：传 table + hops → 与画布完全一致（只导该中心表的 N 跳子图，默认 HIGH、排除 IGNORED）。
+ * 不传 table 退化为全量（一般不用）。
+ */
+export function exportErRelations(env, minConfidence = 'HIGH', table, hops) {
+  const qs = toQuery({ env, minConfidence, table, hops })
+  const suffix = table ? `-${table}` : ''
+  return download(`${PREFIX}/er/export${qs}`, `er-relations-${env || 'uat'}${suffix}.xlsx`)
+}
+
 /** 新起一次巡检（异步） */
 export function startDiiBatch(env = 'uat') {
   return request(`${PREFIX}/batch-analyze?env=${encodeURIComponent(env)}`, {
@@ -470,6 +558,50 @@ export async function toggleItemWhitelist(id, value, token) {
     throw err
   }
   return json.data
+}
+
+/* ───────────── V20 慢SQL维度分析 ───────────── */
+
+/** 导入慢SQL明细（.xlsx/.xls/.csv，口令保护） */
+export async function importSlowSql(file, env, token) {
+  const fd = new FormData()
+  fd.append('file', file)
+  if (env) fd.append('env', env)
+  const resp = await fetch(`/api${PREFIX}/slow-sql/import`, {
+    method: 'POST',
+    headers: { 'X-DII-Trigger-Token': token || '' },
+    body: fd,
+  })
+  const json = await resp.json().catch(() => ({}))
+  if (resp.status === 401 || json?.code === 401) {
+    const err = new Error('口令错误'); err.code = 'TOKEN_INVALID'; throw err
+  }
+  if (!resp.ok || json?.code !== 200) {
+    const err = new Error(json?.message || `HTTP ${resp.status}`); err.code = 'IMPORT_FAILED'; throw err
+  }
+  return json.data
+}
+
+/** 慢SQL聚合列表 { total, items } */
+export function listSlowSql(params = {}) {
+  const qs = toQuery(params)
+  return request(`${PREFIX}/slow-sql${qs}`)
+}
+
+/** 慢SQL领域下拉（中文领域） */
+export function listSlowSqlDomains() {
+  return request(`${PREFIX}/slow-sql/domains`)
+}
+
+/** 慢SQL类型下拉（中文类型：联机/热点账户/批量） */
+export function listSlowSqlBizTypes() {
+  return request(`${PREFIX}/slow-sql/biz-types`)
+}
+
+/** 导出慢SQL透视 Excel（全量，仅 env） */
+export function exportSlowSql(env) {
+  const qs = toQuery({ env })
+  return download(`${PREFIX}/slow-sql/export${qs}`, `slow-sql-${env || 'uat'}.xlsx`)
 }
 
 /* ───────────── 工具：把对象变成 ?a=1&b=2 ───────────── */

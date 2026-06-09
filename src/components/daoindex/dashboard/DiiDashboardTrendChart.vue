@@ -3,7 +3,7 @@
     <div class="dii-panel__head">
       <div>
         <h3 class="dii-panel__title">近 7 天整改趋势</h3>
-        <p class="dii-panel__desc">勾选领域与整改类型，按 (领域 × 类型) 叠加折线对比时间趋势（与整改分布同口径）。</p>
+        <p class="dii-panel__desc">勾选领域与整改类型，按 (领域 × 类型) 叠加折线对比时间趋势（报错 / 需整改 / 白名单申请中 / 已申请白名单）。</p>
       </div>
     </div>
 
@@ -80,11 +80,13 @@ const props = defineProps({
 const SUMMARY = '汇总'
 const DOMAINS = [SUMMARY, '公共', '存款', '贷款', '结算']
 
-// 整改类型 → 取数字段 + 颜色 token（与整改分布 2 档完全一致）。
+// 整改类型 → 取数字段 + 固定颜色（与看板三图颜色常量保持一致）。
 // RATINGS 变量名沿用（语义已是"整改类型"），避免大范围改名引入风险。
 const RATINGS = [
-  { key: 'error', label: '报错', field: 'error_count', color: 'var(--c-rating-error)' },
-  { key: 'need_fix', label: '待整改', field: 'need_fix', color: 'var(--c-rating-poor)' },
+  { key: 'error',       label: '报错',       field: 'error_count',  color: '#d4380d' },
+  { key: 'need_fix',    label: '需整改',     field: 'need_fix',     color: '#e6a23c' },
+  { key: 'wl_applying', label: '白名单申请中', field: 'wl_applying', color: '#fa8c16' },
+  { key: 'wl_approved', label: '已申请白名单', field: 'wl_approved', color: '#722ed1' },
 ]
 
 // 领域 → 线型（SVG stroke-dasharray）。汇总=实线，其余各异。
@@ -96,9 +98,9 @@ const DOMAIN_DASH = {
   结算: '18 8',
 }
 
-// 默认：领域单选=汇总；整改类型仍多选（报错 + 待整改）
+// 默认：领域单选=汇总；整改类型多选（报错 + 需整改 + 白名单申请中 + 已申请白名单）
 const selDomain = ref(SUMMARY)
-const selRatings = ref(['error', 'need_fix'])
+const selRatings = ref(['error', 'need_fix', 'wl_applying', 'wl_approved'])
 
 // 按后端返回顺序抽取 7 个任务（task_id 去重，保插入序 = 时间正序）
 const taskList = computed(() => {

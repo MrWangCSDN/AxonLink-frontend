@@ -379,10 +379,10 @@ async function loadTrend() {
 // domain_key（后端 DomainKeyResolver 口径）→ 中文名。常见域用项目既有中文，
 // 生僻键未收录时回退原 key（不臆造），后续按真实仓库补全即可。
 const DOMAIN_CN = {
-  deposit: '存款',
+  dept: '存款',
   loan: '贷款',
-  settlement: '结算',
-  public: '公共',
+  sett: '结算',
+  comm: '公共',
   platform: '平台',
   unvr: '通用',
   aggr: '聚合',

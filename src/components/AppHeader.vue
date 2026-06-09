@@ -110,14 +110,16 @@ const searchText   = ref('')
 const showUserMenu = ref(false)
 const isLoading    = ref(false)
 const isNotFound   = ref(false)
-// 当前登录用户名（鉴权未启用 或 还没探测到时 显示"管理员"作为缺省）
+// 当前登录用户：保存 realName（中文名优先）+ username（兜底）
+const currentRealName = ref('')
 const currentUsername = ref('')
 
-const displayName = computed(() => currentUsername.value || '管理员')
+// 右上角展示：realName 优先 → username → 缺省「管理员」
+const displayName = computed(() => currentRealName.value || currentUsername.value || '管理员')
 const avatarText = computed(() => {
-  const name = currentUsername.value
+  const name = currentRealName.value || currentUsername.value
   if (!name) return '管'
-  // 取用户名首字符大写（英文/数字账号都适用；中文则取首个汉字）
+  // 中文姓名取首字（如「张伟」→「张」），英文/数字取首字符
   return name.charAt(0).toUpperCase()
 })
 
@@ -185,6 +187,10 @@ onMounted(async () => {
     const user = await getCurrentUser()
     if (user?.username) {
       currentUsername.value = user.username
+      // 关键：后端 /me 返回 realName（中文真实姓名），优先用它展示在右上角
+      if (user.realName) {
+        currentRealName.value = user.realName
+      }
       // V16+：写入 localStorage 供 DaoSqlList 等其他组件 fast-path 读取
       // （白名单审批 mode 检测需要真实 LDAP username 匹配 application.l1/l2_approver）
       try { window.localStorage?.setItem('dii-user', user.username) } catch {}

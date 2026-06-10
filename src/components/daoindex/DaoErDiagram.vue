@@ -59,6 +59,13 @@
         <!-- v5：绘制时间描述（来源+时间+条数）-->
         <span v-if="drawMetaText" class="er-draw-meta">{{ drawMetaText }}</span>
 
+        <!-- v7：规模上限提示——子图被截断时（多见于 2 跳枢纽表）警示，避免误以为已是全量 -->
+        <span
+          v-if="truncated"
+          class="er-trunc-warn"
+          :title="`规模过大：已限制为 ${maxNodes} 个表，未显示全部 ${hops} 跳关系。可切回更少跳数或换中心表。`"
+        >⚠ 已限规模（{{ maxNodes }} 表）· 部分 {{ hops }} 跳关系未显示</span>
+
         <span v-if="centerTable" class="er-center-pill">
           中心：<code>{{ centerTable }}</code>
           <span class="er-center-stat">{{ graph.nodeCount || 0 }} 表 / {{ graph.edgeCount || 0 }} 关系</span>
@@ -214,6 +221,9 @@ const centerTable = ref('')
 const hops = ref(1)
 const minConfidence = 'HIGH'
 const graph = ref({ nodes: [], edges: [], nodeCount: 0, edgeCount: 0 })
+// v7：规模上限——后端 BFS 累计到 maxNodes 即截断子图并回 truncated，前端给出提示
+const truncated = computed(() => !!graph.value?.truncated)
+const maxNodes = computed(() => Number(graph.value?.maxNodes) || 0)
 const loading = ref(false)
 const errorMsg = ref('')
 
@@ -511,6 +521,9 @@ function statusLabel(s) { return ({ AUTO: '自动推断', CONFIRMED: '已确认'
 [data-theme="dark"] .er-hop-btn.active { background: var(--text-link-dark, #60a5fa); color: #0b1220; }
 /* v5：绘制时间描述 */
 .er-draw-meta { font-size: 12px; color: var(--text-secondary, #5a6172); padding: 4px 8px; }
+/* v7：规模上限警示 chip——状态色，含 dark 变体（暗底用更亮的 #f5c062） */
+.er-trunc-warn { font-size: 12px; color: var(--text-warning, #b7791f); padding: 4px 10px; background: var(--bg-warning-soft, #fff8e6); border: 1px solid var(--border-warning, #f5d98b); border-radius: 4px; cursor: help; }
+[data-theme="dark"] .er-trunc-warn { color: var(--text-warning-dark, #f5c062); background: var(--bg-warning-soft-dark, #332b1a); border-color: var(--border-warning-dark, #5a4a2a); }
 .er-center-pill { margin-left: auto; font-size: 12.5px; color: var(--text-secondary, #5a6172); }
 .er-center-pill code { font-family: ui-monospace, Menlo, monospace; color: var(--text-primary, #14171c); }
 .er-center-stat { margin-left: 8px; opacity: .8; }

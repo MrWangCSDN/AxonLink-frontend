@@ -355,7 +355,9 @@
                     </div>
                   </div>
                   <div class="row-detail-actions">
+                    <!-- v7：白名单列表(wl 视图)不展示"重新分析"按钮 -->
                     <button
+                      v-if="props.whitelistScope !== 'wl'"
                       class="btn btn-primary btn-ai-lead"
                       :disabled="isRowRunning(it.id)"
                       @click.stop="rerunLlm(it.id, it.source)"
@@ -494,7 +496,9 @@
                 </div>
 
                 <div class="row-detail-actions">
+                  <!-- v7：白名单列表(wl 视图)不展示"重新分析"按钮 -->
                   <button
+                    v-if="props.whitelistScope !== 'wl'"
                     class="btn btn-primary btn-ai-lead"
                     :disabled="isRowRunning(it.id)"
                     @click.stop="rerunLlm(it.id)"

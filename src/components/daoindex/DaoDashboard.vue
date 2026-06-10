@@ -64,13 +64,13 @@
             />
           </section>
 
-          <!-- 第二块：整改分布（按领域 2 档）→ 横向堆叠条
-               只展示 EXPLAIN 报错 + 全表扫描且 AI 判定待整改；AI 判无需整改的已过滤 -->
+          <!-- 第二块：整改分布（按领域）→ 横向堆叠条
+               v7：报错 + 全表扫描(POOR)需整改 + 白名单，口径与 SQL 维度分析一致（不再过滤"AI判无需整改"） -->
           <section class="dii-panel">
             <div class="dii-panel-head">
               <div>
                 <h3 class="dii-panel-title">整改分布（按领域）</h3>
-                <p class="dii-panel-desc">仅 EXPLAIN 报错 + 全表扫描且 AI 判定待整改（AI 判无需整改已过滤）</p>
+                <p class="dii-panel-desc">EXPLAIN 报错 + 全表扫描需整改（POOR）+ 白名单，与 SQL 维度分析口径一致</p>
               </div>
               <div class="dii-legend">
                 <span class="dii-legend-item"><i class="dii-swatch dii-sw-error"></i>报错</span>

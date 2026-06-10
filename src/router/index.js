@@ -45,6 +45,11 @@ const routes = [
     component: () => import('../views/TransactionAnalysis.vue'),
   },
   {
+    path: '/user',
+    name: 'UserManagement',
+    component: () => import('../views/user/UserManagement.vue'),
+  },
+  {
     path: '/login',
     name: 'Login',
     component: () => import('../views/Login.vue'),

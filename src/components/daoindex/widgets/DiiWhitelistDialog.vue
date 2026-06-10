@@ -81,8 +81,9 @@
           <span v-else class="dii-form-value">{{ application?.apply_reason || '—' }}</span>
         </div>
 
-        <!-- 一级审批人（apply 时下拉；view/l1/l2 时显示已选） -->
-        <div class="dii-form-row">
+        <!-- 一级审批人（apply 且申请人非一审时下拉；view/l1/l2 时显示已选）。
+             v8：申请人本人是一级审批人时整行不展示，改为下方提示 + 直接选二审 -->
+        <div v-if="!showL2PickerOnApply" class="dii-form-row">
           <label class="dii-form-label">一级审批人</label>
           <select
             v-if="isEditableApply"
@@ -94,6 +95,11 @@
           </select>
           <span v-else class="dii-form-value">{{ displayApprover(application?.l1_approver, 'l1') }}</span>
         </div>
+        <!-- v8：申请人本人是一级审批人——提示将自动通过一审、直接进二审 -->
+        <div v-if="showL2PickerOnApply" class="dii-form-row dii-form-row-block">
+          <label class="dii-form-label">一级审批</label>
+          <span class="dii-form-value dii-l1-auto">您是一级审批人，本次申请将自动通过一审、直接进入二审</span>
+        </div>
 
         <!-- L1 意见（view/l2 时只读显示） -->
         <div v-if="application && (application.status==='PENDING_L2'||application.status==='APPROVED'||application.status==='REJECTED_L1'||application.l1_opinion)" class="dii-form-row dii-form-row-block">
@@ -101,11 +107,11 @@
           <span class="dii-form-value">{{ application?.l1_opinion || '—' }}</span>
         </div>
 
-        <!-- 二级审批人（仅 L1 通过时填；L2/view 显示已选） -->
-        <div v-if="showL2Approver" class="dii-form-row">
+        <!-- 二级审批人（L1 审批时填；v8：apply 且申请人即一审时也由申请人直接填；L2/view 显示已选） -->
+        <div v-if="showL2Approver || showL2PickerOnApply" class="dii-form-row">
           <label class="dii-form-label">二级审批人</label>
           <select
-            v-if="mode==='l1' && !readOnly"
+            v-if="(mode==='l1' && !readOnly) || showL2PickerOnApply"
             v-model="l2Approver"
             class="dii-form-input"
           >
@@ -234,7 +240,18 @@ const readOnly = computed(() => props.mode === 'view')
 const showApplicant = computed(() => props.mode !== 'apply')
 const showL2Approver = computed(() => props.mode === 'l1' || props.mode === 'l2' || (props.mode === 'view' && props.application?.l2_approver))
 
-const canApply = computed(() => !!applyReason.value && !!l1Approver.value)
+// v8：申请人本人是否一级审批人——是则申请自动通过一审、直接进二审，弹窗改为选"二级审批人"
+const applicantIsL1 = computed(() =>
+  !!props.currentUser && l1List.value.some(a => a.username === props.currentUser)
+)
+// apply 模式下选审批人：是一级审批人时只展示/选二级审批人
+const showL2PickerOnApply = computed(() => isEditableApply.value && applicantIsL1.value)
+
+const canApply = computed(() => {
+  if (!applyReason.value) return false
+  // 申请人是一级审批人 → 必填二级审批人；否则必填一级审批人
+  return applicantIsL1.value ? !!l2Approver.value : !!l1Approver.value
+})
 const canApprove = computed(() => {
   if (!approvalOpinion.value) return false
   if (props.mode === 'l1' && !l2Approver.value) return false
@@ -304,6 +321,7 @@ async function onApply() {
       includeNamedSql: isNsql.value && includeNamedSql.value,
       applyReason: applyReason.value,
       l1Approver: l1Approver.value,
+      l2Approver: l2Approver.value,   // v8：申请人本人是一级审批人时直接指定二级审批人
       sourceTable: rowType.value === 'nsql' ? 'sql_pool' : 'item',
       sourceId: Number(props.row?.id) || 0,
       applicant: props.currentUser,
@@ -450,6 +468,9 @@ function statusLabel(s) {
   color: var(--text-primary, #14171c);
   word-break: break-all;
 }
+/* v8：申请人即一审的自动通过提示——成功色，含 dark 变体（暗底用更亮的 #6ec78a） */
+.dii-l1-auto { color: var(--text-success, #137333); font-weight: 500; }
+[data-theme="dark"] .dii-l1-auto { color: var(--text-success-dark, #6ec78a); }
 .dii-sql-snippet {
   flex: 1;
   margin: 0;

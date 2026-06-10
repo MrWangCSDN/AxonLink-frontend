@@ -42,8 +42,20 @@
           </div>
         </div>
 
-        <!-- v4：固定 1 跳 + 仅主键全覆盖（HIGH），不再提供选择器 -->
-        <span class="er-scope-tag">1 跳 · 仅主键全覆盖关系</span>
+        <!-- v7：1 跳 / 2 跳 切换（默认 1 跳）；关系口径仍为仅主键全覆盖（HIGH） -->
+        <div class="er-hop-seg" role="group" aria-label="关系跳数">
+          <button
+            v-for="h in [1, 2]"
+            :key="h"
+            type="button"
+            class="er-hop-btn"
+            :class="{ active: hops === h }"
+            :disabled="loading"
+            :title="h === 2 ? '展示 2 跳邻居（中心表关联表，再向外扩一层）' : '只展示中心表的直接关联表'"
+            @click="onHopsChange(h)"
+          >{{ h }} 跳</button>
+        </div>
+        <span class="er-scope-tag">仅主键全覆盖关系</span>
         <!-- v5：绘制时间描述（来源+时间+条数）-->
         <span v-if="drawMetaText" class="er-draw-meta">{{ drawMetaText }}</span>
 
@@ -62,7 +74,7 @@
         <button class="er-retry" @click="reloadGraph">重试</button>
       </div>
       <div v-else-if="!centerTable" class="er-state">
-        请在上方搜索框选择一张「中心表」，将展示它的 1 跳关系。
+        请在上方搜索框选择一张「中心表」，将展示它的 {{ hops }} 跳关系。
         <div class="er-hint">提示：若无数据，先点右上角「重算关系」扫描目标库推断主键关系。</div>
       </div>
       <div v-else-if="nodes.length === 0" class="er-state">
@@ -197,8 +209,9 @@ const tableQuery = ref('')
 const tableSuggest = ref([])
 const searchOpen = ref(false)
 const centerTable = ref('')
-// v4：固定 1 跳 + 仅 HIGH（主键全覆盖，不分列数）。不再提供 UI 选择，常量即可。
-const hops = 1
+// v7：1 跳 / 2 跳可切换（默认 1 跳）；仅 HIGH（主键全覆盖，不分列数）。
+// 后端 subgraph 已支持 N 跳 BFS（clamp 1~3），这里前端给 1/2 切换即可。
+const hops = ref(1)
 const minConfidence = 'HIGH'
 const graph = ref({ nodes: [], edges: [], nodeCount: 0, edgeCount: 0 })
 const loading = ref(false)
@@ -274,6 +287,13 @@ watch(() => props.env, () => {
   loadMeta()
 })
 
+/* ─── 1 跳 / 2 跳 切换 ─── */
+function onHopsChange(h) {
+  if (h === hops.value || loading.value) return
+  hops.value = h
+  if (centerTable.value) reloadGraph()
+}
+
 /* ─── 加载子图 ─── */
 async function reloadGraph() {
   if (!centerTable.value) return
@@ -281,7 +301,7 @@ async function reloadGraph() {
   errorMsg.value = ''
   try {
     const g = await erGraph({
-      env: props.env, table: centerTable.value, hops, minConfidence,
+      env: props.env, table: centerTable.value, hops: hops.value, minConfidence,
     })
     graph.value = g || { nodes: [], edges: [], nodeCount: 0, edgeCount: 0 }
     computeInitialLayout()
@@ -445,11 +465,11 @@ async function confirmImport() {
 }
 
 /* ─── 导出 ─── */
-// v4：导出 = 当前画布（中心表 + 1 跳 + HIGH + 排除 IGNORED），所见即所导。
+// v4/v7：导出 = 当前画布（中心表 + 当前跳数 1/2 + HIGH + 排除 IGNORED），所见即所导。
 async function doExport() {
   if (!centerTable.value) return
   try {
-    await exportErRelations(props.env, minConfidence, centerTable.value, hops)
+    await exportErRelations(props.env, minConfidence, centerTable.value, hops.value)
   } catch (e) {
     alert(`导出失败：${e?.message || e}`)
   }
@@ -480,6 +500,15 @@ function statusLabel(s) { return ({ AUTO: '自动推断', CONFIRMED: '已确认'
 .er-select { padding: 5px 8px; background: var(--bg-input, #fff); border: 1px solid var(--border, #d4d8dd); color: var(--text-primary, #14171c); border-radius: 4px; font-size: 13px; }
 /* v3：固定口径标签（替代原跳数/置信度选择器）*/
 .er-scope-tag { font-size: 12px; color: var(--text-secondary, #5a6172); padding: 4px 10px; background: var(--bg-domain-hover, #f5f7fa); border: 1px solid var(--border-subtle, #ebeef2); border-radius: 4px; }
+/* v7：1 跳 / 2 跳分段控件——配色沿用 .er-btn-primary 的 token，含 dark 变体 */
+.er-hop-seg { display: inline-flex; border: 1px solid var(--border-subtle, #ebeef2); border-radius: 4px; overflow: hidden; }
+.er-hop-btn { padding: 4px 12px; font-size: 12px; line-height: 1.4; cursor: pointer; border: none; border-left: 1px solid var(--border-subtle, #ebeef2); background: var(--bg-card, #fff); color: var(--text-secondary, #5a6172); }
+.er-hop-btn:first-child { border-left: none; }
+.er-hop-btn:hover:not(:disabled):not(.active) { background: var(--bg-domain-hover, #f5f7fa); color: var(--text-primary, #14171c); }
+.er-hop-btn.active { background: var(--text-link, #2563eb); color: #fff; }
+.er-hop-btn:disabled { opacity: .5; cursor: not-allowed; }
+[data-theme="dark"] .er-hop-btn { background: var(--bg-card-dark, #161b22); }
+[data-theme="dark"] .er-hop-btn.active { background: var(--text-link-dark, #60a5fa); color: #0b1220; }
 /* v5：绘制时间描述 */
 .er-draw-meta { font-size: 12px; color: var(--text-secondary, #5a6172); padding: 4px 8px; }
 .er-center-pill { margin-left: auto; font-size: 12.5px; color: var(--text-secondary, #5a6172); }

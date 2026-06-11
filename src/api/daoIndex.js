@@ -562,10 +562,11 @@ export async function toggleItemWhitelist(id, value, token) {
 
 /* ───────────── V20 慢SQL维度分析 ───────────── */
 
-/** 导入慢SQL明细（.xlsx/.xls/.csv，口令保护） */
-export async function importSlowSql(file, env, token) {
+/** 导入慢SQL明细（.xlsx/.xls/.csv，口令保护；v2：轮次必填，同轮覆盖） */
+export async function importSlowSql(file, env, token, round) {
   const fd = new FormData()
   fd.append('file', file)
+  fd.append('round', round || '')
   if (env) fd.append('env', env)
   const resp = await fetch(`/api${PREFIX}/slow-sql/import`, {
     method: 'POST',
@@ -596,6 +597,11 @@ export function listSlowSqlDomains() {
 /** 慢SQL类型下拉（中文类型：联机/热点账户/批量） */
 export function listSlowSqlBizTypes() {
   return request(`${PREFIX}/slow-sql/biz-types`)
+}
+
+/** 慢SQL轮次下拉（升序；前端默认选最新=末位） */
+export function listSlowSqlRounds() {
+  return request(`${PREFIX}/slow-sql/rounds`)
 }
 
 /** 导出慢SQL透视 Excel（全量，仅 env） */

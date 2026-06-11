@@ -3,7 +3,12 @@
     <!-- 顶部工具条 -->
     <div class="slow-toolbar">
       <div class="slow-tb-left">
-        <input v-model="keyword" class="slow-input" placeholder="搜索 抽象SQL / 服务名" @keyup.enter="reload" />
+        <input v-model="keyword" class="slow-input" placeholder="搜索 抽象SQL / 微服务 / 来源文件" @keyup.enter="reload" />
+        <!-- v2：轮次下拉（默认最新一轮；空=全部轮次跨轮对比） -->
+        <select v-model="roundSel" class="slow-select" @change="page = 0; reload()">
+          <option value="">全部轮次</option>
+          <option v-for="r in roundsDesc" :key="r" :value="r">{{ r }}</option>
+        </select>
         <select v-model="domain" class="slow-select" @change="reload">
           <option value="">全部领域</option>
           <option v-for="d in domains" :key="d" :value="d">{{ d }}</option>
@@ -41,17 +46,22 @@
     <table v-else class="slow-table">
       <thead>
         <tr>
-          <th>领域</th><th>类型</th><th>抽象SQL</th><th>执行参数</th><th class="num">最大耗时</th><th>轮次</th><th>白名单</th><th>操作</th>
+          <th>微服务</th><th>领域</th><th>类型</th><th>抽象SQL</th><th class="num">最大执行耗时</th>
+          <th>执行参数</th><th class="num">执行次数</th><th>来源文件</th><th>轮次</th><th>重复出现轮次</th><th>白名单</th><th>操作</th>
         </tr>
       </thead>
       <tbody>
-        <tr v-for="it in items" :key="it.abstract_hash">
-          <td :title="it.service_name">{{ it.domain }}</td>
+        <tr v-for="it in items" :key="it.id">
+          <td class="svc-cell" :title="it.service_name">{{ it.service_name }}</td>
+          <td>{{ it.domain }}</td>
           <td>{{ it.biz_type }}</td>
           <td class="sql-cell" :title="it.abstract_sql">{{ it.abstract_sql }}</td>
+          <td class="num" :title="it.max_time_cost_raw">{{ it.max_time_cost_ms }}ms</td>
           <td class="param-cell" :title="it.exec_params">{{ it.exec_params }}</td>
-          <td class="num">{{ it.time_cost_ms }}ms</td>
+          <td class="num">{{ it.exec_count }}</td>
+          <td class="loc-cell" :title="it.source_location">{{ it.source_location }}</td>
           <td>{{ it.round }}</td>
+          <td class="rounds-cell" :title="it.repeat_rounds">{{ it.repeat_rounds || '—' }}</td>
           <td><span class="wl-tag" :class="wlClass(it.whitelist_status)">{{ wlLabel(it.whitelist_status) }}</span></td>
           <td>
             <button v-if="!it.whitelist_status" class="slow-link" @click="openApply(it)">申请白名单</button>
@@ -72,13 +82,16 @@
     <div v-if="importOpen" class="slow-modal-mask" @click.self="importOpen = false">
       <div class="slow-modal">
         <h3>导入慢SQL明细</h3>
-        <p class="slow-hint">列序：领域 / 执行耗时 / 抽象SQL / 执行参数；首行表头自动跳过。</p>
+        <p class="slow-hint">5 列：微服务 / 抽象SQL / 执行参数 / 执行耗时 / 来源文件；首行表头自动跳过。
+          导入时按 (微服务+抽象SQL) 聚合：取最大耗时代表行并统计执行次数；同轮次重复导入会覆盖。</p>
         <input type="file" accept=".xlsx,.xls,.csv" @change="onFile" />
+        <input v-model="importRound" class="slow-input full" maxlength="20"
+               placeholder="轮次（必填，如 20260103-20260107）" />
         <input v-model="token" class="slow-input full" type="password" placeholder="导入口令 X-DII-Trigger-Token" />
         <p v-if="importMsg" class="slow-hint">{{ importMsg }}</p>
         <div class="slow-modal-foot">
           <button class="slow-btn" @click="importOpen = false">取消</button>
-          <button class="slow-btn primary" :disabled="!importFileRef || importing" @click="doImport">{{ importing ? '导入中…' : '导入' }}</button>
+          <button class="slow-btn primary" :disabled="!importFileRef || !importRound.trim() || importing" @click="doImport">{{ importing ? '导入中…' : '导入' }}</button>
         </div>
       </div>
     </div>
@@ -131,9 +144,10 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import {
-  listSlowSql, listSlowSqlDomains, listSlowSqlBizTypes, importSlowSql, exportSlowSql,
+  listSlowSql, listSlowSqlDomains, listSlowSqlBizTypes, listSlowSqlRounds,
+  importSlowSql, exportSlowSql,
   getWhitelistApprovers, applyWhitelist, getWhitelistApplication,
   l1Approve, l1Reject, l2Approve, l2Reject,
 } from '../../api/daoIndex.js'
@@ -148,6 +162,9 @@ const emit = defineEmits(['update:env', 'clear-todo-filter'])
 const items = ref([]); const total = ref(0); const loading = ref(false); const errorMsg = ref('')
 const keyword = ref(''); const domain = ref(''); const bizType = ref(''); const whitelistStatus = ref('')
 const domains = ref([]); const bizTypes = ref([]); const page = ref(0); const pageSize = 50
+// v2：轮次（后端升序返回；下拉倒序展示，默认选最新一轮）
+const rounds = ref([]); const roundSel = ref('')
+const roundsDesc = computed(() => rounds.value.slice().reverse())
 
 const currentUser = ref('')
 const l1Approvers = ref([]); const l2Approvers = ref([])
@@ -158,6 +175,7 @@ async function reload() {
     const data = await listSlowSql({
       keyword: keyword.value, domain: domain.value, bizType: bizType.value,
       whitelistStatus: whitelistStatus.value,
+      round: roundSel.value || undefined,   // v2：按轮次过滤（空=全部轮次）
       // 铃铛「慢SQL待办」跳来：只看该我审批的待审慢SQL
       approverUser: props.filter?.myApprovalTodo ? (currentUser.value || undefined) : undefined,
       limit: pageSize, offset: page.value * pageSize,
@@ -177,6 +195,11 @@ watch(() => props.filter, () => { page.value = 0; reload() }, { deep: true })
 onMounted(async () => {
   try { domains.value = await listSlowSqlDomains() } catch { /* ignore */ }
   try { bizTypes.value = await listSlowSqlBizTypes() } catch { /* ignore */ }
+  // v2：拉轮次列表（后端升序），默认选最新一轮（末位）
+  try {
+    rounds.value = await listSlowSqlRounds()
+    if (rounds.value.length > 0) roundSel.value = rounds.value[rounds.value.length - 1]
+  } catch { /* ignore */ }
   try { const u = await getCurrentUser(); if (u?.username) currentUser.value = u.username } catch { /* ignore */ }
   try {
     const ap = await getWhitelistApprovers()
@@ -188,18 +211,24 @@ onMounted(async () => {
 /* ── 导入 ── */
 const importOpen = ref(false); const token = ref(''); const importing = ref(false); const importMsg = ref('')
 const importFileRef = ref(null)
+// v2：轮次由用户输入（如 20260103-20260107），同轮重复导入=覆盖
+const importRound = ref('')
 // 打开导入弹窗时清掉上一次的文件/提示，保证重复导入同名文件也能再次触发 @change
 function openImport() { importFileRef.value = null; importMsg.value = ''; importOpen.value = true }
 function onFile(e) { importFileRef.value = e.target.files?.[0] || null }
 async function doImport() {
-  if (!importFileRef.value) return
+  if (!importFileRef.value || !importRound.value.trim()) return
   importing.value = true; importMsg.value = ''
   try {
-    const r = await importSlowSql(importFileRef.value, props.env, token.value)
-    importMsg.value = `轮次 ${r.round}：导入 ${r.rowsImported} 行 / ${r.distinctAbstractSql} 条抽象SQL（跳过 ${r.skipped}）`
+    const r = await importSlowSql(importFileRef.value, props.env, token.value, importRound.value.trim())
+    importMsg.value = `轮次 ${r.round}：原始 ${r.rawRows} 行 → 聚合 ${r.aggregatedRows} 条`
+      + `（${r.repeatHit} 条曾在历史轮次出现，跳过 ${r.skipped}${r.overwritten ? `，覆盖旧轮 ${r.overwritten} 条` : ''}）`
     page.value = 0
     domains.value = await listSlowSqlDomains()
     bizTypes.value = await listSlowSqlBizTypes()
+    // 刷新轮次下拉并切到刚导入的轮次
+    try { rounds.value = await listSlowSqlRounds() } catch { /* ignore */ }
+    roundSel.value = r.round
     await reload()
   } catch (e) {
     importMsg.value = e.code === 'TOKEN_INVALID' ? '口令错误' : `导入失败：${e?.message || e}`
@@ -327,8 +356,12 @@ function wlClass(s) {
 }
 .slow-table th { color: var(--text-secondary, #5a6172); font-weight: 600; }
 .slow-table .num { text-align: right; white-space: nowrap; }
-.sql-cell { max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; }
-.param-cell { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary, #5a6172); }
+.sql-cell { max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; }
+.param-cell { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary, #5a6172); }
+/* v2：微服务 / 来源文件 / 重复出现轮次 截断单元格 */
+.svc-cell { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.loc-cell { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; font-size: 12px; color: var(--text-secondary, #5a6172); }
+.rounds-cell { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary, #5a6172); }
 .slow-link { background: none; border: none; color: var(--slow-brand); cursor: pointer; font-size: 13px; padding: 0; }
 .wl-tag { padding: 2px 8px; border-radius: 10px; font-size: 12px; background: var(--bg-domain-hover, #f5f7fa); color: var(--text-secondary, #5a6172); }
 .wl-tag.ok { background: var(--slow-ok-bg); color: var(--slow-ok); }

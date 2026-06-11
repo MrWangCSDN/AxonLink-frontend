@@ -4,9 +4,8 @@
     <div class="slow-toolbar">
       <div class="slow-tb-left">
         <input v-model="keyword" class="slow-input" placeholder="搜索 抽象SQL / 微服务 / 来源文件" @keyup.enter="reload" />
-        <!-- v2：轮次下拉（默认最新一轮；空=全部轮次跨轮对比） -->
+        <!-- v2：轮次下拉——展示永远是"某一轮"（默认最新一轮），可手选其他轮次；不提供"全部轮次" -->
         <select v-model="roundSel" class="slow-select" @change="page = 0; reload()">
-          <option value="">全部轮次</option>
           <option v-for="r in roundsDesc" :key="r" :value="r">{{ r }}</option>
         </select>
         <select v-model="domain" class="slow-select" @change="reload">
@@ -100,6 +99,8 @@
     <div v-if="applyOpen" class="slow-modal-mask" @click.self="applyOpen = false">
       <div class="slow-modal">
         <h3>申请白名单（慢SQL）</h3>
+        <!-- v2：白名单粒度 = (微服务+抽象SQL)，明示申请范围 -->
+        <div class="slow-kv">申请范围：微服务 <b>{{ applyRow?.service_name }}</b> + 下方抽象SQL（通过后覆盖该组合的所有轮次，并被后续导入继承）</div>
         <div class="slow-sql-snip">{{ applyRow?.abstract_sql }}</div>
         <select v-model="applyL1" class="slow-input full">
           <option value="">选择一级审批人</option>
@@ -252,6 +253,8 @@ async function doApply() {
       slowSql: true,
       sqlHash: applyRow.value.abstract_hash,
       sqlText: applyRow.value.abstract_sql,
+      // v2：白名单粒度 = (微服务+抽象SQL)，微服务名借 projectName 字段携带（后端必填校验）
+      projectName: applyRow.value.service_name,
       kindSource: 'slow',
       env: props.env,
       applyReason: applyReason.value,

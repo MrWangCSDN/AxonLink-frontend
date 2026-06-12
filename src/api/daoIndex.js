@@ -604,6 +604,11 @@ export function listSlowSqlRounds() {
   return request(`${PREFIX}/slow-sql/rounds`)
 }
 
+/** v4 概览仪表盘：慢SQL按轮次统计（最近 lastN 轮，升序）{round,total,repeat_cnt,wl_applying,wl_approved} */
+export function getSlowSqlRoundStats(lastN = 7) {
+  return request(`${PREFIX}/slow-sql/round-stats?lastN=${lastN}`)
+}
+
 /* ── v3：慢SQL 采集过滤名单（抽象SQL 以名单前缀开头 → 导入不纳入采集）── */
 
 /** 名单列表（只读） */

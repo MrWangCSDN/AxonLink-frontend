@@ -104,6 +104,31 @@
               value-suffix=" min"
             />
           </section>
+
+          <!-- 第五块（v4）：慢SQL统计（按轮次）→ 最近 7 轮分组柱状图，样式同第一块 -->
+          <section class="dii-panel">
+            <div class="dii-panel-head">
+              <div>
+                <h3 class="dii-panel-title">慢SQL统计（按轮次）</h3>
+                <p class="dii-panel-desc">最近 7 轮：问题数 / 重复出现 / 白名单申请中 / 已申请白名单</p>
+              </div>
+              <div class="dii-legend">
+                <span class="dii-legend-item"><i class="dii-swatch dii-sw-total"></i>慢SQL问题数</span>
+                <span class="dii-legend-item"><i class="dii-swatch dii-sw-fix"></i>重复出现</span>
+                <span class="dii-legend-item"><i class="dii-swatch dii-sw-wl-applying"></i>白名单申请中</span>
+                <span class="dii-legend-item"><i class="dii-swatch dii-sw-wl-approved"></i>已申请白名单</span>
+              </div>
+            </div>
+            <div v-if="slowRounds.length === 0" class="dii-panel-empty">
+              暂无慢SQL数据——在「慢SQL维度分析」页导入后展示
+            </div>
+            <DiiBarGroupChart
+              v-else
+              :categories="slowRoundCats"
+              :series="slowRoundSeries"
+              :height="200"
+            />
+          </section>
         </div>
       </template>
     </div>
@@ -117,7 +142,7 @@ import DiiBarGroupChart from './widgets/DiiBarGroupChart.vue'
 import DiiHorizontalStackBar from './widgets/DiiHorizontalStackBar.vue'
 import DiiPieChart from './widgets/DiiPieChart.vue'
 import DiiDashboardTrendChart from './dashboard/DiiDashboardTrendChart.vue'
-import { getDiiDashboard } from '../../api/daoIndex.js'
+import { getDiiDashboard, getSlowSqlRoundStats } from '../../api/daoIndex.js'
 
 const props = defineProps({ env: { type: String, default: 'uat' } })
 defineEmits(['update:env', 'goto'])
@@ -130,6 +155,8 @@ const byDomain = ref([])
 const ratingByDomain = ref([])
 const trend7d = ref([])
 const elapsed7d = ref([])
+// v4：慢SQL按轮次统计（最近 7 轮）
+const slowRounds = ref([])
 
 /* ─────── 数据加载 ─────── */
 async function doLoad() {
@@ -147,6 +174,13 @@ async function doLoad() {
     latestTask.value = null
   } finally {
     loading.value = false
+  }
+  // 慢SQL轮次统计独立拉取：失败不影响主仪表盘
+  try {
+    const rs = await getSlowSqlRoundStats(7)
+    slowRounds.value = Array.isArray(rs) ? rs : []
+  } catch {
+    slowRounds.value = []
   }
 }
 
@@ -194,6 +228,22 @@ const ratingDomainSeries = computed(() => [
    后端 trend7d 现按 (task, domain) 返回明细行，组件内部按
    选中领域（汇总/各领域）折叠成每任务一根四档堆叠柱。
    原 trendCats/trendSeries（折线图数据）已不再需要。 */
+
+/* ─────── 第五块（v4）：慢SQL按轮次（最近 7 轮）───────
+   后端 /slow-sql/round-stats 返回 [{round, total, repeat_cnt, wl_applying, wl_approved}]（升序）。
+   total=该轮聚合行数(问题数)；repeat_cnt=repeat_rounds 非空(曾在历史轮次出现)；
+   白名单两档与其他图同色：申请中橙 / 已申请紫。 */
+const slowRoundCats = computed(() => slowRounds.value.map(r => r.round))
+const slowRoundSeries = computed(() => [
+  { name: '慢SQL问题数', color: 'var(--c-bar-total, #6366f1)',
+    values: slowRounds.value.map(r => Number(r.total) || 0) },
+  { name: '重复出现', color: '#e6a23c',
+    values: slowRounds.value.map(r => Number(r.repeat_cnt) || 0) },
+  { name: '白名单申请中', color: '#fa8c16',
+    values: slowRounds.value.map(r => Number(r.wl_applying) || 0) },
+  { name: '已申请白名单', color: '#722ed1',
+    values: slowRounds.value.map(r => Number(r.wl_approved) || 0) },
+])
 
 /* ─────── 第四块：7 天执行时长 ─────── */
 const elapsedCats = computed(() => elapsed7d.value.map(t => fmtDay(t.day)))
@@ -280,6 +330,13 @@ function fmtDay(s) {
   padding: 18px 20px;
   /* margin-bottom 不再需要，gap 由 grid 容器管 */
   min-width: 0;  /* 允许 grid 子项缩小（防止柱状图溢出） */
+}
+/* v4：面板空状态（慢SQL轮次面板无数据时） */
+.dii-panel-empty {
+  padding: 60px 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-secondary, #5a6172);
 }
 .dii-panel-head {
   display: flex;

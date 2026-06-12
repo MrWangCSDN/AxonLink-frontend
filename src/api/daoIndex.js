@@ -604,10 +604,13 @@ export function listSlowSqlRounds() {
   return request(`${PREFIX}/slow-sql/rounds`)
 }
 
-/** 导出慢SQL透视 Excel（全量，仅 env） */
-export function exportSlowSql(env) {
-  const qs = toQuery({ env })
-  return download(`${PREFIX}/slow-sql/export${qs}`, `slow-sql-${env || 'uat'}.xlsx`)
+/**
+ * 导出慢SQL Excel（v3：与页面筛选联动，列与页面一致；跨分页全量）。
+ * @param {Object} params { env, round, domain, bizType, keyword, whitelistStatus }
+ */
+export function exportSlowSql(params = {}) {
+  const qs = toQuery(params)
+  return download(`${PREFIX}/slow-sql/export${qs}`, `slow-sql-${params.round || 'all'}.xlsx`)
 }
 
 /* ───────────── 工具：把对象变成 ?a=1&b=2 ───────────── */

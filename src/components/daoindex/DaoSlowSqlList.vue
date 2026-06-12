@@ -50,17 +50,18 @@
         </tr>
       </thead>
       <tbody>
+        <!-- v3：长字段列 hover 看全文（title）+ 点击复制全文 -->
         <tr v-for="it in items" :key="it.id">
-          <td class="svc-cell" :title="it.service_name">{{ it.service_name }}</td>
+          <td class="svc-cell copyable" :title="it.service_name + '\n（点击复制）'" @click="copyCell(it.service_name)">{{ it.service_name }}</td>
           <td>{{ it.domain }}</td>
           <td>{{ it.biz_type }}</td>
-          <td class="sql-cell" :title="it.abstract_sql">{{ it.abstract_sql }}</td>
+          <td class="sql-cell copyable" :title="it.abstract_sql + '\n（点击复制）'" @click="copyCell(it.abstract_sql)">{{ it.abstract_sql }}</td>
           <td class="num" :title="it.max_time_cost_raw">{{ it.max_time_cost_ms }}ms</td>
-          <td class="param-cell" :title="it.exec_params">{{ it.exec_params }}</td>
+          <td class="param-cell copyable" :title="(it.exec_params || '') + '\n（点击复制）'" @click="copyCell(it.exec_params)">{{ it.exec_params }}</td>
           <td class="num">{{ it.exec_count }}</td>
-          <td class="loc-cell" :title="it.source_location">{{ it.source_location }}</td>
+          <td class="loc-cell copyable" :title="(it.source_location || '') + '\n（点击复制）'" @click="copyCell(it.source_location)">{{ it.source_location }}</td>
           <td>{{ it.round }}</td>
-          <td class="rounds-cell" :title="it.repeat_rounds">{{ it.repeat_rounds || '—' }}</td>
+          <td class="rounds-cell copyable" :title="(it.repeat_rounds || '') + '\n（点击复制）'" @click="copyCell(it.repeat_rounds)">{{ it.repeat_rounds || '—' }}</td>
           <td><span class="wl-tag" :class="wlClass(it.whitelist_status)">{{ wlLabel(it.whitelist_status) }}</span></td>
           <td>
             <button v-if="!it.whitelist_status" class="slow-link" @click="openApply(it)">申请白名单</button>
@@ -70,27 +71,46 @@
       </tbody>
     </table>
 
-    <!-- 分页 -->
-    <div class="slow-pager" v-if="total > pageSize">
+    <!-- 分页（服务端分页；v3 加每页条数。导出不受分页影响=筛选后全量） -->
+    <div class="slow-pager" v-if="total > 0">
       <button class="slow-btn" :disabled="page === 0" @click="page--; reload()">上一页</button>
-      <span>{{ page + 1 }} / {{ Math.ceil(total / pageSize) }}</span>
+      <span>{{ page + 1 }} / {{ Math.max(1, Math.ceil(total / pageSize)) }}</span>
       <button class="slow-btn" :disabled="(page + 1) * pageSize >= total" @click="page++; reload()">下一页</button>
+      <select v-model.number="pageSize" class="slow-select" @change="page = 0; reload()">
+        <option :value="20">20 条/页</option>
+        <option :value="50">50 条/页</option>
+        <option :value="100">100 条/页</option>
+      </select>
+      <span class="slow-pager-total">共 {{ total }} 条</span>
     </div>
 
-    <!-- 导入弹窗 -->
-    <div v-if="importOpen" class="slow-modal-mask" @click.self="importOpen = false">
+    <!-- v3：复制成功浮动提示 -->
+    <transition name="slow-fade">
+      <div v-if="copyTip" class="slow-copy-toast">已复制到剪贴板</div>
+    </transition>
+
+    <!-- 导入弹窗（v3：导入中显示等待层+进度，禁止误关；成功后按钮置灰防重复导入） -->
+    <div v-if="importOpen" class="slow-modal-mask" @click.self="!importing && (importOpen = false)">
       <div class="slow-modal">
         <h3>导入慢SQL明细</h3>
         <p class="slow-hint">5 列：微服务 / 抽象SQL / 执行参数 / 执行耗时 / 来源文件；首行表头自动跳过。
           导入时按 (微服务+抽象SQL) 聚合：取最大耗时代表行并统计执行次数；同轮次重复导入会覆盖。</p>
-        <input type="file" accept=".xlsx,.xls,.csv" @change="onFile" />
-        <input v-model="importRound" class="slow-input full" maxlength="20"
+        <input type="file" accept=".xlsx,.xls,.csv" :disabled="importing" @change="onFile" />
+        <input v-model="importRound" class="slow-input full" maxlength="20" :disabled="importing"
                placeholder="轮次（必填，如 20260103-20260107）" />
-        <input v-model="token" class="slow-input full" type="password" placeholder="导入口令 X-DII-Trigger-Token" />
+        <input v-model="token" class="slow-input full" type="password" :disabled="importing"
+               placeholder="导入口令 X-DII-Trigger-Token" />
+        <!-- 等待层：上传+解析聚合期间显示不确定进度条（后端同步接口，无法回传精确百分比） -->
+        <div v-if="importing" class="slow-import-wait">
+          <div class="slow-prog"><div class="slow-prog-fill"></div></div>
+          <p class="slow-hint">正在上传并解析聚合（30 万行约需 10~30 秒），请勿关闭或重复点击…</p>
+        </div>
         <p v-if="importMsg" class="slow-hint">{{ importMsg }}</p>
         <div class="slow-modal-foot">
-          <button class="slow-btn" @click="importOpen = false">取消</button>
-          <button class="slow-btn primary" :disabled="!importFileRef || !importRound.trim() || importing" @click="doImport">{{ importing ? '导入中…' : '导入' }}</button>
+          <button class="slow-btn" :disabled="importing" @click="importOpen = false">{{ importDone ? '关闭' : '取消' }}</button>
+          <button class="slow-btn primary"
+                  :disabled="!importFileRef || !importRound.trim() || importing || importDone"
+                  @click="doImport">{{ importing ? '导入中…' : (importDone ? '已导入' : '导入') }}</button>
         </div>
       </div>
     </div>
@@ -162,7 +182,8 @@ const emit = defineEmits(['update:env', 'clear-todo-filter'])
 
 const items = ref([]); const total = ref(0); const loading = ref(false); const errorMsg = ref('')
 const keyword = ref(''); const domain = ref(''); const bizType = ref(''); const whitelistStatus = ref('')
-const domains = ref([]); const bizTypes = ref([]); const page = ref(0); const pageSize = 50
+// v3：每页条数可选（20/50/100），服务端分页
+const domains = ref([]); const bizTypes = ref([]); const page = ref(0); const pageSize = ref(50)
 // v2：轮次（后端升序返回；下拉倒序展示，默认选最新一轮）
 const rounds = ref([]); const roundSel = ref('')
 const roundsDesc = computed(() => rounds.value.slice().reverse())
@@ -179,7 +200,7 @@ async function reload() {
       round: roundSel.value || undefined,   // v2：按轮次过滤（空=全部轮次）
       // 铃铛「慢SQL待办」跳来：只看该我审批的待审慢SQL
       approverUser: props.filter?.myApprovalTodo ? (currentUser.value || undefined) : undefined,
-      limit: pageSize, offset: page.value * pageSize,
+      limit: pageSize.value, offset: page.value * pageSize.value,
     })
     items.value = data.items || []; total.value = data.total || 0
   } catch (e) {
@@ -214,11 +235,15 @@ const importOpen = ref(false); const token = ref(''); const importing = ref(fals
 const importFileRef = ref(null)
 // v2：轮次由用户输入（如 20260103-20260107），同轮重复导入=覆盖
 const importRound = ref('')
+// v3：导入成功后置 true → 按钮置灰"已导入"，防重复导入；换文件/改轮次才解锁
+const importDone = ref(false)
+watch(importRound, () => { importDone.value = false })
 // 打开导入弹窗时清掉上一次的文件/提示，保证重复导入同名文件也能再次触发 @change
-function openImport() { importFileRef.value = null; importMsg.value = ''; importOpen.value = true }
-function onFile(e) { importFileRef.value = e.target.files?.[0] || null }
+function openImport() { importFileRef.value = null; importMsg.value = ''; importDone.value = false; importOpen.value = true }
+function onFile(e) { importFileRef.value = e.target.files?.[0] || null; importDone.value = false }
 async function doImport() {
-  if (!importFileRef.value || !importRound.value.trim()) return
+  // v3：importing 防双击连点；importDone 防成功后重复导入
+  if (!importFileRef.value || !importRound.value.trim() || importing.value || importDone.value) return
   importing.value = true; importMsg.value = ''
   try {
     const r = await importSlowSql(importFileRef.value, props.env, token.value, importRound.value.trim())
@@ -230,6 +255,7 @@ async function doImport() {
     // 刷新轮次下拉并切到刚导入的轮次
     try { rounds.value = await listSlowSqlRounds() } catch { /* ignore */ }
     roundSel.value = r.round
+    importDone.value = true   // v3：成功后置灰导入按钮，防重复导入
     await reload()
   } catch (e) {
     importMsg.value = e.code === 'TOKEN_INVALID' ? '口令错误' : `导入失败：${e?.message || e}`
@@ -238,9 +264,18 @@ async function doImport() {
   }
 }
 
-/* ── 导出 ── */
+/* ── 导出（v3：与页面筛选联动——筛选 100 条分 5 页，导出 100 条；列与页面一致）── */
 async function doExport() {
-  try { await exportSlowSql(props.env) } catch (e) { alert(`导出失败：${e?.message || e}`) }
+  try {
+    await exportSlowSql({
+      env: props.env,
+      round: roundSel.value || undefined,
+      domain: domain.value || undefined,
+      bizType: bizType.value || undefined,
+      keyword: keyword.value || undefined,
+      whitelistStatus: whitelistStatus.value || undefined,
+    })
+  } catch (e) { alert(`导出失败：${e?.message || e}`) }
 }
 
 /* ── 申请 ── */
@@ -301,6 +336,36 @@ async function act(kind) {
   } catch (e) {
     viewMsg.value = `操作失败：${e?.message || e}`
   }
+}
+
+/* ── v3 单元格复制（hover 看全文 title，点击复制全文）── */
+const copyTip = ref(false)
+let copyTipTimer = null
+async function copyCell(text) {
+  if (!text) return
+  const ok = await copyText(String(text))
+  if (!ok) return
+  copyTip.value = true
+  clearTimeout(copyTipTimer)
+  copyTipTimer = setTimeout(() => { copyTip.value = false }, 1200)
+}
+/**
+ * 兼容复制：优先 Clipboard API；内网 http（非 secure context）下不可用，
+ * 兜底 textarea + execCommand('copy')。
+ */
+async function copyText(text) {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch { /* fallthrough 到兜底 */ }
+  const ta = document.createElement('textarea')
+  ta.value = text
+  ta.style.position = 'fixed'; ta.style.opacity = '0'; ta.style.left = '-9999px'
+  document.body.appendChild(ta)
+  ta.select()
+  try { return document.execCommand('copy') } catch { return false } finally { document.body.removeChild(ta) }
 }
 
 /* ── 文案 ── */
@@ -371,6 +436,32 @@ function wlClass(s) {
 .wl-tag.bad { background: var(--slow-bad-bg); color: var(--slow-bad); }
 .wl-tag.pending { background: var(--slow-warn-bg); color: var(--slow-warn); }
 .slow-pager { display: flex; gap: 12px; align-items: center; margin-top: 14px; font-size: 13px; }
+.slow-pager-total { color: var(--text-secondary, #5a6172); }
+
+/* ── v3：导入等待层（不确定进度条——后端同步接口无精确百分比） ── */
+.slow-import-wait { margin-top: 10px; }
+.slow-prog { height: 6px; border-radius: 3px; overflow: hidden; background: var(--bg-domain-hover, #f5f7fa); position: relative; }
+.slow-prog-fill {
+  position: absolute; top: 0; bottom: 0; width: 36%;
+  border-radius: 3px; background: var(--slow-brand);
+  animation: slow-prog-slide 1.2s ease-in-out infinite;
+}
+@keyframes slow-prog-slide {
+  0%   { left: -36%; }
+  100% { left: 100%; }
+}
+
+/* ── v3：可复制单元格 + 复制成功 toast ── */
+.copyable { cursor: copy; }
+.copyable:hover { background: var(--bg-domain-hover, #f5f7fa); }
+.slow-copy-toast {
+  position: fixed; left: 50%; bottom: 48px; transform: translateX(-50%);
+  padding: 8px 18px; border-radius: 6px; font-size: 13px; z-index: 1200;
+  background: var(--slow-ok-bg); color: var(--slow-ok);
+  border: 1px solid var(--slow-ok); box-shadow: 0 4px 16px rgba(0,0,0,.15);
+}
+.slow-fade-enter-active, .slow-fade-leave-active { transition: opacity .25s ease; }
+.slow-fade-enter-from, .slow-fade-leave-to { opacity: 0; }
 .slow-modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: flex; align-items: center; justify-content: center; z-index: 1000; }
 .slow-modal { background: var(--slow-panel); color: var(--text-primary, #14171c); border-radius: 10px; padding: 20px; width: 520px; max-width: 92vw; box-shadow: 0 8px 32px rgba(0,0,0,.2); }
 .slow-modal h3 { margin: 0 0 12px; }

@@ -18,7 +18,7 @@ export const DII_PAGES = [
   },
   {
     key: 'dii-sqls',
-    label: 'SQL 分析',
+    label: '索引维度分析',
     desc: '逐条 SQL 详情',
     color: '#228BE6',
   },
@@ -28,12 +28,7 @@ export const DII_PAGES = [
     desc: '批量巡检进度',
     color: '#12B886',
   },
-  {
-    key: 'dii-table-advice',
-    label: '表维度建议',
-    desc: 'DBA 聚合视图',
-    color: '#F76707',
-  },
+  // v4：dii-table-advice（TABLE 维度分析）已下线
   {
     key: 'dii-er',
     label: 'ER 图',

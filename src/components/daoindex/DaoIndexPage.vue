@@ -36,11 +36,7 @@
       @goto-sqls="handleGotoSqlsFromTask"
       @open-task="openTaskDetail"
     />
-    <DaoTableAdvice
-      v-show="currentPage === 'dii-table-advice'"
-      :env="env"
-      @update:env="env = $event"
-    />
+    <!-- v4：TABLE 维度分析（DaoTableAdvice）已下线 -->
     <!-- V16+：SQL 池独立子页 DaoSqlPool 下线，导入入口集成到 DaoSqlList 头部 -->
 
     <!-- V19：表关系 ER 图 -->
@@ -73,7 +69,6 @@ import { ref, watch } from 'vue'
 import DaoDashboard from './DaoDashboard.vue'
 import DaoSqlList from './DaoSqlList.vue'
 import DaoTaskList from './DaoTaskList.vue'
-import DaoTableAdvice from './DaoTableAdvice.vue'
 import DaoErDiagram from './DaoErDiagram.vue'
 import DaoSlowSqlList from './DaoSlowSqlList.vue'
 import DaoTaskDetail from './DaoTaskDetail.vue'
@@ -155,12 +150,8 @@ function handleGoto(payload) {
   if (payload.target === 'tasks') {
     overlay.value = null
     emit('navigate-page', 'dii-tasks')
-    return
   }
-  if (payload.target === 'table-advice') {
-    overlay.value = null
-    emit('navigate-page', 'dii-table-advice')
-  }
+  // v4：table-advice 页面已下线，对应跳转分支移除
 }
 </script>
 

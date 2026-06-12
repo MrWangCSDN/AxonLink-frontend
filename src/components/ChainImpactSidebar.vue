@@ -131,7 +131,7 @@
           :key="m.key"
           type="button"
           class="cis-impact"
-          :class="{ active: currentPage === m.key }"
+          :class="{ active: currentPage === m.key, 'cis-impact-child': m.child }"
           :style="diiRowStyle(m)"
           @click="$emit('selectDiiPage', m.key)"
         >
@@ -514,12 +514,13 @@ const DII_MENU_ACCENT = '#0b70db'
 const diiMenu = [
   { key: 'dii-dashboard',       label: '概览仪表盘',     desc: '总览 · 评级分布' },
   { key: 'dii-tasks',           label: '巡检任务',       desc: '批量巡检进度' },
-  // V16+：SQL 池独立子页下线——导入入口合并到 SQL 维度分析页头部
-  { key: 'dii-sqls',            label: 'SQL 维度分析',   desc: '逐条 SQL · 含池导入' },
+  // V16+：SQL 池独立子页下线——导入入口合并到索引维度分析页头部
+  // v4（2026-06-12）：SQL 维度分析改名「索引维度分析」；TABLE 维度分析下线；
+  //                  慢SQL维度分析挂到索引维度分析子菜单下（child=缩进子项）
+  { key: 'dii-sqls',            label: '索引维度分析',   desc: '逐条 SQL · 含池导入' },
+  { key: 'dii-slow-sql',        label: '慢SQL维度分析',  desc: '慢SQL导入·轮次·白名单', child: true },
   { key: 'dii-sql-whitelist',   label: 'SQL 白名单列表', desc: '申请中/已通过' },
-  { key: 'dii-table-advice',    label: 'TABLE 维度分析', desc: 'DBA 聚合视图' },
   { key: 'dii-er',              label: 'ER 图',          desc: '表关系推断' },
-  { key: 'dii-slow-sql',        label: '慢SQL维度分析',  desc: '慢SQL导入·轮次·白名单' },
 ]
 
 // ══════════ 代码提交 · 独立分区（与 SQL 巡检 / 影响分析 平级）子页菜单 ══════════
@@ -534,7 +535,6 @@ const IconDatabaseLg = iconLucide(
 const IconGauge = iconLucide('M12 14l4-4M3.5 16a9 9 0 1 1 17 0', 15)
 const IconList = iconLucide('M8 6h13M8 12h13M8 18h13 M3 6h.01M3 12h.01M3 18h.01', 15)
 const IconClipboard = iconLucide('M9 2h6a2 2 0 0 1 2 2v2H7V4a2 2 0 0 1 2-2z M7 6v14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V6', 15)
-const IconTable = iconLucide('M3 6h18M3 12h18M3 18h18 M9 3v18M15 3v18', 15)
 const IconCodeDash = iconLucide('M9 7l-4 5 4 5 M15 7l4 5-4 5', 15)
 const IconUpload = iconLucide('M12 3v12 M7 8l5-5 5 5 M3 19h18', 15)
 // ER 图：两节点 + 连线
@@ -553,7 +553,6 @@ const diiIconMap = {
   'dii-sqls':           IconList,
   'dii-sql-whitelist':  IconShieldCheck,
   'dii-tasks':          IconClipboard,
-  'dii-table-advice':   IconTable,
   'dii-er':             IconEr,
   'dii-slow-sql':       IconSlow,
   // dii-sql-pool 已下线，IconUpload 改为用在 DaoSqlList 顶部导入按钮里
@@ -957,6 +956,12 @@ const totalImpactCount = computed(() => {
   margin: 1px 10px;
   padding: 0 10px;
   height: 52px;
+}
+/* v4：子菜单项（如 慢SQL维度分析 挂在 索引维度分析 下）——整体右缩进示从属 */
+.cis-impact-child {
+  width: calc(100% - 40px);
+  margin-left: 30px;
+  height: 46px;
   border-radius: 10px;
   border: 1px solid transparent;
   cursor: pointer;

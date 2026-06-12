@@ -604,6 +604,44 @@ export function listSlowSqlRounds() {
   return request(`${PREFIX}/slow-sql/rounds`)
 }
 
+/* ── v3：慢SQL 采集过滤名单（抽象SQL 以名单前缀开头 → 导入不纳入采集）── */
+
+/** 名单列表（只读） */
+export function listSlowSqlCollectFilters() {
+  return request(`${PREFIX}/slow-sql/collect-filters`)
+}
+
+/** 新增前缀（口令保护，与导入口令一致） */
+export async function addSlowSqlCollectFilter(prefix, token) {
+  const resp = await fetch(
+    `/api${PREFIX}/slow-sql/collect-filters?prefix=${encodeURIComponent(prefix)}`,
+    { method: 'POST', headers: { 'X-DII-Trigger-Token': token || '' } },
+  )
+  const json = await resp.json().catch(() => ({}))
+  if (resp.status === 401 || json?.code === 401) {
+    const err = new Error('口令错误'); err.code = 'TOKEN_INVALID'; throw err
+  }
+  if (!resp.ok || json?.code !== 200) {
+    throw new Error(json?.message || `HTTP ${resp.status}`)
+  }
+  return json.data
+}
+
+/** 删除条目（口令保护） */
+export async function deleteSlowSqlCollectFilter(id, token) {
+  const resp = await fetch(`/api${PREFIX}/slow-sql/collect-filters/${id}`, {
+    method: 'DELETE', headers: { 'X-DII-Trigger-Token': token || '' },
+  })
+  const json = await resp.json().catch(() => ({}))
+  if (resp.status === 401 || json?.code === 401) {
+    const err = new Error('口令错误'); err.code = 'TOKEN_INVALID'; throw err
+  }
+  if (!resp.ok || json?.code !== 200) {
+    throw new Error(json?.message || `HTTP ${resp.status}`)
+  }
+  return json.data
+}
+
 /**
  * 导出慢SQL Excel（v3：与页面筛选联动，列与页面一致；跨分页全量）。
  * @param {Object} params { env, round, domain, bizType, keyword, whitelistStatus }

@@ -28,6 +28,7 @@
       </div>
       <div class="slow-tb-right">
         <button class="slow-btn" @click="openImport">导入 Excel/CSV</button>
+        <button class="slow-btn" @click="openFilterCfg">采集过滤</button>
         <button class="slow-btn" @click="doExport">导出 Excel</button>
       </div>
     </div>
@@ -88,6 +89,33 @@
     <transition name="slow-fade">
       <div v-if="copyTip" class="slow-copy-toast">已复制到剪贴板</div>
     </transition>
+
+    <!-- v3：采集过滤名单配置弹窗（增删需导入口令） -->
+    <div v-if="filterOpen" class="slow-modal-mask" @click.self="filterOpen = false">
+      <div class="slow-modal">
+        <h3>SQL 采集过滤名单</h3>
+        <p class="slow-hint">抽象SQL 以下列前缀<b>开头</b>的行，导入时不纳入采集（大小写不敏感，trim 后比对）。
+          例：配置 EXPLAIN、SET 后，"EXPLAIN …" / "set session …" 都被过滤。增删需导入口令。</p>
+        <div v-if="filterList.length === 0" class="slow-hint">名单为空——所有行都会被采集。</div>
+        <ul v-else class="slow-filter-list">
+          <li v-for="f in filterList" :key="f.id">
+            <code class="slow-filter-prefix">{{ f.prefix }}</code>
+            <button class="slow-link slow-filter-del" :disabled="filterBusy" @click="delFilter(f)">删除</button>
+          </li>
+        </ul>
+        <div class="slow-filter-add">
+          <input v-model="filterPrefix" class="slow-input" maxlength="64"
+                 placeholder="新增前缀（如 EXPLAIN）" @keyup.enter="addFilter" />
+          <button class="slow-btn primary" :disabled="!filterPrefix.trim() || filterBusy" @click="addFilter">新增</button>
+        </div>
+        <input v-model="filterToken" class="slow-input full" type="password"
+               placeholder="口令 X-DII-Trigger-Token（与导入口令一致，增删必填）" />
+        <p v-if="filterMsg" class="slow-hint">{{ filterMsg }}</p>
+        <div class="slow-modal-foot">
+          <button class="slow-btn" @click="filterOpen = false">关闭</button>
+        </div>
+      </div>
+    </div>
 
     <!-- 导入弹窗（v3：导入中显示等待层+进度，禁止误关；成功后按钮置灰防重复导入） -->
     <div v-if="importOpen" class="slow-modal-mask" @click.self="!importing && (importOpen = false)">
@@ -169,6 +197,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import {
   listSlowSql, listSlowSqlDomains, listSlowSqlBizTypes, listSlowSqlRounds,
   importSlowSql, exportSlowSql,
+  listSlowSqlCollectFilters, addSlowSqlCollectFilter, deleteSlowSqlCollectFilter,
   getWhitelistApprovers, applyWhitelist, getWhitelistApplication,
   l1Approve, l1Reject, l2Approve, l2Reject,
 } from '../../api/daoIndex.js'
@@ -248,7 +277,9 @@ async function doImport() {
   try {
     const r = await importSlowSql(importFileRef.value, props.env, token.value, importRound.value.trim())
     importMsg.value = `轮次 ${r.round}：原始 ${r.rawRows} 行 → 聚合 ${r.aggregatedRows} 条`
-      + `（${r.repeatHit} 条曾在历史轮次出现，跳过 ${r.skipped}${r.overwritten ? `，覆盖旧轮 ${r.overwritten} 条` : ''}）`
+      + `（${r.repeatHit} 条曾在历史轮次出现，跳过 ${r.skipped}`
+      + `${r.filtered ? `，采集过滤名单排除 ${r.filtered} 行` : ''}`
+      + `${r.overwritten ? `，覆盖旧轮 ${r.overwritten} 条` : ''}）`
     page.value = 0
     domains.value = await listSlowSqlDomains()
     bizTypes.value = await listSlowSqlBizTypes()
@@ -335,6 +366,46 @@ async function act(kind) {
     await reload()
   } catch (e) {
     viewMsg.value = `操作失败：${e?.message || e}`
+  }
+}
+
+/* ── v3 采集过滤名单配置（增删需导入口令）── */
+const filterOpen = ref(false); const filterList = ref([])
+const filterPrefix = ref(''); const filterToken = ref(''); const filterMsg = ref(''); const filterBusy = ref(false)
+async function openFilterCfg() {
+  filterMsg.value = ''; filterPrefix.value = ''
+  filterOpen.value = true
+  await loadFilters()
+}
+async function loadFilters() {
+  try { filterList.value = await listSlowSqlCollectFilters() } catch (e) { filterMsg.value = `加载失败：${e?.message || e}` }
+}
+async function addFilter() {
+  const p = filterPrefix.value.trim()
+  if (!p || filterBusy.value) return
+  filterBusy.value = true; filterMsg.value = ''
+  try {
+    await addSlowSqlCollectFilter(p, filterToken.value)
+    filterPrefix.value = ''
+    filterMsg.value = `已新增前缀「${p}」（下次导入生效）`
+    await loadFilters()
+  } catch (e) {
+    filterMsg.value = e.code === 'TOKEN_INVALID' ? '口令错误' : `新增失败：${e?.message || e}`
+  } finally {
+    filterBusy.value = false
+  }
+}
+async function delFilter(f) {
+  if (filterBusy.value) return
+  filterBusy.value = true; filterMsg.value = ''
+  try {
+    await deleteSlowSqlCollectFilter(f.id, filterToken.value)
+    filterMsg.value = `已删除前缀「${f.prefix}」`
+    await loadFilters()
+  } catch (e) {
+    filterMsg.value = e.code === 'TOKEN_INVALID' ? '口令错误' : `删除失败：${e?.message || e}`
+  } finally {
+    filterBusy.value = false
   }
 }
 
@@ -450,6 +521,17 @@ function wlClass(s) {
   0%   { left: -36%; }
   100% { left: 100%; }
 }
+
+/* ── v3：采集过滤名单弹窗 ── */
+.slow-filter-list { list-style: none; margin: 8px 0; padding: 0; max-height: 220px; overflow: auto; }
+.slow-filter-list li {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 10px; border-bottom: 1px solid var(--border-subtle, #ebeef2);
+}
+.slow-filter-prefix { font-family: monospace; font-size: 13px; }
+.slow-filter-del { color: var(--slow-bad); }
+.slow-filter-add { display: flex; gap: 8px; margin-top: 8px; }
+.slow-filter-add .slow-input { flex: 1; }
 
 /* ── v3：可复制单元格 + 复制成功 toast ── */
 .copyable { cursor: copy; }

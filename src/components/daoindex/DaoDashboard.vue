@@ -135,12 +135,12 @@
             <div class="dii-panel-head">
               <div>
                 <h3 class="dii-panel-title">慢SQL分布（按领域）</h3>
-                <p class="dii-panel-desc">按领域的慢SQL治理覆盖：普通（未申请）/ 白名单申请中 / 已申请白名单</p>
+                <p class="dii-panel-desc">各领域慢SQL按类型分布：联机 / 批量 / 热点账户</p>
               </div>
               <div class="dii-legend">
-                <span class="dii-legend-item"><i class="dii-swatch dii-sw-total"></i>普通</span>
-                <span class="dii-legend-item"><i class="dii-swatch dii-sw-wl-applying"></i>白名单申请中</span>
-                <span class="dii-legend-item"><i class="dii-swatch dii-sw-wl-approved"></i>已申请白名单</span>
+                <span class="dii-legend-item"><i class="dii-swatch" style="background:#3b5bdb"></i>联机</span>
+                <span class="dii-legend-item"><i class="dii-swatch" style="background:#12b886"></i>批量</span>
+                <span class="dii-legend-item"><i class="dii-swatch" style="background:#fa8c16"></i>热点账户</span>
               </div>
             </div>
             <div v-if="slowDomainCats.length === 0" class="dii-panel-empty">
@@ -286,15 +286,19 @@ const slowDomainSorted = computed(() => {
     (a, b) => SLOW_DOMAIN_ORDER.indexOf(a.domain) - SLOW_DOMAIN_ORDER.indexOf(b.domain))
 })
 const slowDomainCats = computed(() => slowDomainSorted.value.map(d => d.domain))
-const slowDomainSeries = computed(() => [
-  { name: '普通（未申请）', color: 'var(--c-bar-total, #6366f1)',
-    values: slowDomainSorted.value.map(d =>
-      Math.max(0, (Number(d.total) || 0) - (Number(d.wl_applying) || 0) - (Number(d.wl_approved) || 0))) },
-  { name: '白名单申请中', color: '#fa8c16',
-    values: slowDomainSorted.value.map(d => Number(d.wl_applying) || 0) },
-  { name: '已申请白名单', color: '#722ed1',
-    values: slowDomainSorted.value.map(d => Number(d.wl_approved) || 0) },
-])
+const slowDomainSeries = computed(() => {
+  const rows = slowDomainSorted.value
+  const series = [
+    { name: '联机', color: '#3b5bdb', values: rows.map(d => Number(d.biz_online) || 0) },
+    { name: '批量', color: '#12b886', values: rows.map(d => Number(d.biz_batch) || 0) },
+    { name: '热点账户', color: '#fa8c16', values: rows.map(d => Number(d.biz_hotspot) || 0) },
+  ]
+  // 其他类型仅在有数据时追加（保证横条总长=该领域慢SQL总数，不丢数据）
+  if (rows.some(d => (Number(d.biz_other) || 0) > 0)) {
+    series.push({ name: '其他', color: '#868e96', values: rows.map(d => Number(d.biz_other) || 0) })
+  }
+  return series
+})
 
 /* ─────── 第四块：7 天执行时长 ─────── */
 const elapsedCats = computed(() => elapsed7d.value.map(t => fmtDay(t.day)))

@@ -39,7 +39,8 @@
     </div>
     <div class="slow-kpi">共 <b>{{ total }}</b> 条抽象SQL</div>
 
-    <!-- 列表 -->
+    <!-- 列表（v4：表头固定 + 表体滚动——本容器滚动，thead sticky；工具栏/分页脚在容器外固定）-->
+    <div class="slow-table-scroll">
     <div v-if="loading" class="slow-state">加载中…</div>
     <div v-else-if="errorMsg" class="slow-state slow-err">{{ errorMsg }}</div>
     <div v-else-if="items.length === 0" class="slow-state">暂无数据，请先「导入 Excel/CSV」。</div>
@@ -71,6 +72,7 @@
         </tr>
       </tbody>
     </table>
+    </div>
 
     <!-- 分页（服务端分页；v3 加每页条数。导出不受分页影响=筛选后全量） -->
     <div class="slow-pager" v-if="total > 0">
@@ -468,7 +470,13 @@ function wlClass(s) {
   --slow-warn: #f5c062;    --slow-warn-bg: #3a3320;
 }
 
-.slow-wrap { padding: 16px; color: var(--text-primary, #14171c); }
+/* v4：固定 工具栏/KPI 在顶、分页脚在底，中间表格区滚动。
+   .slow-wrap 作 flex 列并撑满父高（DaoIndexPage 的 .dii-main 是 overflow:hidden 的 flex 列）。 */
+.slow-wrap { padding: 16px; color: var(--text-primary, #14171c);
+  display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%; box-sizing: border-box; }
+.slow-toolbar, .slow-todo-banner, .slow-kpi, .slow-pager { flex-shrink: 0; }
+/* 中间滚动区：本容器纵向滚动；表头 thead 用 sticky 钉在容器顶部 */
+.slow-table-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; }
 .slow-toolbar { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .slow-tb-left, .slow-tb-right { display: flex; gap: 8px; flex-wrap: wrap; }
 .slow-input, .slow-select {
@@ -493,7 +501,11 @@ function wlClass(s) {
 .slow-table th, .slow-table td {
   border-bottom: 1px solid var(--border-subtle, #ebeef2); padding: 8px 10px; text-align: left; vertical-align: top;
 }
-.slow-table th { color: var(--text-secondary, #5a6172); font-weight: 600; }
+/* v4：表头钉在滚动容器顶部——不透明背景盖住下方滚动行；z-index 高于行内容 */
+.slow-table th {
+  color: var(--text-secondary, #5a6172); font-weight: 600;
+  position: sticky; top: 0; z-index: 2; background: var(--slow-panel);
+}
 .slow-table .num { text-align: right; white-space: nowrap; }
 .sql-cell { max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; }
 .param-cell { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary, #5a6172); }

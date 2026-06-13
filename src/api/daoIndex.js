@@ -609,6 +609,11 @@ export function getSlowSqlRoundStats(lastN = 7) {
   return request(`${PREFIX}/slow-sql/round-stats?lastN=${lastN}`)
 }
 
+/** v4 概览仪表盘：慢SQL按领域分布（横向堆叠条）{domain,total,wl_applying,wl_approved} */
+export function getSlowSqlDomainStats() {
+  return request(`${PREFIX}/slow-sql/domain-stats`)
+}
+
 /* ── v3：慢SQL 采集过滤名单（抽象SQL 以名单前缀开头 → 导入不纳入采集）── */
 
 /** 名单列表（只读） */

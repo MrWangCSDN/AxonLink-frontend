@@ -129,6 +129,29 @@
               :height="200"
             />
           </section>
+
+          <!-- 第六块（v4）：慢SQL分布（按领域）→ 横向堆叠条，样式同整改分布 -->
+          <section class="dii-panel">
+            <div class="dii-panel-head">
+              <div>
+                <h3 class="dii-panel-title">慢SQL分布（按领域）</h3>
+                <p class="dii-panel-desc">按领域的慢SQL治理覆盖：普通（未申请）/ 白名单申请中 / 已申请白名单</p>
+              </div>
+              <div class="dii-legend">
+                <span class="dii-legend-item"><i class="dii-swatch dii-sw-total"></i>普通</span>
+                <span class="dii-legend-item"><i class="dii-swatch dii-sw-wl-applying"></i>白名单申请中</span>
+                <span class="dii-legend-item"><i class="dii-swatch dii-sw-wl-approved"></i>已申请白名单</span>
+              </div>
+            </div>
+            <div v-if="slowDomainCats.length === 0" class="dii-panel-empty">
+              暂无慢SQL数据——在「慢SQL维度分析」页导入后展示
+            </div>
+            <DiiHorizontalStackBar
+              v-else
+              :categories="slowDomainCats"
+              :series="slowDomainSeries"
+            />
+          </section>
         </div>
       </template>
     </div>
@@ -142,7 +165,7 @@ import DiiBarGroupChart from './widgets/DiiBarGroupChart.vue'
 import DiiHorizontalStackBar from './widgets/DiiHorizontalStackBar.vue'
 import DiiPieChart from './widgets/DiiPieChart.vue'
 import DiiDashboardTrendChart from './dashboard/DiiDashboardTrendChart.vue'
-import { getDiiDashboard, getSlowSqlRoundStats } from '../../api/daoIndex.js'
+import { getDiiDashboard, getSlowSqlRoundStats, getSlowSqlDomainStats } from '../../api/daoIndex.js'
 
 const props = defineProps({ env: { type: String, default: 'uat' } })
 defineEmits(['update:env', 'goto'])
@@ -155,8 +178,9 @@ const byDomain = ref([])
 const ratingByDomain = ref([])
 const trend7d = ref([])
 const elapsed7d = ref([])
-// v4：慢SQL按轮次统计（最近 7 轮）
+// v4：慢SQL按轮次统计（最近 7 轮）+ 按领域分布
 const slowRounds = ref([])
+const slowDomains = ref([])
 
 /* ─────── 数据加载 ─────── */
 async function doLoad() {
@@ -175,12 +199,18 @@ async function doLoad() {
   } finally {
     loading.value = false
   }
-  // 慢SQL轮次统计独立拉取：失败不影响主仪表盘
+  // 慢SQL轮次统计 + 按领域分布，独立拉取：失败不影响主仪表盘
   try {
     const rs = await getSlowSqlRoundStats(7)
     slowRounds.value = Array.isArray(rs) ? rs : []
   } catch {
     slowRounds.value = []
+  }
+  try {
+    const ds = await getSlowSqlDomainStats()
+    slowDomains.value = Array.isArray(ds) ? ds : []
+  } catch {
+    slowDomains.value = []
   }
 }
 
@@ -243,6 +273,27 @@ const slowRoundSeries = computed(() => [
     values: slowRounds.value.map(r => Number(r.wl_applying) || 0) },
   { name: '已申请白名单', color: '#722ed1',
     values: slowRounds.value.map(r => Number(r.wl_approved) || 0) },
+])
+
+/* ─────── 第六块（v4）：慢SQL分布（按领域）→ 横向堆叠条，对齐第二块整改分布 ───────
+   后端 domain-stats 返回 [{domain,total,wl_applying,wl_approved}]。
+   三段互斥（求和=该领域慢SQL总数）：普通(未申请) / 白名单申请中 / 已申请白名单。
+   领域按固定顺序排，过滤掉空数据领域。 */
+const SLOW_DOMAIN_ORDER = ['存款', '贷款', '公共', '结算', '全领域', '平台', '其他']
+const slowDomainSorted = computed(() => {
+  const rows = slowDomains.value.filter(d => (Number(d.total) || 0) > 0)
+  return rows.slice().sort(
+    (a, b) => SLOW_DOMAIN_ORDER.indexOf(a.domain) - SLOW_DOMAIN_ORDER.indexOf(b.domain))
+})
+const slowDomainCats = computed(() => slowDomainSorted.value.map(d => d.domain))
+const slowDomainSeries = computed(() => [
+  { name: '普通（未申请）', color: 'var(--c-bar-total, #6366f1)',
+    values: slowDomainSorted.value.map(d =>
+      Math.max(0, (Number(d.total) || 0) - (Number(d.wl_applying) || 0) - (Number(d.wl_approved) || 0))) },
+  { name: '白名单申请中', color: '#fa8c16',
+    values: slowDomainSorted.value.map(d => Number(d.wl_applying) || 0) },
+  { name: '已申请白名单', color: '#722ed1',
+    values: slowDomainSorted.value.map(d => Number(d.wl_approved) || 0) },
 ])
 
 /* ─────── 第四块：7 天执行时长 ─────── */

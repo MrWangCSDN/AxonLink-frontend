@@ -135,21 +135,23 @@
             <div class="dii-panel-head">
               <div>
                 <h3 class="dii-panel-title">慢SQL分布（按领域）</h3>
-                <p class="dii-panel-desc">各领域慢SQL按类型分布：联机 / 批量 / 热点账户</p>
+                <p class="dii-panel-desc">各领域慢SQL：联机 / 批量 / 热点账户 问题数 + 重复出现问题数</p>
               </div>
               <div class="dii-legend">
                 <span class="dii-legend-item"><i class="dii-swatch" style="background:#3b5bdb"></i>联机</span>
                 <span class="dii-legend-item"><i class="dii-swatch" style="background:#12b886"></i>批量</span>
                 <span class="dii-legend-item"><i class="dii-swatch" style="background:#fa8c16"></i>热点账户</span>
+                <span class="dii-legend-item"><i class="dii-swatch" style="background:#e64980"></i>重复出现</span>
               </div>
             </div>
             <div v-if="slowDomainCats.length === 0" class="dii-panel-empty">
               暂无慢SQL数据——在「慢SQL维度分析」页导入后展示
             </div>
-            <DiiHorizontalStackBar
+            <DiiBarGroupChart
               v-else
               :categories="slowDomainCats"
               :series="slowDomainSeries"
+              :height="200"
             />
           </section>
         </div>
@@ -286,6 +288,7 @@ const slowDomainSorted = computed(() => {
     (a, b) => SLOW_DOMAIN_ORDER.indexOf(a.domain) - SLOW_DOMAIN_ORDER.indexOf(b.domain))
 })
 const slowDomainCats = computed(() => slowDomainSorted.value.map(d => d.domain))
+// v4：分组柱（非堆叠）——联机/批量/热点账户是互斥类型，重复出现是跨类型子集，分组并列各算各的
 const slowDomainSeries = computed(() => {
   const rows = slowDomainSorted.value
   const series = [
@@ -293,10 +296,12 @@ const slowDomainSeries = computed(() => {
     { name: '批量', color: '#12b886', values: rows.map(d => Number(d.biz_batch) || 0) },
     { name: '热点账户', color: '#fa8c16', values: rows.map(d => Number(d.biz_hotspot) || 0) },
   ]
-  // 其他类型仅在有数据时追加（保证横条总长=该领域慢SQL总数，不丢数据）
+  // 其他类型仅在有数据时追加
   if (rows.some(d => (Number(d.biz_other) || 0) > 0)) {
     series.push({ name: '其他', color: '#868e96', values: rows.map(d => Number(d.biz_other) || 0) })
   }
+  // 重复出现（跨类型子集，单列）
+  series.push({ name: '重复出现', color: '#e64980', values: rows.map(d => Number(d.repeat_cnt) || 0) })
   return series
 })
 

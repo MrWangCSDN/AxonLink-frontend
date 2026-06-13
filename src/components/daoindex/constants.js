@@ -18,7 +18,7 @@ export const DII_PAGES = [
   },
   {
     key: 'dii-sqls',
-    label: '索引维度分析',
+    label: 'AI-SQL分析',
     desc: '逐条 SQL 详情',
     color: '#228BE6',
   },

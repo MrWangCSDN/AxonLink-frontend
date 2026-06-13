@@ -514,10 +514,10 @@ const DII_MENU_ACCENT = '#0b70db'
 const diiMenu = [
   { key: 'dii-dashboard',       label: '概览仪表盘',     desc: '总览 · 评级分布' },
   { key: 'dii-tasks',           label: '巡检任务',       desc: '批量巡检进度' },
-  // V16+：SQL 池独立子页下线——导入入口合并到索引维度分析页头部
-  // v4（2026-06-12）：SQL 维度分析改名「索引维度分析」；TABLE 维度分析下线；
-  //                  慢SQL维度分析挂到索引维度分析子菜单下（child=缩进子项）
-  { key: 'dii-sqls',            label: '索引维度分析',   desc: '逐条 SQL · 含池导入' },
+  // V16+：SQL 池独立子页下线——导入入口合并到AI-SQL分析页头部
+  // v4（2026-06-12）：SQL 维度分析改名「AI-SQL分析」；TABLE 维度分析下线；
+  //                  慢SQL维度分析挂到AI-SQL分析子菜单下（child=缩进子项）
+  { key: 'dii-sqls',            label: 'AI-SQL分析',   desc: '逐条 SQL · 含池导入' },
   { key: 'dii-slow-sql',        label: '慢SQL维度分析',  desc: '慢SQL导入·轮次·白名单', child: true },
   { key: 'dii-sql-whitelist',   label: 'SQL 白名单列表', desc: '申请中/已通过' },
   { key: 'dii-er',              label: 'ER 图',          desc: '表关系推断' },
@@ -963,7 +963,7 @@ const totalImpactCount = computed(() => {
   text-align: left;
   transition: all 0.18s;
 }
-/* v4：子菜单项（如 慢SQL维度分析 挂在 索引维度分析 下）——只覆盖缩进/尺寸，其余继承 .cis-impact */
+/* v4：子菜单项（如 慢SQL维度分析 挂在 AI-SQL分析 下）——只覆盖缩进/尺寸，其余继承 .cis-impact */
 .cis-impact-child {
   width: calc(100% - 40px);
   margin-left: 30px;

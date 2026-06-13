@@ -658,7 +658,7 @@ const onSelectDomainNav = (domain) => {
 
 // ══════════ SQL 巡检侧边栏点击处理 ══════════
 const onSelectDiiPage = (pageKey) => {
-  // pageKey ∈ diiMenu 的 key（dii-dashboard / dii-sqls(索引维度分析) / dii-slow-sql / dii-sql-whitelist / dii-tasks / dii-er）
+  // pageKey ∈ diiMenu 的 key（dii-dashboard / dii-sqls(AI-SQL分析) / dii-slow-sql / dii-sql-whitelist / dii-tasks / dii-er）
   currentPage.value = pageKey
 }
 

@@ -9,7 +9,7 @@
             <div class="crumb">
               <span class="crumb-home">SQL 巡检</span>
               <span class="crumb-sep">/</span>
-              <span class="crumb-current">{{ props.whitelistScope === 'wl' ? 'SQL 白名单列表' : '索引维度分析' }}</span>
+              <span class="crumb-current">{{ props.whitelistScope === 'wl' ? 'SQL 白名单列表' : 'AI-SQL分析' }}</span>
             </div>
             <div v-if="latestTask" class="hero-task">
               <span class="task-pill" :class="`status-${String(latestTask.status||'').toLowerCase()}`">

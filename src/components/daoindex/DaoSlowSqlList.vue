@@ -154,7 +154,7 @@
         <div class="slow-sql-snip">{{ applyRow?.abstract_sql }}</div>
         <select v-model="applyL1" class="slow-input full">
           <option value="">选择一级审批人</option>
-          <option v-for="a in l1Approvers" :key="a.username" :value="a.username">{{ a.name || a.username }}</option>
+          <option v-for="a in l1Approvers" :key="a.username" :value="a.username">{{ a.display || a.username }}</option>
         </select>
         <textarea v-model="applyReason" class="slow-input full" placeholder="申请理由" rows="3"></textarea>
         <p v-if="applyMsg" class="slow-hint">{{ applyMsg }}</p>
@@ -170,12 +170,12 @@
       <div class="slow-modal">
         <h3>白名单申请 #{{ viewApp?.id }}</h3>
         <div class="slow-kv">状态：<b>{{ wlLabel(viewApp?.status) }}</b></div>
-        <div class="slow-kv">申请人：{{ viewApp?.applicant }}　一级：{{ viewApp?.l1_approver }}　二级：{{ viewApp?.l2_approver || '-' }}</div>
+        <div class="slow-kv">申请人：{{ viewApp?.applicant }}　一级：{{ approverDisplay(viewApp?.l1_approver) }}　二级：{{ viewApp?.l2_approver ? approverDisplay(viewApp.l2_approver) : '-' }}</div>
         <div class="slow-sql-snip">{{ viewApp?.sql_text }}</div>
         <textarea v-if="viewMode" v-model="viewOpinion" class="slow-input full" placeholder="审批意见" rows="2"></textarea>
         <select v-if="viewMode === 'l1'" v-model="viewL2" class="slow-input full">
           <option value="">通过时选择二级审批人</option>
-          <option v-for="a in l2Approvers" :key="a.username" :value="a.username">{{ a.name || a.username }}</option>
+          <option v-for="a in l2Approvers" :key="a.username" :value="a.username">{{ a.display || a.username }}</option>
         </select>
         <p v-if="viewMsg" class="slow-hint">{{ viewMsg }}</p>
         <div class="slow-modal-foot">
@@ -439,6 +439,13 @@ async function copyText(text) {
   document.body.appendChild(ta)
   ta.select()
   try { return document.execCommand('copy') } catch { return false } finally { document.body.removeChild(ta) }
+}
+
+/* 审批人 username → 中文显示名（在 l1/l2 名单里找 display）；找不到原样返回 username */
+function approverDisplay(username) {
+  if (!username) return username
+  const hit = [...l1Approvers.value, ...l2Approvers.value].find(a => a.username === username)
+  return hit?.display || username
 }
 
 /* ── 文案 ── */

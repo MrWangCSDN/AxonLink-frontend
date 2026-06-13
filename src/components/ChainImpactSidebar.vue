@@ -41,7 +41,7 @@
           <span class="cis-domain-ico-wrap" :style="domainIcoWrapStyle(d)">
             <component :is="domainLucideIcon(d)" />
           </span>
-          <span class="cis-domain-label" :style="domainLabelStyle(d)">{{ d.name }}</span>
+          <span class="cis-domain-label" :style="domainLabelStyle(d)">{{ d.displayName || d.name }}</span>
           <span class="cis-domain-badge" :style="domainBadgeStyle(d)">
             <span class="cis-domain-badge-txt">{{ domainCount(d) }}</span>
           </span>
@@ -956,18 +956,18 @@ const totalImpactCount = computed(() => {
   margin: 1px 10px;
   padding: 0 10px;
   height: 52px;
-}
-/* v4：子菜单项（如 慢SQL维度分析 挂在 索引维度分析 下）——整体右缩进示从属 */
-.cis-impact-child {
-  width: calc(100% - 40px);
-  margin-left: 30px;
-  height: 46px;
   border-radius: 10px;
   border: 1px solid transparent;
   cursor: pointer;
   font: inherit;
   text-align: left;
   transition: all 0.18s;
+}
+/* v4：子菜单项（如 慢SQL维度分析 挂在 索引维度分析 下）——只覆盖缩进/尺寸，其余继承 .cis-impact */
+.cis-impact-child {
+  width: calc(100% - 40px);
+  margin-left: 30px;
+  height: 46px;
 }
 
 .cis-impact:hover:not(.active) {

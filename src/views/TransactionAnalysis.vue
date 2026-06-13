@@ -30,14 +30,14 @@
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
                 <path d="M5 3.5L8.5 7L5 10.5" stroke="#C5CBD7" stroke-width="1.5" stroke-linecap="round"/>
               </svg>
-              <span class="breadcrumb-current">{{ activeDomain?.name }}</span>
+              <span class="breadcrumb-current">{{ activeDomain?.displayName || activeDomain?.name }}</span>
             </div>
           </div>
 
           <!-- 页面标题栏 -->
           <div class="content-header">
             <div class="content-title-group">
-              <h2 class="content-title">{{ activeDomain?.name }}</h2>
+              <h2 class="content-title">{{ activeDomain?.displayName || activeDomain?.name }}</h2>
               <span class="tx-count-badge">{{ totalCount || activeDomain?.count || sortedTransactions.length }} 支交易</span>
               <div class="build-sync-inline" :class="`is-${buildSyncInfo.statusType}`">
                 <div class="build-sync-meta">
@@ -416,12 +416,33 @@ const checkHealth = async () => {
   }
 }
 
+/**
+ * 领域名「展示」兜底：后端 getDomains() 偶发返回原始码（comm/DEPT/sett，无中文 longname）。
+ * 仅用于展示——不动 d.name（line ~850 用 d.name 做匹配键，改了会断全局搜索跳转）。
+ * 已是中文（含汉字）原样返回；已知码（含 -bcc 变体，大小写无关）→ 中文领域。
+ */
+function domainDisplayName(raw) {
+  if (raw == null) return raw
+  const s = String(raw)
+  if (/[一-龥]/.test(s)) return s   // 后端已给中文 → 原样
+  const code = s.toLowerCase().replace(/-bcc$/, '')
+  const map = {
+    comm: '公共领域', common: '公共领域', public: '公共领域',
+    dept: '存款领域', deposit: '存款领域',
+    loan: '贷款领域',
+    sett: '结算领域', settle: '结算领域', settlement: '结算领域',
+  }
+  return map[code] || s
+}
+
 // ── 初始化：加载领域列表 ──
 const initDomains = async () => {
   try {
     const data = await getDomains()
-    domains.value = data
-    if (data.length) activeDomain.value = data[0]
+    // 给每个领域补 displayName（展示用），name 保持后端原值供匹配
+    domains.value = (Array.isArray(data) ? data : [])
+      .map(d => ({ ...d, displayName: domainDisplayName(d?.name) }))
+    if (domains.value.length) activeDomain.value = domains.value[0]
   } catch (e) {
     loadError.value = '加载领域失败：' + (e.message || '请检查后端服务是否启动')
   }

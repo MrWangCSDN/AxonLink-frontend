@@ -349,3 +349,34 @@ export function getFlowtranCacheStats() {
 export function getFlowtranEnv() {
   return request('/flowtran/env')
 }
+
+// ── 错误码扫描·交易维度归属·下载 ──────────────────────────────
+
+/**
+ * 查询某交易的错误码（喂徽章 + 展开列表）
+ * @param {string} txId 交易号
+ * @returns {Promise<{count:number, distinctCount:number, list:Array}>}
+ */
+export function getErrorCodes(txId) {
+  return request(`/flowtran/transactions/${encodeURIComponent(txId)}/error-codes`)
+}
+
+/**
+ * 下载某交易的错误码明细 Excel（复用既有双参 download）
+ * @param {string} txId 交易号
+ */
+export function exportErrorCodes(txId) {
+  return download(
+    `/flowtran/transactions/${encodeURIComponent(txId)}/error-codes/export`,
+    `error-codes_${txId}.xlsx`,
+  )
+}
+
+/**
+ * 下载全量错误码 Excel（交易维度，复用既有双参 download）
+ * @param {string} [domain] 领域 key，可选；传则只导该领域
+ */
+export function exportAllErrorCodes(domain) {
+  const q = domain ? `?domain=${encodeURIComponent(domain)}` : ''
+  return download(`/flowtran/error-codes/export${q}`, 'error-codes-all.xlsx')
+}

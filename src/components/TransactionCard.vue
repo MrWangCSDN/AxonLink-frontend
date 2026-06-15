@@ -1321,9 +1321,13 @@ const initExpanded = async () => {
 // 展开时取错误码（零回归：链路已由父级随 props 注入，此处只并行加一个错误码调用）
 // 回填徽章计数：固定取 distinctCount（去重错误码数），不是 count、不是 list.length
 async function onExpandErrorCodes() {
-  const ec = await getErrorCodes(props.transaction.id)
-  props.transaction.errorCodeCount = ec.distinctCount
-  errorCodeList.value = ec.list   // 展开明细（若有明细区则渲染）
+  try {
+    const ec = await getErrorCodes(props.transaction.id)
+    props.transaction.errorCodeCount = ec.distinctCount
+    errorCodeList.value = ec.list   // 展开明细（若有明细区则渲染）
+  } catch (e) {
+    // 容错（设计 §4.6）：物化缺表期/网络抖动时静默，徽章保持旧值或 0，不抛红到控制台
+  }
 }
 
 // 单交易下载

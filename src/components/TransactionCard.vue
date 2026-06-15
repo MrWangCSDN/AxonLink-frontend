@@ -34,6 +34,14 @@
             </svg>
             {{ transaction.tableCount }} 表
           </span>
+          <span class="meta-badge error-code"
+                v-if="transaction.errorCodeCount > 0"
+                @click.stop>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 9v4M12 17h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+            </svg>
+            {{ transaction.errorCodeCount }} 错误码
+          </span>
         </div>
       </div>
       <div class="card-right">
@@ -49,6 +57,14 @@
         <button v-if="isExpanded" class="fullscreen-btn" title="全屏展示" @click.stop="openFullscreen">
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
             <path d="M1.5 5V2H4.5M9.5 2H12.5V5M12.5 9V12H9.5M4.5 12H1.5V9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <button class="fullscreen-btn error-code-export-btn"
+                v-if="isExpanded && transaction.errorCodeCount > 0"
+                @click.stop="downloadErrorCodes"
+                title="下载本交易错误码">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
           </svg>
         </button>
       </div>
@@ -676,7 +692,7 @@
 import { ref, reactive, computed, watch, nextTick, onMounted } from 'vue'
 import MonacoCodeViewer from './MonacoCodeViewer.vue'
 import ApiTester from './ApiTester.vue'
-import { analyzeFlowtranTransaction } from '../api/index.js'
+import { analyzeFlowtranTransaction, getErrorCodes, exportErrorCodes } from '../api/index.js'
 
 const props = defineProps({
   transaction:     { type: Object,  required: true },
@@ -685,6 +701,7 @@ const props = defineProps({
 })
 
 const isExpanded = ref(props.defaultExpanded)
+const errorCodeList = ref([])
 const isFullscreen = ref(false)
 const scale = ref(1)
 const translateX = ref(0)
@@ -1301,11 +1318,24 @@ const initExpanded = async () => {
   recalcAll()
 }
 
+// 展开时取错误码（零回归：链路已由父级随 props 注入，此处只并行加一个错误码调用）
+// 回填徽章计数：固定取 distinctCount（去重错误码数），不是 count、不是 list.length
+async function onExpandErrorCodes() {
+  const ec = await getErrorCodes(props.transaction.id)
+  props.transaction.errorCodeCount = ec.distinctCount
+  errorCodeList.value = ec.list   // 展开明细（若有明细区则渲染）
+}
+
+// 单交易下载
+async function downloadErrorCodes() {
+  await exportErrorCodes(props.transaction.id)
+}
+
 // defaultExpanded=true 时 isExpanded 初始就是 true，watch 不会触发，需 onMounted 处理
-onMounted(() => { if (isExpanded.value) initExpanded() })
+onMounted(() => { if (isExpanded.value) { initExpanded(); onExpandErrorCodes() } })
 
 // 后续手动展开时触发
-watch(isExpanded, (v) => { if (v) initExpanded() })
+watch(isExpanded, (v) => { if (v) { initExpanded(); onExpandErrorCodes() } })
 watch(() => props.transaction.id, () => {
   aiSessionId.value = createAnalysisSessionId()
   Object.assign(aiAnalysis, {
@@ -3001,6 +3031,10 @@ defineExpose({
 .meta-badge.service   { background: rgba(79,124,255,0.1);  color: #4F7CFF; }
 .meta-badge.component { background: rgba(247,103,7,0.1);   color: #F76707; }
 .meta-badge.table     { background: rgba(18,184,134,0.1);  color: #12B886; }
+.meta-badge.error-code {
+  background: var(--c-error-code-bg);
+  color: var(--c-error-code-text);
+}
 .card-right { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex-shrink: 0; }
 .domain-tag { font-size: 11px; color: var(--text-muted); background: var(--bg-badge); padding: 2px 8px; border-radius: 4px; }
 .layer-badge { display: flex; align-items: center; gap: 4px; font-size: 11px; color: #7950F2; background: rgba(121,80,242,0.1); padding: 2px 8px; border-radius: 4px; font-weight: 500; }

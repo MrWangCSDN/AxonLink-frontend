@@ -123,6 +123,10 @@
   --tab-bg-inactive: var(--bg-card-secondary);  /* 非激活：浅灰背景 */
   --tab-text-active: var(--btn-primary-text);   /* 激活文字：复用按钮主色文字 */
   --tab-text-inactive: var(--text-secondary);   /* 非激活文字：次要灰 */
+
+  /* 错误码徽章（告警红橙系，与 component 徽章区分）—— light */
+  --c-error-code-bg:   #fff0f0;
+  --c-error-code-text: #cf1124;   /* 深红字，对比度 ≥ 4.5:1 */
 }
 
 /* ── 夜间模式 ── */
@@ -246,6 +250,10 @@
   --tab-bg-inactive: var(--bg-card-secondary);
   --tab-text-active: var(--btn-primary-text);
   --tab-text-inactive: var(--text-secondary);
+
+  /* 错误码徽章 —— dark（亮一档，避免暗底对比不足） */
+  --c-error-code-bg:   rgba(255, 122, 126, 0.16);
+  --c-error-code-text: #ff7a7e;
 }
 
 *, *::before, *::after {

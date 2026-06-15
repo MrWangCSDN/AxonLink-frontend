@@ -81,6 +81,12 @@
                 </svg>
                 全部收起
               </button>
+              <button class="action-btn error-code-export-all" @click="downloadAllErrorCodes">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+                </svg>
+                全量错误码下载
+              </button>
             </div>
           </div>
 
@@ -243,6 +249,7 @@ import {
   getFlowtranImpactStats,
   getFlowtranTableImpact,
   getSystemStats,
+  exportAllErrorCodes,
 } from '../api/index.js'
 
 const PAGE_SIZE = 10
@@ -885,6 +892,12 @@ const handleGlobalSearch = async (code) => {
 
 const expandAll   = () => sortedTransactions.value.forEach(tx => cardRefs[tx.id]?.expand())
 const collapseAll = () => sortedTransactions.value.forEach(tx => cardRefs[tx.id]?.collapse())
+
+// 全量下载：若当前已选领域则带 domain，否则导全部
+// 注：本组件用 activeDomain（{ id, name }）表示当前领域，domain 参数取其 id（领域 key）
+async function downloadAllErrorCodes() {
+  await exportAllErrorCodes(activeDomain.value?.id || undefined)
+}
 </script>
 
 <style scoped>

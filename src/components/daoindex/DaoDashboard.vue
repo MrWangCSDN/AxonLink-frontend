@@ -135,7 +135,7 @@
             <div class="dii-panel-head">
               <div>
                 <h3 class="dii-panel-title">慢SQL分布（按领域）</h3>
-                <p class="dii-panel-desc">各领域慢SQL：联机 / 批量 / 热点账户 问题数 + 重复出现问题数</p>
+                <p class="dii-panel-desc">各领域慢SQL（仅未申请白名单）：联机 / 批量 / 热点账户 问题数 + 重复出现问题数</p>
               </div>
               <div class="dii-legend">
                 <span class="dii-legend-item"><i class="dii-swatch" style="background:#3b5bdb"></i>联机</span>

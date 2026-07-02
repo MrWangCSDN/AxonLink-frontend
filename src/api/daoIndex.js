@@ -661,6 +661,28 @@ export function exportSlowSql(params = {}) {
   return download(`${PREFIX}/slow-sql/export${qs}`, `slow-sql-${params.round || 'all'}.xlsx`)
 }
 
+/**
+ * 标记慢SQL「已优化」（自助，无口令，走 cookie session）。
+ * @param {{serviceName:string, abstractHash:string}} body
+ */
+export function markSlowSqlOptimized(body) {
+  return request(`${PREFIX}/slow-sql/optimize`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+/**
+ * 取消慢SQL「已优化」。
+ * @param {{serviceName:string, abstractHash:string}} body
+ */
+export function unmarkSlowSqlOptimized(body) {
+  return request(`${PREFIX}/slow-sql/optimize`, {
+    method: 'DELETE',
+    body: JSON.stringify(body),
+  })
+}
+
 /* ───────────── 工具：把对象变成 ?a=1&b=2 ───────────── */
 
 function toQuery(params) {

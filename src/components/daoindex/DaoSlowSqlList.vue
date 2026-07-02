@@ -24,6 +24,12 @@
           <option value="APPROVED">已通过</option>
           <option value="REJECTED_L1">已退回</option>
         </select>
+        <select v-model="optimizeStatus" class="slow-select" @change="reload">
+          <option value="">全部优化状态</option>
+          <option value="NONE">未处理</option>
+          <option value="OPTIMIZED">已优化</option>
+          <option value="REGRESSED">优化未生效</option>
+        </select>
         <button class="slow-btn" @click="reload">查询</button>
       </div>
       <div class="slow-tb-right">
@@ -48,7 +54,7 @@
       <thead>
         <tr>
           <th>微服务</th><th>领域</th><th>类型</th><th>抽象SQL</th><th class="num">最大执行耗时</th>
-          <th>执行参数</th><th class="num">执行次数</th><th>来源文件</th><th>轮次</th><th>重复出现轮次</th><th>白名单</th><th>操作</th>
+          <th>执行参数</th><th class="num">执行次数</th><th>来源文件</th><th>轮次</th><th>重复出现轮次</th><th>优化状态</th><th>白名单</th><th>操作</th>
         </tr>
       </thead>
       <tbody>
@@ -64,10 +70,12 @@
           <td class="loc-cell copyable" :title="(it.source_location || '') + '\n（点击复制）'" @click="copyCell(it.source_location)">{{ it.source_location }}</td>
           <td>{{ it.round }}</td>
           <td class="rounds-cell copyable" :title="(it.repeat_rounds || '') + '\n（点击复制）'" @click="copyCell(it.repeat_rounds)">{{ it.repeat_rounds || '—' }}</td>
+          <td><span class="wl-tag" :class="optClass(it.optimize_status)">{{ optLabel(it) }}</span></td>
           <td><span class="wl-tag" :class="wlClass(it.whitelist_status)">{{ wlLabel(it.whitelist_status) }}</span></td>
           <td>
             <button v-if="!it.whitelist_status" class="slow-link" @click="openApply(it)">申请白名单</button>
             <button v-else class="slow-link" @click="openView(it)">查看/审批</button>
+            <button class="slow-link" @click="toggleOptimize(it)">{{ it.optimize_status ? '取消已优化' : '已优化' }}</button>
           </td>
         </tr>
       </tbody>
@@ -202,6 +210,7 @@ import {
   listSlowSqlCollectFilters, addSlowSqlCollectFilter, deleteSlowSqlCollectFilter,
   getWhitelistApprovers, applyWhitelist, getWhitelistApplication,
   l1Approve, l1Reject, l2Approve, l2Reject,
+  markSlowSqlOptimized, unmarkSlowSqlOptimized,
 } from '../../api/daoIndex.js'
 import { getCurrentUser } from '../../api/auth.js'
 
@@ -213,6 +222,7 @@ const emit = defineEmits(['update:env', 'clear-todo-filter'])
 
 const items = ref([]); const total = ref(0); const loading = ref(false); const errorMsg = ref('')
 const keyword = ref(''); const domain = ref(''); const bizType = ref(''); const whitelistStatus = ref('')
+const optimizeStatus = ref('')
 // v3：每页条数可选（20/50/100），服务端分页
 const domains = ref([]); const bizTypes = ref([]); const page = ref(0); const pageSize = ref(50)
 // v2：轮次（后端升序返回；下拉倒序展示，默认选最新一轮）
@@ -228,6 +238,7 @@ async function reload() {
     const data = await listSlowSql({
       keyword: keyword.value, domain: domain.value, bizType: bizType.value,
       whitelistStatus: whitelistStatus.value,
+      optimizeStatus: optimizeStatus.value,
       round: roundSel.value || undefined,   // v2：按轮次过滤（空=全部轮次）
       // 铃铛「慢SQL待办」跳来：只看该我审批的待审慢SQL
       approverUser: props.filter?.myApprovalTodo ? (currentUser.value || undefined) : undefined,
@@ -281,7 +292,8 @@ async function doImport() {
     importMsg.value = `轮次 ${r.round}：原始 ${r.rawRows} 行 → 聚合 ${r.aggregatedRows} 条`
       + `（${r.repeatHit} 条曾在历史轮次出现，跳过 ${r.skipped}`
       + `${r.filtered ? `，采集过滤名单排除 ${r.filtered} 行` : ''}`
-      + `${r.overwritten ? `，覆盖旧轮 ${r.overwritten} 条` : ''}）`
+      + `${r.overwritten ? `，覆盖旧轮 ${r.overwritten} 条` : ''}`
+      + `${r.reappearedHit ? `，本轮 ${r.reappearedHit} 条优化未生效` : ''}）`
     page.value = 0
     domains.value = await listSlowSqlDomains()
     bizTypes.value = await listSlowSqlBizTypes()
@@ -307,6 +319,7 @@ async function doExport() {
       bizType: bizType.value || undefined,
       keyword: keyword.value || undefined,
       whitelistStatus: whitelistStatus.value || undefined,
+      optimizeStatus: optimizeStatus.value || undefined,
     })
   } catch (e) { alert(`导出失败：${e?.message || e}`) }
 }
@@ -457,6 +470,32 @@ function wlClass(s) {
   if (s === 'REJECTED_L1') return 'bad'
   if (s === 'PENDING_L1' || s === 'PENDING_L2') return 'pending'
   return ''
+}
+/* ── 优化状态：文案带轮次上下文 + 标签色（复用 wl-tag 的 ok/bad） ── */
+function optLabel(it) {
+  const s = it.optimize_status
+  if (!s) return '未处理'
+  if (s === 'OPTIMIZED') return `已优化 @${it.optimized_round || ''}`
+  if (s === 'REGRESSED') return `未生效（${it.optimized_round || ''} 标→${it.reappeared_round || ''} 现）`
+  return s
+}
+function optClass(s) {
+  if (s === 'OPTIMIZED') return 'ok'
+  if (s === 'REGRESSED') return 'bad'
+  return ''
+}
+/* ── 已优化自助开关（无口令，走 cookie session）── */
+async function toggleOptimize(it) {
+  try {
+    if (it.optimize_status) {
+      await unmarkSlowSqlOptimized({ serviceName: it.service_name, abstractHash: it.abstract_hash })
+    } else {
+      await markSlowSqlOptimized({ serviceName: it.service_name, abstractHash: it.abstract_hash })
+    }
+    await reload()
+  } catch (e) {
+    alert(`操作失败：${e?.message || e}`)
+  }
 }
 </script>
 

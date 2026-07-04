@@ -358,6 +358,10 @@ const totalCount      = ref(0)
 const isLoading       = ref(false)
 const loadError       = ref('')
 const mainRef         = ref(null)
+// 加载时序令牌：并发加载（切领域 / 搜索 / 翻页）时只让「最后一次」生效，旧响应到达后作废，
+// 根治搜索竞态（原先「isLoading 就 return」会把后发的关键词查询整个丢弃）。
+let loadSeq = 0
+let searchTimer = null   // 搜索防抖计时器
 
 // 总页数（向上取整；至少 1 页避免分页器消失）
 const totalPages = computed(() =>
@@ -574,15 +578,17 @@ const loadFirstPage = async () => {
 // ── 加载指定页（覆盖式分页：替换当前页数据，不累积） ──
 // 切页时所有 cardRefs 自动随 v-for 重建，新卡片默认 collapsed，达到"切换分页后展开状态切换成关闭"的需求
 const loadPage = async (pageNum) => {
-  if (isLoading.value || !activeDomain.value) return
+  if (!activeDomain.value) return
+  // 本次加载领到一个递增序号；后续任何 loadPage 会把它顶掉。
+  // 不再因「有加载在飞」而丢弃本次——那正是搜索关键词被吞、退化成搜首字符(全含 T)的根因。
+  const seq = ++loadSeq
+  const dk = activeDomain.value.id
+  const kw = activeKeyword.value   // 快照本次关键词，避免富化期间被后续输入改动
   isLoading.value = true
   loadError.value = ''
   try {
-    const { list, total } = await getTransactions(
-      activeDomain.value.id, pageNum, PAGE_SIZE, activeKeyword.value
-    )
-    totalCount.value = total
-    const dk = activeDomain.value?.id
+    const { list, total } = await getTransactions(dk, pageNum, PAGE_SIZE, kw)
+    if (seq !== loadSeq) return    // 已被更晚的加载取代 → 丢弃这份旧结果，别覆盖新数据
     // 并发加载每个交易的链路详情；保留顺序（Promise.all 按数组顺序返回）
     const enriched = await Promise.all(
       list.map(async (tx) => {
@@ -590,17 +596,20 @@ const loadPage = async (pageNum) => {
         return chain ? { ...chain, domainKey: dk } : null
       }),
     )
+    if (seq !== loadSeq) return    // 富化期间又被取代 → 丢弃
+    totalCount.value = total
     // 覆盖式：直接替换数组，让旧卡片随 v-for 卸载，新卡片重新挂载（默认 collapsed）
     allTransactions.value = enriched.filter(Boolean)
     currentPageNum.value = pageNum
     // 滚回顶部，让用户看到第一条
     mainRef.value?.scrollTo({ top: 0 })
   } catch (e) {
+    if (seq !== loadSeq) return
     loadError.value = '加载交易数据失败：' + (e.message || '请检查后端服务')
     allTransactions.value = []
     totalCount.value = 0
   } finally {
-    isLoading.value = false
+    if (seq === loadSeq) isLoading.value = false   // 只有最新那次负责收起 loading
   }
 }
 
@@ -632,7 +641,11 @@ watch(activeDomain, () => {
   globalQuery.value    = ''
   loadFirstPage()
 })
-watch(localSearch, loadFirstPage)
+// 防抖：停止输入 300ms 才查一次，避免每敲一个字就发一次（原先每键一查 + 加载丢弃 = 只跑了首字符查询）
+watch(localSearch, () => {
+  clearTimeout(searchTimer)
+  searchTimer = setTimeout(loadFirstPage, 300)
+})
 
 // 改为分页后，不再需要"底部哨兵 + 滚动加载更多"的 IntersectionObserver
 // 也不再需要"卡片入屏自动展开"的 cardObserver——因为：
@@ -648,6 +661,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   dismissImpactNotice()
   clearInterval(healthTimer)
+  clearTimeout(searchTimer)
 })
 
 const selectDomain = (domain) => {

@@ -75,7 +75,7 @@
           <td>
             <button v-if="!it.whitelist_status" class="slow-link" @click="openApply(it)">申请白名单</button>
             <button v-else class="slow-link" @click="openView(it)">查看/审批</button>
-            <button class="slow-link" @click="toggleOptimize(it)">{{ it.optimize_status ? '取消已优化' : '已优化' }}</button>
+            <button v-if="isLatestRound" class="slow-link" @click="toggleOptimize(it)">{{ it.optimize_status ? '取消已优化' : '已优化' }}</button>
           </td>
         </tr>
       </tbody>
@@ -228,6 +228,9 @@ const domains = ref([]); const bizTypes = ref([]); const page = ref(0); const pa
 // v2：轮次（后端升序返回；下拉倒序展示，默认选最新一轮）
 const rounds = ref([]); const roundSel = ref('')
 const roundsDesc = computed(() => rounds.value.slice().reverse())
+// 仅「最新一轮」可改「已优化」；选中历史轮次时按钮隐藏（只读）。后端升序返回，末位=最新。
+const isLatestRound = computed(() =>
+  rounds.value.length > 0 && roundSel.value === rounds.value[rounds.value.length - 1])
 
 const currentUser = ref('')
 const l1Approvers = ref([]); const l2Approvers = ref([])

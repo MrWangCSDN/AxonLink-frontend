@@ -70,12 +70,12 @@
           <td class="loc-cell copyable" :title="(it.source_location || '') + '\n（点击复制）'" @click="copyCell(it.source_location)">{{ it.source_location }}</td>
           <td>{{ it.round }}</td>
           <td class="rounds-cell copyable" :title="(it.repeat_rounds || '') + '\n（点击复制）'" @click="copyCell(it.repeat_rounds)">{{ it.repeat_rounds || '—' }}</td>
-          <td><span class="wl-tag" :class="optClass(it.optimize_status)">{{ optLabel(it) }}</span></td>
+          <td><span class="wl-tag" :class="optClass(it.optimize_status)" :title="optTooltip(it)">{{ optLabel(it) }}</span></td>
           <td><span class="wl-tag" :class="wlClass(it.whitelist_status)">{{ wlLabel(it.whitelist_status) }}</span></td>
           <td>
             <button v-if="!it.whitelist_status" class="slow-link" @click="openApply(it)">申请白名单</button>
             <button v-else class="slow-link" @click="openView(it)">查看/审批</button>
-            <button v-if="isLatestRound" class="slow-link" @click="toggleOptimize(it)">{{ it.optimize_status ? '取消已优化' : '已优化' }}</button>
+            <button v-if="isLatestRound" class="slow-link" @click="openOptimize(it)">{{ it.optimize_status ? '编辑优化' : '已优化' }}</button>
           </td>
         </tr>
       </tbody>
@@ -199,6 +199,24 @@
         </div>
       </div>
     </div>
+
+    <!-- 已优化：填写优化内容弹窗（工号/姓名后端自动记当前登录用户） -->
+    <div v-if="optimizeOpen" class="slow-modal-mask" @click.self="optimizeOpen = false">
+      <div class="slow-modal">
+        <h3>标记「已优化」</h3>
+        <div class="slow-kv">微服务 <b>{{ optimizeRow?.service_name }}</b>（通过后覆盖该微服务+抽象SQL 的所有轮次）</div>
+        <div class="slow-sql-snip">{{ optimizeRow?.abstract_sql }}</div>
+        <div class="slow-kv">优化内容（必填，≤200 字）　<b>{{ optimizeNote.length }}/200</b></div>
+        <textarea v-model="optimizeNote" class="slow-input full" rows="4" maxlength="200"
+                  placeholder="请描述做了什么优化，例如：给 nxt_bal_btch_alct_dt + btch_grp_num 加联合索引"></textarea>
+        <p class="slow-hint">工号 / 姓名自动记录当前登录用户，无需填写。</p>
+        <p v-if="optimizeMsg" class="slow-hint">{{ optimizeMsg }}</p>
+        <div class="slow-modal-foot">
+          <button class="slow-btn" @click="optimizeOpen = false">取消</button>
+          <button class="slow-btn primary" :disabled="!optimizeNote.trim() || optimizing" @click="doOptimize">{{ optimizing ? '提交中…' : '确定' }}</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -210,7 +228,7 @@ import {
   listSlowSqlCollectFilters, addSlowSqlCollectFilter, deleteSlowSqlCollectFilter,
   getWhitelistApprovers, applyWhitelist, getWhitelistApplication,
   l1Approve, l1Reject, l2Approve, l2Reject,
-  markSlowSqlOptimized, unmarkSlowSqlOptimized,
+  markSlowSqlOptimized,
 } from '../../api/daoIndex.js'
 import { getCurrentUser } from '../../api/auth.js'
 
@@ -487,17 +505,47 @@ function optClass(s) {
   if (s === 'REGRESSED') return 'bad'
   return ''
 }
-/* ── 已优化自助开关（无口令，走 cookie session）── */
-async function toggleOptimize(it) {
+/* 优化状态列悬浮：优化人 姓名(工号) + 优化内容 */
+function optTooltip(it) {
+  if (!it.optimize_status) return ''
+  const who = it.optimized_by_name
+    ? `${it.optimized_by_name}${it.optimized_by ? '(' + it.optimized_by + ')' : ''}`
+    : (it.optimized_by || '')
+  const lines = []
+  if (who) lines.push(`优化人：${who}`)
+  if (it.optimize_note) lines.push(`优化内容：${it.optimize_note}`)
+  return lines.join('\n')
+}
+
+/* ── 已优化：弹框填优化内容(必填≤200)，提交后端记工号+姓名。已优化后可再点「编辑优化」改内容 ── */
+const optimizeOpen = ref(false)
+const optimizeRow = ref(null)
+const optimizeNote = ref('')
+const optimizing = ref(false)
+const optimizeMsg = ref('')
+function openOptimize(it) {
+  optimizeRow.value = it
+  optimizeNote.value = it.optimize_note || ''   // 编辑时预填现有内容
+  optimizeMsg.value = ''
+  optimizeOpen.value = true
+}
+async function doOptimize() {
+  const note = optimizeNote.value.trim()
+  if (!note) { optimizeMsg.value = '优化内容不能为空'; return }
+  if (note.length > 200) { optimizeMsg.value = '优化内容不能超过 200 字'; return }
+  optimizing.value = true; optimizeMsg.value = ''
   try {
-    if (it.optimize_status) {
-      await unmarkSlowSqlOptimized({ serviceName: it.service_name, abstractHash: it.abstract_hash })
-    } else {
-      await markSlowSqlOptimized({ serviceName: it.service_name, abstractHash: it.abstract_hash })
-    }
+    await markSlowSqlOptimized({
+      serviceName: optimizeRow.value.service_name,
+      abstractHash: optimizeRow.value.abstract_hash,
+      note,
+    })
+    optimizeOpen.value = false
     await reload()
   } catch (e) {
-    alert(`操作失败：${e?.message || e}`)
+    optimizeMsg.value = `提交失败：${e?.message || e}`
+  } finally {
+    optimizing.value = false
   }
 }
 </script>

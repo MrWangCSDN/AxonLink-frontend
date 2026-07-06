@@ -663,22 +663,12 @@ export function exportSlowSql(params = {}) {
 
 /**
  * 标记慢SQL「已优化」（自助，无口令，走 cookie session）。
- * @param {{serviceName:string, abstractHash:string}} body
+ * 工号/姓名后端取当前登录用户；note=优化内容(≤200字，必填)。
+ * @param {{serviceName:string, abstractHash:string, note:string}} body
  */
 export function markSlowSqlOptimized(body) {
   return request(`${PREFIX}/slow-sql/optimize`, {
     method: 'POST',
-    body: JSON.stringify(body),
-  })
-}
-
-/**
- * 取消慢SQL「已优化」。
- * @param {{serviceName:string, abstractHash:string}} body
- */
-export function unmarkSlowSqlOptimized(body) {
-  return request(`${PREFIX}/slow-sql/optimize`, {
-    method: 'DELETE',
     body: JSON.stringify(body),
   })
 }

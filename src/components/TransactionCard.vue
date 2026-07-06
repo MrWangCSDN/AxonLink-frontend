@@ -429,24 +429,33 @@
               <div v-if="hasSvcToSvc && activeCalledServices.length" class="svc-inner-layer pcs-inner-layer">
                 <div class="svc-inner-header">
                   <span class="svc-inner-title">编码调用</span>
-                  <span v-if="selectedServices.size && activeCalledServices.length < calledServices.length" class="layer-badge-count" style="font-size:10px;padding:1px 6px;">
-                    {{ activeCalledServices.length }}/{{ calledServices.length }}
+                  <span class="layer-badge-count" style="font-size:10px;padding:1px 6px;">
+                    直接 {{ callTreeRoots.length }} · 共 {{ activeCalledServices.length }}
                   </span>
                 </div>
                 <div class="svc-inner-nodes">
-                  <div v-for="node in activeCalledServices" :key="node.code" :data-scode="node.code"
+                  <div v-for="(item, idx) in visibleCallNodes" :key="idx" :data-scode="item.node.code"
                     class="chain-node service-node pcs-service-node"
-                    :class="{ 'node-selected': selectedServices.has(node.code) }"
-                    @click.stop="selectCalledSvc(node.code)">
+                    :class="{ 'node-selected': selectedServices.has(item.node.code) }"
+                    :style="{ marginLeft: (item.depth * 18) + 'px' }"
+                    @click.stop="selectCalledSvc(item.node.code)">
                     <div class="node-header">
-                      <span class="node-prefix" :class="`prefix-${node.prefix}`">{{ node.prefix }}</span>
-                      <span class="node-code-service">{{ node.code }}</span>
+                      <button v-if="item.childCount" class="svc-expand-btn" @click.stop="toggleCallExpand(item.node.code)"
+                        :title="expandedCalls.has(item.node.code) ? '收起' : '展开'">
+                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none"
+                          :style="{ transform: expandedCalls.has(item.node.code) ? 'rotate(90deg)' : 'none' }">
+                          <path d="M3 2l4 3-4 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                      </button>
+                      <span class="node-prefix" :class="`prefix-${item.node.prefix}`">{{ item.node.prefix }}</span>
+                      <span class="node-code-service">{{ item.node.code }}</span>
                       <div class="node-header-actions">
-                        <svg v-if="selectedServices.has(node.code)" class="node-check" width="14" height="14" viewBox="0 0 14 14" fill="none">
+                        <span v-if="item.childCount" class="svc-child-count">调 {{ item.childCount }}</span>
+                        <svg v-if="selectedServices.has(item.node.code)" class="node-check" width="14" height="14" viewBox="0 0 14 14" fill="none">
                           <circle cx="7" cy="7" r="6" fill="#12B886"/>
                           <path d="M4 7l2.5 2.5 4-4" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
                         </svg>
-                        <button class="code-view-btn" @click.stop="openCodeViewer(node, 'service')" title="查看代码">
+                        <button class="code-view-btn" @click.stop="openCodeViewer(item.node, 'service')" title="查看代码">
                           <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
                             <path d="M4 2.5L1.5 6 4 9.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
                             <path d="M8 2.5L10.5 6 8 9.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
@@ -455,13 +464,13 @@
                         </button>
                       </div>
                     </div>
-                    <span class="node-name">{{ node.name }}</span>
-                    <span v-if="isCrossDomain(node)" class="cross-domain-tag"
-                      :style="{ background: domainStyle(node.domain).bg, color: domainStyle(node.domain).color, border: `1px solid ${domainStyle(node.domain).border}` }">
+                    <span class="node-name">{{ item.node.name }}</span>
+                    <span v-if="isCrossDomain(item.node)" class="cross-domain-tag"
+                      :style="{ background: domainStyle(item.node.domain).bg, color: domainStyle(item.node.domain).color, border: `1px solid ${domainStyle(item.node.domain).border}` }">
                       <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
                         <path d="M2 8L8 2M8 2H4M8 2v4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
                       </svg>
-                      {{ node.domain }}
+                      {{ item.node.domain }}
                     </span>
                   </div>
                 </div>
@@ -943,6 +952,41 @@ const collectTablesForService = (serviceCode) => {
 
 // 服务层点击后保留完整服务视图，只联动下游构件/数据层筛选。
 const activeCalledServices = computed(() => calledServices.value)
+
+// ── 编码调用「层级树」：按 serviceToService 把编码调用组织成树，默认收起 ──
+// pcs 复合服务可展开显示它调用的 pbs；顶层 = 未被本集合内其他服务调用的（父是根服务）。
+const expandedCalls = ref(new Set())
+const callTreeRoots = computed(() => {
+  const calledSet = new Set(activeCalledServices.value.map(n => n.code))
+  const childInSet = new Set()
+  activeCalledServices.value.forEach(n => {
+    ;(serviceToServiceMap.value[n.code] || []).forEach(c => { if (calledSet.has(c)) childInSet.add(c) })
+  })
+  return activeCalledServices.value.filter(n => !childInSet.has(n.code))
+})
+// 按展开态做前序遍历，拍平成带 depth/childCount 的可见列表；祖先集去重防环。
+const visibleCallNodes = computed(() => {
+  const byCode = new Map(activeCalledServices.value.map(n => [n.code, n]))
+  const out = []
+  const walk = (node, depth, ancestors) => {
+    const kids = (serviceToServiceMap.value[node.code] || [])
+      .filter(c => byCode.has(c) && !ancestors.has(c))
+    out.push({ node, depth, childCount: kids.length })
+    if (kids.length && expandedCalls.value.has(node.code)) {
+      const nextAnc = new Set(ancestors); nextAnc.add(node.code)
+      kids.forEach(c => walk(byCode.get(c), depth + 1, nextAnc))
+    }
+  }
+  callTreeRoots.value.forEach(r => walk(r, 0, new Set([r.code])))
+  return out
+})
+const toggleCallExpand = (code) => {
+  const s = new Set(expandedCalls.value)
+  s.has(code) ? s.delete(code) : s.add(code)
+  expandedCalls.value = s
+  // 展开/收起改变了 pcs-inner-layer 高度 → 刷新叠加的 SVG 连线高度
+  nextTick(() => { recalcServiceCallArrows() })
+}
 
 const visibleComponentCodes = computed(() => {
   if (activePath.techComp) return collectComponentContext(activePath.techComp)
@@ -3278,6 +3322,9 @@ defineExpose({
 .node-prefix { display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 6px; font-family: 'SF Mono','Fira Code',monospace; letter-spacing: 0.5px; white-space: nowrap; flex-shrink: 0; box-shadow: 0 1px 3px rgba(0,0,0,0.08); border-width: 1.5px; border-style: solid; }
 .prefix-pbs    { background: #DCFCE7; color: #15803D; border-color: #86EFAC; }
 .prefix-pcs    { background: #DBEAFE; color: #1D4ED8; border-color: #93C5FD; }
+.svc-expand-btn { background: none; border: none; padding: 0; margin-right: 1px; cursor: pointer; color: #64748B; display: inline-flex; align-items: center; flex-shrink: 0; }
+.svc-expand-btn svg { transition: transform 0.15s; }
+.svc-child-count { font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 8px; background: #DBEAFE; color: #1D4ED8; white-space: nowrap; flex-shrink: 0; }
 .prefix-pbcc   { background: #FFEDD5; color: #C2410C; border-color: #FDBA74; }
 .prefix-pbct   { background: #FEF9C3; color: #A16207; border-color: #FDE047; }
 .prefix-pbcb   { background: #F3E8FF; color: #7E22CE; border-color: #D8B4FE; }

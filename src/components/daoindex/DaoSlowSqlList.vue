@@ -73,9 +73,11 @@
           <td><span class="wl-tag" :class="optClass(it.optimize_status)" :title="optTooltip(it)">{{ optLabel(it) }}</span></td>
           <td><span class="wl-tag" :class="wlClass(it.whitelist_status)">{{ wlLabel(it.whitelist_status) }}</span></td>
           <td>
-            <button v-if="!it.whitelist_status" class="slow-link" @click="openApply(it)">申请白名单</button>
-            <button v-else class="slow-link" @click="openView(it)">查看/审批</button>
-            <button v-if="isLatestRound" class="slow-link" @click="openOptimize(it)">{{ it.optimize_status ? '编辑优化' : '已优化' }}</button>
+            <div class="slow-act-col">
+              <button v-if="!it.whitelist_status" class="slow-act-btn" @click="openApply(it)">申请白名单</button>
+              <button v-else class="slow-act-btn" @click="openView(it)">查看审批</button>
+              <button v-if="isLatestRound" class="slow-act-btn" @click="openOptimize(it)">{{ it.optimize_status ? '编辑优化' : '去优化' }}</button>
+            </div>
           </td>
         </tr>
       </tbody>
@@ -611,6 +613,14 @@ async function doOptimize() {
 .loc-cell { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; font-size: 12px; color: var(--text-secondary, #5a6172); }
 .rounds-cell { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary, #5a6172); }
 .slow-link { background: none; border: none; color: var(--slow-brand); cursor: pointer; font-size: 13px; padding: 0; }
+/* 操作列：按钮样式，文字单行不换行，多个按钮纵向排列 */
+.slow-act-col { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.slow-act-btn {
+  padding: 3px 10px; border: 1px solid var(--slow-brand); border-radius: 6px;
+  background: transparent; color: var(--slow-brand);
+  cursor: pointer; font-size: 12px; line-height: 1.5; white-space: nowrap;
+}
+.slow-act-btn:hover { background: var(--slow-brand); color: var(--slow-on-brand); }
 .wl-tag { padding: 2px 8px; border-radius: 10px; font-size: 12px; background: var(--bg-domain-hover, #f5f7fa); color: var(--text-secondary, #5a6172); }
 .wl-tag.ok { background: var(--slow-ok-bg); color: var(--slow-ok); }
 .wl-tag.bad { background: var(--slow-bad-bg); color: var(--slow-bad); }

@@ -170,11 +170,11 @@
           <option value="">选择一级审批人</option>
           <option v-for="a in l1Approvers" :key="a.username" :value="a.username">{{ a.display || a.username }}</option>
         </select>
-        <textarea v-model="applyReason" class="slow-input full" placeholder="申请理由" rows="3"></textarea>
+        <textarea v-model="applyReason" class="slow-input full" placeholder="申请理由（必填）" rows="3"></textarea>
         <p v-if="applyMsg" class="slow-hint">{{ applyMsg }}</p>
         <div class="slow-modal-foot">
           <button class="slow-btn" @click="applyOpen = false">取消</button>
-          <button class="slow-btn primary" :disabled="!applyL1 || applying" @click="doApply">{{ applying ? '提交中…' : '提交申请' }}</button>
+          <button class="slow-btn primary" :disabled="!applyL1 || !applyReason.trim() || applying" @click="doApply">{{ applying ? '提交中…' : '提交申请' }}</button>
         </div>
       </div>
     </div>
@@ -186,7 +186,11 @@
         <div class="slow-kv">状态：<b>{{ wlLabel(viewApp?.status) }}</b></div>
         <div class="slow-kv">申请人：{{ viewApp?.applicant }}　一级：{{ approverDisplay(viewApp?.l1_approver) }}　二级：{{ viewApp?.l2_approver ? approverDisplay(viewApp.l2_approver) : '-' }}</div>
         <div class="slow-sql-snip">{{ viewApp?.sql_text }}</div>
-        <textarea v-if="viewMode" v-model="viewOpinion" class="slow-input full" placeholder="审批意见" rows="2"></textarea>
+        <!-- 申请理由 + 各级审批意见（有则显示，完整留痕） -->
+        <div class="slow-kv">申请理由：{{ viewApp?.apply_reason || '—' }}</div>
+        <div v-if="viewApp?.l1_opinion" class="slow-kv">一级意见（{{ approverDisplay(viewApp?.l1_approver) }}）：{{ viewApp.l1_opinion }}</div>
+        <div v-if="viewApp?.l2_opinion" class="slow-kv">二级意见（{{ approverDisplay(viewApp?.l2_approver) }}）：{{ viewApp.l2_opinion }}</div>
+        <textarea v-if="viewMode" v-model="viewOpinion" class="slow-input full" placeholder="审批意见（必填）" rows="2"></textarea>
         <select v-if="viewMode === 'l1'" v-model="viewL2" class="slow-input full">
           <option value="">通过时选择二级审批人</option>
           <option v-for="a in l2Approvers" :key="a.username" :value="a.username">{{ a.display || a.username }}</option>
@@ -195,12 +199,12 @@
         <div class="slow-modal-foot">
           <button class="slow-btn" @click="viewOpen = false">关闭</button>
           <template v-if="viewMode === 'l1'">
-            <button class="slow-btn" @click="act('l1Reject')">退回</button>
-            <button class="slow-btn primary" :disabled="!viewL2" @click="act('l1Approve')">一级通过</button>
+            <button class="slow-btn" :disabled="!viewOpinion.trim()" @click="act('l1Reject')">退回</button>
+            <button class="slow-btn primary" :disabled="!viewL2 || !viewOpinion.trim()" @click="act('l1Approve')">一级通过</button>
           </template>
           <template v-else-if="viewMode === 'l2'">
-            <button class="slow-btn" @click="act('l2Reject')">退回</button>
-            <button class="slow-btn primary" @click="act('l2Approve')">二级通过</button>
+            <button class="slow-btn" :disabled="!viewOpinion.trim()" @click="act('l2Reject')">退回</button>
+            <button class="slow-btn primary" :disabled="!viewOpinion.trim()" @click="act('l2Approve')">二级通过</button>
           </template>
         </div>
       </div>

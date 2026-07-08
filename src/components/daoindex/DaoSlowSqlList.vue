@@ -74,12 +74,13 @@
           <td><span class="wl-tag" :class="wlClass(it.whitelist_status)">{{ wlLabel(it.whitelist_status) }}</span></td>
           <td>
             <div class="slow-act-col">
-              <button v-if="!it.whitelist_status" class="slow-act-btn" @click="openApply(it)">申请白名单</button>
-              <template v-else>
+              <!-- 互斥：白名单与优化二选一。未入任何路线→两个入口都给；入了一条→另一条入口隐藏 -->
+              <button v-if="!it.whitelist_status && !it.optimize_status" class="slow-act-btn" @click="openApply(it)">申请白名单</button>
+              <template v-else-if="it.whitelist_status">
                 <button class="slow-act-btn" @click="openView(it)">{{ wlActionLabel(it.whitelist_status) }}</button>
-                <button v-if="it.whitelist_status === 'REJECTED_L1'" class="slow-act-btn" @click="reapplyWhitelist(it)">重新申请</button>
+                <button v-if="it.whitelist_status === 'REJECTED_L1' && !it.optimize_status" class="slow-act-btn" @click="reapplyWhitelist(it)">重新申请</button>
               </template>
-              <button v-if="isLatestRound" class="slow-act-btn" @click="openOptimize(it)">{{ it.optimize_status ? '编辑优化' : '去优化' }}</button>
+              <button v-if="isLatestRound && (it.optimize_status || !it.whitelist_status)" class="slow-act-btn" @click="openOptimize(it)">{{ it.optimize_status ? '编辑优化' : '去优化' }}</button>
             </div>
           </td>
         </tr>

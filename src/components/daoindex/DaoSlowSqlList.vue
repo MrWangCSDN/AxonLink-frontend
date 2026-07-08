@@ -75,7 +75,10 @@
           <td>
             <div class="slow-act-col">
               <button v-if="!it.whitelist_status" class="slow-act-btn" @click="openApply(it)">申请白名单</button>
-              <button v-else class="slow-act-btn" @click="openView(it)">查看审批</button>
+              <template v-else>
+                <button class="slow-act-btn" @click="openView(it)">{{ wlActionLabel(it.whitelist_status) }}</button>
+                <button v-if="it.whitelist_status === 'REJECTED_L1'" class="slow-act-btn" @click="reapplyWhitelist(it)">重新申请</button>
+              </template>
               <button v-if="isLatestRound" class="slow-act-btn" @click="openOptimize(it)">{{ it.optimize_status ? '编辑优化' : '去优化' }}</button>
             </div>
           </td>
@@ -229,7 +232,7 @@ import {
   importSlowSql, exportSlowSql,
   listSlowSqlCollectFilters, addSlowSqlCollectFilter, deleteSlowSqlCollectFilter,
   getWhitelistApprovers, applyWhitelist, getWhitelistApplication,
-  l1Approve, l1Reject, l2Approve, l2Reject,
+  l1Approve, l1Reject, l2Approve, l2Reject, cancelWhitelist,
   markSlowSqlOptimized,
 } from '../../api/daoIndex.js'
 import { getCurrentUser } from '../../api/auth.js'
@@ -493,6 +496,22 @@ function wlClass(s) {
   if (s === 'REJECTED_L1') return 'bad'
   if (s === 'PENDING_L1' || s === 'PENDING_L2') return 'pending'
   return ''
+}
+/* 操作列白名单按钮文案：待审=查看审批（审批人可操作），其余（已通过/已退回）=查看详情 */
+function wlActionLabel(s) {
+  return (s === 'PENDING_L1' || s === 'PENDING_L2') ? '查看审批' : '查看详情'
+}
+/* 已退回 → 重新申请：先取消旧申请（后端校验仅申请人本人可取消），再打开申请弹窗 */
+async function reapplyWhitelist(it) {
+  if (!it.whitelist_app_id) { alert('缺少原申请信息，无法重新申请'); return }
+  if (!window.confirm('重新申请将取消已退回的旧申请，是否继续？')) return
+  try {
+    await cancelWhitelist(it.whitelist_app_id, { currentUser: currentUser.value })
+    await reload()
+    openApply(it)
+  } catch (e) {
+    alert(`重新申请失败：${e?.message || e}`)
+  }
 }
 /* ── 优化状态：文案带轮次上下文 + 标签色（复用 wl-tag 的 ok/bad） ── */
 function optLabel(it) {

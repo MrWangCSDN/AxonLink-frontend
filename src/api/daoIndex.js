@@ -673,6 +673,14 @@ export function markSlowSqlOptimized(body) {
   })
 }
 
+/** 撤销优化（互斥出口：生效中想走白名单须先撤销；后端记撤销人工号/姓名+时间，路线留痕）。 */
+export function revokeSlowSqlOptimized(body) {
+  return request(`${PREFIX}/slow-sql/optimize/revoke`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
 /** 优化路线：该 (微服务, 抽象SQL) 的全部优化尝试（升序=第1次→最新），悬浮弹层用。 */
 export function getSlowSqlOptimizeHistory(serviceName, abstractHash) {
   const qs = toQuery({ serviceName, abstractHash })

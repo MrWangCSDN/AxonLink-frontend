@@ -83,6 +83,7 @@
                 <button v-if="it.whitelist_status === 'REJECTED_L1' && it.optimize_status !== 'OPTIMIZED'" class="slow-act-btn" @click="reapplyWhitelist(it)">重新申请</button>
               </template>
               <button v-if="isLatestRound && (it.optimize_status === 'OPTIMIZED' || !it.whitelist_status)" class="slow-act-btn" @click="openOptimize(it)">{{ it.optimize_status === 'OPTIMIZED' ? '编辑优化' : '去优化' }}</button>
+              <button v-if="isLatestRound && it.optimize_status === 'OPTIMIZED'" class="slow-act-btn" @click="revokeOptimize(it)">撤销优化</button>
             </div>
           </td>
         </tr>
@@ -243,7 +244,8 @@
             <span class="opt-hist-who">{{ optHistWho(h) }}</span>
             <span class="opt-hist-time">{{ optHistTime(h.optimized_at) }}</span>
             <span v-if="h.reappeared_round" class="wl-tag bad opt-hist-tag">未生效 · 又现于 {{ h.reappeared_round }}</span>
-            <span v-else-if="i === optHist.items.length - 1 && optHist.status === 'OPTIMIZED'" class="wl-tag ok opt-hist-tag">生效中</span>
+            <span v-else-if="i === optHist.items.length - 1 && optHist.status === 'OPTIMIZED' && !h.revoked_at" class="wl-tag ok opt-hist-tag">生效中</span>
+            <span v-if="h.revoked_at" class="wl-tag opt-hist-tag">已撤销 · {{ h.revoked_by_name || h.revoked_by }}{{ h.revoked_by_name && h.revoked_by ? '(' + h.revoked_by + ')' : '' }} {{ optHistTime(h.revoked_at) }}</span>
           </div>
           <div class="opt-hist-note">{{ h.optimize_note || '—' }}</div>
         </li>
@@ -260,7 +262,7 @@ import {
   listSlowSqlCollectFilters, addSlowSqlCollectFilter, deleteSlowSqlCollectFilter,
   getWhitelistApprovers, applyWhitelist, getWhitelistApplication,
   l1Approve, l1Reject, l2Approve, l2Reject, cancelWhitelist,
-  markSlowSqlOptimized, getSlowSqlOptimizeHistory,
+  markSlowSqlOptimized, revokeSlowSqlOptimized, getSlowSqlOptimizeHistory,
 } from '../../api/daoIndex.js'
 import { getCurrentUser } from '../../api/auth.js'
 
@@ -621,6 +623,21 @@ async function doOptimize() {
     optimizeMsg.value = `提交失败：${e?.message || e}`
   } finally {
     optimizing.value = false
+  }
+}
+
+/* ── 撤销优化（互斥出口：生效中想走白名单须先撤销；确认后执行，后端记撤销人+时间，路线留痕）── */
+async function revokeOptimize(it) {
+  const ok = window.confirm(
+    '确定撤销该SQL的「已优化」标记？\n\n' +
+    '撤销后状态回「未处理」，可重新去优化或申请白名单；\n' +
+    '撤销人与时间将记录到优化路线（可悬浮查看），历史不会被删除。')
+  if (!ok) return
+  try {
+    await revokeSlowSqlOptimized({ serviceName: it.service_name, abstractHash: it.abstract_hash })
+    await reload()
+  } catch (e) {
+    alert(`撤销失败：${e?.message || e}`)
   }
 }
 </script>

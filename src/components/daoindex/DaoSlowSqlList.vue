@@ -75,13 +75,14 @@
           <td><span class="wl-tag" :class="wlClass(it.whitelist_status)">{{ wlLabel(it.whitelist_status) }}</span></td>
           <td>
             <div class="slow-act-col">
-              <!-- 互斥：白名单与优化二选一。未入任何路线→两个入口都给；入了一条→另一条入口隐藏 -->
-              <button v-if="!it.whitelist_status && !it.optimize_status" class="slow-act-btn" @click="openApply(it)">申请白名单</button>
-              <template v-else-if="it.whitelist_status">
+              <!-- 互斥：白名单与优化二选一。未处理→两个入口都给；优化生效中(OPTIMIZED)→只能编辑优化；
+                   未生效(REGRESSED)→上次尝试已失败归档，路线重新开放：可「去优化」(全新一次)也可「申请白名单」 -->
+              <button v-if="!it.whitelist_status && it.optimize_status !== 'OPTIMIZED'" class="slow-act-btn" @click="openApply(it)">申请白名单</button>
+              <template v-if="it.whitelist_status">
                 <button class="slow-act-btn" @click="openView(it)">{{ wlActionLabel(it.whitelist_status) }}</button>
-                <button v-if="it.whitelist_status === 'REJECTED_L1' && !it.optimize_status" class="slow-act-btn" @click="reapplyWhitelist(it)">重新申请</button>
+                <button v-if="it.whitelist_status === 'REJECTED_L1' && it.optimize_status !== 'OPTIMIZED'" class="slow-act-btn" @click="reapplyWhitelist(it)">重新申请</button>
               </template>
-              <button v-if="isLatestRound && (it.optimize_status || !it.whitelist_status)" class="slow-act-btn" @click="openOptimize(it)">{{ it.optimize_status ? '编辑优化' : '去优化' }}</button>
+              <button v-if="isLatestRound && (it.optimize_status === 'OPTIMIZED' || !it.whitelist_status)" class="slow-act-btn" @click="openOptimize(it)">{{ it.optimize_status === 'OPTIMIZED' ? '编辑优化' : '去优化' }}</button>
             </div>
           </td>
         </tr>
@@ -598,7 +599,8 @@ const optimizing = ref(false)
 const optimizeMsg = ref('')
 function openOptimize(it) {
   optimizeRow.value = it
-  optimizeNote.value = it.optimize_note || ''   // 编辑时预填现有内容
+  // 仅「生效中(OPTIMIZED)」的编辑预填现有内容；未生效/未处理 = 全新一次尝试，空白重填
+  optimizeNote.value = it.optimize_status === 'OPTIMIZED' ? (it.optimize_note || '') : ''
   optimizeMsg.value = ''
   optimizeOpen.value = true
 }

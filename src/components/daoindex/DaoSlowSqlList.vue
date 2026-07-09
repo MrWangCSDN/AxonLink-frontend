@@ -72,9 +72,9 @@
           <td>{{ it.round }}</td>
           <td class="rounds-cell copyable" :title="(it.repeat_rounds || '') + '\n（点击复制）'" @click="copyCell(it.repeat_rounds)">{{ it.repeat_rounds || '—' }}</td>
           <td><span class="wl-tag" :class="optClass(it.optimize_status)"
-                @mouseenter="showOptHist(it, $event)" @mouseleave="scheduleHideOptHist">{{ optLabel(it) }}</span></td>
+                @mouseenter="showJourney(it, $event)" @mouseleave="scheduleHideJourney">{{ optLabel(it) }}</span></td>
           <td><span class="wl-tag" :class="wlClass(it.whitelist_status)"
-                @mouseenter="showWlFlow(it, $event)" @mouseleave="scheduleHideWlFlow">{{ wlLabel(it.whitelist_status) }}</span></td>
+                @mouseenter="showJourney(it, $event)" @mouseleave="scheduleHideJourney">{{ wlLabel(it.whitelist_status) }}</span></td>
           <td>
             <div class="slow-act-col">
               <!-- 互斥：白名单与优化二选一。未处理→两个入口都给；优化生效中(OPTIMIZED)→只能编辑优化；
@@ -234,41 +234,23 @@
       </div>
     </div>
 
-    <!-- 优化路线悬浮弹层（时间线：每次尝试 谁/哪轮/内容/是否未生效，追加不删） -->
-    <div v-if="optHist.open" class="opt-hist-pop" :style="{ left: optHist.x + 'px', top: optHist.y + 'px' }"
-         @mouseenter="cancelHideOptHist" @mouseleave="scheduleHideOptHist">
-      <div class="opt-hist-head">优化路线<span class="opt-hist-count">{{ optHist.items.length }} 次尝试</span></div>
-      <div v-if="optHist.loading" class="opt-hist-empty">加载中…</div>
-      <div v-else-if="!optHist.items.length" class="opt-hist-empty">暂无记录</div>
+    <!-- 统一「处理路径」悬浮弹层：优化侧+白名单侧一条时间线（追加不删，跨多次申请/尝试） -->
+    <div v-if="journey.open" class="opt-hist-pop" :style="{ left: journey.x + 'px', top: journey.y + 'px' }"
+         @mouseenter="cancelHideJourney" @mouseleave="scheduleHideJourney">
+      <div class="opt-hist-head">处理路径<span class="opt-hist-count">{{ journey.items.length }} 步</span></div>
+      <div v-if="journey.loading" class="opt-hist-empty">加载中…</div>
+      <div v-else-if="!journey.items.length" class="opt-hist-empty">暂无记录</div>
       <ol v-else class="opt-hist-list">
-        <li v-for="(h, i) in optHist.items" :key="h.id" class="opt-hist-item">
+        <li v-for="(ev, i) in journey.items" :key="i" class="opt-hist-item">
           <div class="opt-hist-meta">
-            <span class="opt-hist-round">{{ h.optimized_round }}</span>
-            <span class="opt-hist-who">{{ optHistWho(h) }}</span>
-            <span class="opt-hist-time">{{ optHistTime(h.optimized_at) }}</span>
-            <span v-if="h.reappeared_round" class="wl-tag bad opt-hist-tag">未生效 · 又现于 {{ h.reappeared_round }}</span>
-            <span v-else-if="i === optHist.items.length - 1 && optHist.status === 'OPTIMIZED' && !h.revoked_at" class="wl-tag ok opt-hist-tag">生效中</span>
-            <span v-if="h.revoked_at" class="wl-tag opt-hist-tag">已撤销 · {{ h.revoked_by_name || h.revoked_by }}{{ h.revoked_by_name && h.revoked_by ? '(' + h.revoked_by + ')' : '' }} {{ optHistTime(h.revoked_at) }}</span>
+            <span class="wl-tag opt-hist-tag" :class="journeyMeta(ev).cls">{{ journeyMeta(ev).label }}</span>
+            <span v-if="ev.round" class="opt-hist-round">{{ ev.round }}</span>
+            <span class="opt-hist-who">{{ journeyWho(ev) }}</span>
+            <span class="opt-hist-time">{{ journeyTime(ev.at) }}</span>
+            <span v-if="ev.reappearedRound" class="wl-tag bad opt-hist-tag">未生效 · 又现于 {{ ev.reappearedRound }}</span>
+            <span v-else-if="ev.action === 'MARK' && i === journey.items.length - 1 && journey.optStatus === 'OPTIMIZED'" class="wl-tag ok opt-hist-tag">生效中</span>
           </div>
-          <div class="opt-hist-note">{{ h.optimize_note || '—' }}</div>
-        </li>
-      </ol>
-    </div>
-
-    <!-- 白名单流转路径悬浮弹层（与优化路线同款；跨多次申请的完整处理过程） -->
-    <div v-if="wlFlow.open" class="opt-hist-pop" :style="{ left: wlFlow.x + 'px', top: wlFlow.y + 'px' }"
-         @mouseenter="cancelHideWlFlow" @mouseleave="scheduleHideWlFlow">
-      <div class="opt-hist-head">白名单流转<span class="opt-hist-count">{{ wlFlow.items.length }} 步</span></div>
-      <div v-if="wlFlow.loading" class="opt-hist-empty">加载中…</div>
-      <div v-else-if="!wlFlow.items.length" class="opt-hist-empty">暂无记录</div>
-      <ol v-else class="opt-hist-list">
-        <li v-for="(h, i) in wlFlow.items" :key="i" class="opt-hist-item">
-          <div class="opt-hist-meta">
-            <span class="wl-tag opt-hist-tag" :class="wlFlowMeta(h.action).cls">{{ wlFlowMeta(h.action).label }}</span>
-            <span class="opt-hist-who">{{ wlFlowWho(h) }}</span>
-            <span class="opt-hist-time">{{ optHistTime(h.created_at) }}</span>
-          </div>
-          <div class="opt-hist-note">{{ h.opinion || '—' }}</div>
+          <div class="opt-hist-note">{{ ev.note || '—' }}</div>
         </li>
       </ol>
     </div>
@@ -283,7 +265,7 @@ import {
   listSlowSqlCollectFilters, addSlowSqlCollectFilter, deleteSlowSqlCollectFilter,
   getWhitelistApprovers, applyWhitelist, getWhitelistApplication,
   l1Approve, l1Reject, l2Approve, l2Reject, cancelWhitelist,
-  markSlowSqlOptimized, revokeSlowSqlOptimized, getSlowSqlOptimizeHistory, getSlowSqlWhitelistFlow,
+  markSlowSqlOptimized, revokeSlowSqlOptimized, getSlowSqlJourney,
 } from '../../api/daoIndex.js'
 import { getCurrentUser } from '../../api/auth.js'
 
@@ -310,8 +292,7 @@ const l1Approvers = ref([]); const l2Approvers = ref([])
 
 async function reload() {
   loading.value = true; errorMsg.value = ''
-  optHistCache.clear()   // 数据可能变了（打标/导入），优化路线缓存作废
-  wlFlowCache.clear()    // 白名单流转缓存同理作废
+  journeyCache.clear()   // 数据可能变了（打标/导入/审批），处理路径缓存作废
   try {
     const data = await listSlowSql({
       keyword: keyword.value, domain: domain.value, bizType: bizType.value,
@@ -579,47 +560,6 @@ async function withdrawWhitelist(it) {
   }
 }
 
-/* ── 白名单流转路径悬浮弹层（与优化路线同款）：申请/一级·二级 通过/退回/撤回——谁、何时、理由 ── */
-const wlFlow = ref({ open: false, x: 0, y: 0, loading: false, items: [], key: '' })
-const wlFlowCache = new Map()
-let wlFlowHideTimer = null
-const WL_FLOW_META = {
-  APPLY:      { label: '申请白名单', cls: '' },
-  L1_APPROVE: { label: '一级通过', cls: 'ok' },
-  L1_REJECT:  { label: '一级退回', cls: 'bad' },
-  L2_APPROVE: { label: '申请通过', cls: 'ok' },
-  L2_REJECT:  { label: '二级退回', cls: 'bad' },
-  CANCEL:     { label: '撤回申请', cls: '' },
-}
-function wlFlowMeta(a) { return WL_FLOW_META[a] || { label: a, cls: '' } }
-async function showWlFlow(it, e) {
-  clearTimeout(wlFlowHideTimer)
-  const rect = e.currentTarget.getBoundingClientRect()
-  const key = it.service_name + '\n' + it.abstract_hash
-  wlFlow.value = {
-    open: true, key,
-    x: Math.min(rect.left, window.innerWidth - 380),
-    y: rect.bottom + 6,
-    loading: !wlFlowCache.has(key),
-    items: wlFlowCache.get(key) || [],
-  }
-  if (!wlFlowCache.has(key)) {
-    let items = []
-    try { items = await getSlowSqlWhitelistFlow(it.service_name, it.abstract_hash) } catch { /* 弹层容错 */ }
-    wlFlowCache.set(key, items)
-    if (wlFlow.value.key === key) { wlFlow.value = { ...wlFlow.value, loading: false, items } }
-  }
-}
-function scheduleHideWlFlow() {
-  clearTimeout(wlFlowHideTimer)
-  wlFlowHideTimer = setTimeout(() => { wlFlow.value = { ...wlFlow.value, open: false } }, 150)
-}
-function cancelHideWlFlow() { clearTimeout(wlFlowHideTimer) }
-function wlFlowWho(h) {
-  const name = h.actor_name, emp = h.actor
-  if (name && emp) return `${name}(${emp})`
-  return name || emp || '—'
-}
 /* ── 优化状态：文案带轮次上下文 + 标签色（复用 wl-tag 的 ok/bad） ── */
 function optLabel(it) {
   const s = it.optimize_status
@@ -633,42 +573,51 @@ function optClass(s) {
   if (s === 'REGRESSED') return 'bad'
   return ''
 }
-/* ── 优化路线悬浮弹层：悬浮「优化状态」显示该 SQL 的全部优化尝试（谁/哪轮/内容/是否未生效）── */
-const optHist = ref({ open: false, x: 0, y: 0, loading: false, items: [], key: '', status: '' })
-const optHistCache = new Map()
-let optHistHideTimer = null
-async function showOptHist(it, e) {
-  if (!it.optimize_status) return
-  clearTimeout(optHistHideTimer)
-  const rect = e.currentTarget.getBoundingClientRect()
-  const key = it.service_name + '\n' + it.abstract_hash
-  // 弹层定位：状态标签下方；靠近视口底部时翻到上方（在拿到数据后由 CSS max-height 兜底滚动）
-  optHist.value = {
-    open: true, key, status: it.optimize_status,
-    x: Math.min(rect.left, window.innerWidth - 380),
-    y: rect.bottom + 6,
-    loading: !optHistCache.has(key),
-    items: optHistCache.get(key) || [],
-  }
-  if (!optHistCache.has(key)) {
-    let items = []
-    try { items = await getSlowSqlOptimizeHistory(it.service_name, it.abstract_hash) } catch { /* 弹层容错 */ }
-    optHistCache.set(key, items)
-    if (optHist.value.key === key) { optHist.value = { ...optHist.value, loading: false, items } }
-  }
+/* ── 统一「处理路径」悬浮弹层：优化侧(标记/撤销) + 白名单侧(申请/审批/退回/撤回)
+   按时间升序合并成一条时间线——悬浮「优化状态」或「白名单」列均显示 ── */
+const journey = ref({ open: false, x: 0, y: 0, loading: false, items: [], key: '', optStatus: '' })
+const journeyCache = new Map()
+let journeyHideTimer = null
+const JOURNEY_META = {
+  'OPTIMIZE.MARK':   { label: '标记已优化', cls: 'ok' },
+  'OPTIMIZE.REVOKE': { label: '撤销优化',   cls: '' },
+  'WHITELIST.APPLY':      { label: '申请白名单', cls: '' },
+  'WHITELIST.L1_APPROVE': { label: '一级通过', cls: 'ok' },
+  'WHITELIST.L1_REJECT':  { label: '一级退回', cls: 'bad' },
+  'WHITELIST.L2_APPROVE': { label: '申请通过', cls: 'ok' },
+  'WHITELIST.L2_REJECT':  { label: '二级退回', cls: 'bad' },
+  'WHITELIST.CANCEL':     { label: '撤回申请', cls: '' },
 }
-function scheduleHideOptHist() {
-  clearTimeout(optHistHideTimer)
-  optHistHideTimer = setTimeout(() => { optHist.value = { ...optHist.value, open: false } }, 150)
-}
-function cancelHideOptHist() { clearTimeout(optHistHideTimer) }
-/* 时间：后端给 "yyyy-MM-dd HH:mm:ss.f"，截到分钟 */
-function optHistTime(v) { return v ? String(v).slice(0, 16) : '' }
-function optHistWho(h) {
-  const name = h.optimized_by_name, emp = h.optimized_by
+function journeyMeta(ev) { return JOURNEY_META[`${ev.kind}.${ev.action}`] || { label: ev.action, cls: '' } }
+function journeyTime(v) { return v ? String(v).slice(0, 16) : '' }
+function journeyWho(ev) {
+  const name = ev.actorName, emp = ev.actor
   if (name && emp) return `${name}(${emp})`
   return name || emp || '—'
 }
+async function showJourney(it, e) {
+  clearTimeout(journeyHideTimer)
+  const rect = e.currentTarget.getBoundingClientRect()
+  const key = it.service_name + '\n' + it.abstract_hash
+  journey.value = {
+    open: true, key, optStatus: it.optimize_status || '',
+    x: Math.min(rect.left, window.innerWidth - 400),
+    y: rect.bottom + 6,
+    loading: !journeyCache.has(key),
+    items: journeyCache.get(key) || [],
+  }
+  if (!journeyCache.has(key)) {
+    let items = []
+    try { items = await getSlowSqlJourney(it.service_name, it.abstract_hash) } catch { /* 弹层容错 */ }
+    journeyCache.set(key, items)
+    if (journey.value.key === key) { journey.value = { ...journey.value, loading: false, items } }
+  }
+}
+function scheduleHideJourney() {
+  clearTimeout(journeyHideTimer)
+  journeyHideTimer = setTimeout(() => { journey.value = { ...journey.value, open: false } }, 150)
+}
+function cancelHideJourney() { clearTimeout(journeyHideTimer) }
 
 /* ── 已优化：弹框填优化内容(必填≤200)，提交后端记工号+姓名。已优化后可再点「编辑优化」改内容 ── */
 const optimizeOpen = ref(false)

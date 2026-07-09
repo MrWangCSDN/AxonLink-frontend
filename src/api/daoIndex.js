@@ -681,6 +681,12 @@ export function revokeSlowSqlOptimized(body) {
   })
 }
 
+/** 统一处理路径：优化侧(标记/撤销/未生效) + 白名单侧(申请/审批/退回/撤回) 按时间升序合并，悬浮弹层用。 */
+export function getSlowSqlJourney(serviceName, abstractHash) {
+  const qs = toQuery({ serviceName, abstractHash })
+  return request(`${PREFIX}/slow-sql/journey${qs}`)
+}
+
 /** 白名单流转路径：该 (微服务, 抽象SQL) 跨多次申请的全部流转事件（升序），悬浮弹层用。 */
 export function getSlowSqlWhitelistFlow(serviceName, abstractHash) {
   const qs = toQuery({ serviceName, abstractHash })

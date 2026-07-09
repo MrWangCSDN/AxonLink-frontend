@@ -70,7 +70,8 @@
           <td class="loc-cell copyable" :title="(it.source_location || '') + '\n（点击复制）'" @click="copyCell(it.source_location)">{{ it.source_location }}</td>
           <td>{{ it.round }}</td>
           <td class="rounds-cell copyable" :title="(it.repeat_rounds || '') + '\n（点击复制）'" @click="copyCell(it.repeat_rounds)">{{ it.repeat_rounds || '—' }}</td>
-          <td><span class="wl-tag" :class="optClass(it.optimize_status)" :title="optTooltip(it)">{{ optLabel(it) }}</span></td>
+          <td><span class="wl-tag" :class="optClass(it.optimize_status)"
+                @mouseenter="showOptHist(it, $event)" @mouseleave="scheduleHideOptHist">{{ optLabel(it) }}</span></td>
           <td><span class="wl-tag" :class="wlClass(it.whitelist_status)">{{ wlLabel(it.whitelist_status) }}</span></td>
           <td>
             <div class="slow-act-col">
@@ -227,6 +228,26 @@
         </div>
       </div>
     </div>
+
+    <!-- 优化路线悬浮弹层（时间线：每次尝试 谁/哪轮/内容/是否未生效，追加不删） -->
+    <div v-if="optHist.open" class="opt-hist-pop" :style="{ left: optHist.x + 'px', top: optHist.y + 'px' }"
+         @mouseenter="cancelHideOptHist" @mouseleave="scheduleHideOptHist">
+      <div class="opt-hist-head">优化路线<span class="opt-hist-count">{{ optHist.items.length }} 次尝试</span></div>
+      <div v-if="optHist.loading" class="opt-hist-empty">加载中…</div>
+      <div v-else-if="!optHist.items.length" class="opt-hist-empty">暂无记录</div>
+      <ol v-else class="opt-hist-list">
+        <li v-for="(h, i) in optHist.items" :key="h.id" class="opt-hist-item">
+          <div class="opt-hist-meta">
+            <span class="opt-hist-round">{{ h.optimized_round }}</span>
+            <span class="opt-hist-who">{{ optHistWho(h) }}</span>
+            <span class="opt-hist-time">{{ optHistTime(h.optimized_at) }}</span>
+            <span v-if="h.reappeared_round" class="wl-tag bad opt-hist-tag">未生效 · 又现于 {{ h.reappeared_round }}</span>
+            <span v-else-if="i === optHist.items.length - 1 && optHist.status === 'OPTIMIZED'" class="wl-tag ok opt-hist-tag">生效中</span>
+          </div>
+          <div class="opt-hist-note">{{ h.optimize_note || '—' }}</div>
+        </li>
+      </ol>
+    </div>
   </div>
 </template>
 
@@ -238,7 +259,7 @@ import {
   listSlowSqlCollectFilters, addSlowSqlCollectFilter, deleteSlowSqlCollectFilter,
   getWhitelistApprovers, applyWhitelist, getWhitelistApplication,
   l1Approve, l1Reject, l2Approve, l2Reject, cancelWhitelist,
-  markSlowSqlOptimized,
+  markSlowSqlOptimized, getSlowSqlOptimizeHistory,
 } from '../../api/daoIndex.js'
 import { getCurrentUser } from '../../api/auth.js'
 
@@ -265,6 +286,7 @@ const l1Approvers = ref([]); const l2Approvers = ref([])
 
 async function reload() {
   loading.value = true; errorMsg.value = ''
+  optHistCache.clear()   // 数据可能变了（打标/导入），优化路线缓存作废
   try {
     const data = await listSlowSql({
       keyword: keyword.value, domain: domain.value, bizType: bizType.value,
@@ -531,16 +553,41 @@ function optClass(s) {
   if (s === 'REGRESSED') return 'bad'
   return ''
 }
-/* 优化状态列悬浮：优化人 姓名(工号) + 优化内容 */
-function optTooltip(it) {
-  if (!it.optimize_status) return ''
-  const who = it.optimized_by_name
-    ? `${it.optimized_by_name}${it.optimized_by ? '(' + it.optimized_by + ')' : ''}`
-    : (it.optimized_by || '')
-  const lines = []
-  if (who) lines.push(`优化人：${who}`)
-  if (it.optimize_note) lines.push(`优化内容：${it.optimize_note}`)
-  return lines.join('\n')
+/* ── 优化路线悬浮弹层：悬浮「优化状态」显示该 SQL 的全部优化尝试（谁/哪轮/内容/是否未生效）── */
+const optHist = ref({ open: false, x: 0, y: 0, loading: false, items: [], key: '', status: '' })
+const optHistCache = new Map()
+let optHistHideTimer = null
+async function showOptHist(it, e) {
+  if (!it.optimize_status) return
+  clearTimeout(optHistHideTimer)
+  const rect = e.currentTarget.getBoundingClientRect()
+  const key = it.service_name + '\n' + it.abstract_hash
+  // 弹层定位：状态标签下方；靠近视口底部时翻到上方（在拿到数据后由 CSS max-height 兜底滚动）
+  optHist.value = {
+    open: true, key, status: it.optimize_status,
+    x: Math.min(rect.left, window.innerWidth - 380),
+    y: rect.bottom + 6,
+    loading: !optHistCache.has(key),
+    items: optHistCache.get(key) || [],
+  }
+  if (!optHistCache.has(key)) {
+    let items = []
+    try { items = await getSlowSqlOptimizeHistory(it.service_name, it.abstract_hash) } catch { /* 弹层容错 */ }
+    optHistCache.set(key, items)
+    if (optHist.value.key === key) { optHist.value = { ...optHist.value, loading: false, items } }
+  }
+}
+function scheduleHideOptHist() {
+  clearTimeout(optHistHideTimer)
+  optHistHideTimer = setTimeout(() => { optHist.value = { ...optHist.value, open: false } }, 150)
+}
+function cancelHideOptHist() { clearTimeout(optHistHideTimer) }
+/* 时间：后端给 "yyyy-MM-dd HH:mm:ss.f"，截到分钟 */
+function optHistTime(v) { return v ? String(v).slice(0, 16) : '' }
+function optHistWho(h) {
+  const name = h.optimized_by_name, emp = h.optimized_by
+  if (name && emp) return `${name}(${emp})`
+  return name || emp || '—'
 }
 
 /* ── 已优化：弹框填优化内容(必填≤200)，提交后端记工号+姓名。已优化后可再点「编辑优化」改内容 ── */
@@ -645,6 +692,30 @@ async function doOptimize() {
   cursor: pointer; font-size: 12px; line-height: 1.5; white-space: nowrap;
 }
 .slow-act-btn:hover { background: var(--slow-brand); color: var(--slow-on-brand); }
+/* ── 优化路线悬浮弹层：时间线，简洁清晰，token 亮暗自适应 ── */
+.opt-hist-pop {
+  position: fixed; z-index: 1300; width: 360px; max-height: 320px; overflow: auto;
+  background: var(--slow-panel); color: var(--text-primary, #14171c);
+  border: 1px solid var(--border, #d4d8dd); border-radius: 10px;
+  box-shadow: 0 8px 28px rgba(0,0,0,.18); padding: 12px 14px; font-size: 12px;
+}
+.opt-hist-head { font-size: 13px; font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+.opt-hist-count { font-weight: 400; font-size: 11px; color: var(--text-secondary, #5a6172); }
+.opt-hist-empty { color: var(--text-secondary, #5a6172); padding: 6px 0; }
+.opt-hist-list { list-style: none; margin: 0; padding: 0; }
+/* 时间线：左侧竖线 + 圆点 */
+.opt-hist-item { position: relative; padding: 0 0 10px 16px; border-left: 2px solid var(--border-subtle, #ebeef2); margin-left: 5px; }
+.opt-hist-item:last-child { padding-bottom: 0; }
+.opt-hist-item::before {
+  content: ''; position: absolute; left: -5px; top: 4px; width: 8px; height: 8px;
+  border-radius: 50%; background: var(--slow-brand); border: 2px solid var(--slow-panel);
+}
+.opt-hist-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.opt-hist-round { font-family: monospace; font-weight: 600; }
+.opt-hist-who { color: var(--text-primary, #14171c); }
+.opt-hist-time { color: var(--text-secondary, #5a6172); font-size: 11px; }
+.opt-hist-tag { font-size: 11px; padding: 1px 6px; }
+.opt-hist-note { margin-top: 3px; color: var(--text-secondary, #5a6172); line-height: 1.5; word-break: break-all; }
 .wl-tag { padding: 2px 8px; border-radius: 10px; font-size: 12px; background: var(--bg-domain-hover, #f5f7fa); color: var(--text-secondary, #5a6172); }
 .wl-tag.ok { background: var(--slow-ok-bg); color: var(--slow-ok); }
 .wl-tag.bad { background: var(--slow-bad-bg); color: var(--slow-bad); }

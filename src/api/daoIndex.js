@@ -673,6 +673,12 @@ export function markSlowSqlOptimized(body) {
   })
 }
 
+/** 优化路线：该 (微服务, 抽象SQL) 的全部优化尝试（升序=第1次→最新），悬浮弹层用。 */
+export function getSlowSqlOptimizeHistory(serviceName, abstractHash) {
+  const qs = toQuery({ serviceName, abstractHash })
+  return request(`${PREFIX}/slow-sql/optimize/history${qs}`)
+}
+
 /* ───────────── 工具：把对象变成 ?a=1&b=2 ───────────── */
 
 function toQuery(params) {

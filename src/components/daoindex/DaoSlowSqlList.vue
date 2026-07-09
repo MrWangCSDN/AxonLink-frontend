@@ -22,7 +22,8 @@
           <option value="PENDING_L1">待一级</option>
           <option value="PENDING_L2">待二级</option>
           <option value="APPROVED">已通过</option>
-          <option value="REJECTED_L1">已退回</option>
+          <option value="REJECTED_L1">一级退回</option>
+          <option value="REJECTED_L2">二级退回</option>
         </select>
         <select v-model="optimizeStatus" class="slow-select" @change="reload">
           <option value="">全部优化状态</option>
@@ -72,7 +73,8 @@
           <td class="rounds-cell copyable" :title="(it.repeat_rounds || '') + '\n（点击复制）'" @click="copyCell(it.repeat_rounds)">{{ it.repeat_rounds || '—' }}</td>
           <td><span class="wl-tag" :class="optClass(it.optimize_status)"
                 @mouseenter="showOptHist(it, $event)" @mouseleave="scheduleHideOptHist">{{ optLabel(it) }}</span></td>
-          <td><span class="wl-tag" :class="wlClass(it.whitelist_status)">{{ wlLabel(it.whitelist_status) }}</span></td>
+          <td><span class="wl-tag" :class="wlClass(it.whitelist_status)"
+                @mouseenter="showWlFlow(it, $event)" @mouseleave="scheduleHideWlFlow">{{ wlLabel(it.whitelist_status) }}</span></td>
           <td>
             <div class="slow-act-col">
               <!-- 互斥：白名单与优化二选一。未处理→两个入口都给；优化生效中(OPTIMIZED)→只能编辑优化；
@@ -81,6 +83,7 @@
               <template v-if="it.whitelist_status">
                 <button class="slow-act-btn" @click="openView(it)">{{ wlActionLabel(it.whitelist_status) }}</button>
                 <button v-if="it.whitelist_status === 'REJECTED_L1' && it.optimize_status !== 'OPTIMIZED'" class="slow-act-btn" @click="reapplyWhitelist(it)">重新申请</button>
+                <button v-if="it.whitelist_status === 'PENDING_L1' || it.whitelist_status === 'REJECTED_L1'" class="slow-act-btn" @click="withdrawWhitelist(it)">撤回申请</button>
               </template>
               <button v-if="isLatestRound && (it.optimize_status === 'OPTIMIZED' || !it.whitelist_status)" class="slow-act-btn" @click="openOptimize(it)">{{ it.optimize_status === 'OPTIMIZED' ? '编辑优化' : '去优化' }}</button>
               <button v-if="isLatestRound && it.optimize_status === 'OPTIMIZED'" class="slow-act-btn" @click="revokeOptimize(it)">撤销优化</button>
@@ -251,6 +254,24 @@
         </li>
       </ol>
     </div>
+
+    <!-- 白名单流转路径悬浮弹层（与优化路线同款；跨多次申请的完整处理过程） -->
+    <div v-if="wlFlow.open" class="opt-hist-pop" :style="{ left: wlFlow.x + 'px', top: wlFlow.y + 'px' }"
+         @mouseenter="cancelHideWlFlow" @mouseleave="scheduleHideWlFlow">
+      <div class="opt-hist-head">白名单流转<span class="opt-hist-count">{{ wlFlow.items.length }} 步</span></div>
+      <div v-if="wlFlow.loading" class="opt-hist-empty">加载中…</div>
+      <div v-else-if="!wlFlow.items.length" class="opt-hist-empty">暂无记录</div>
+      <ol v-else class="opt-hist-list">
+        <li v-for="(h, i) in wlFlow.items" :key="i" class="opt-hist-item">
+          <div class="opt-hist-meta">
+            <span class="wl-tag opt-hist-tag" :class="wlFlowMeta(h.action).cls">{{ wlFlowMeta(h.action).label }}</span>
+            <span class="opt-hist-who">{{ wlFlowWho(h) }}</span>
+            <span class="opt-hist-time">{{ optHistTime(h.created_at) }}</span>
+          </div>
+          <div class="opt-hist-note">{{ h.opinion || '—' }}</div>
+        </li>
+      </ol>
+    </div>
   </div>
 </template>
 
@@ -262,7 +283,7 @@ import {
   listSlowSqlCollectFilters, addSlowSqlCollectFilter, deleteSlowSqlCollectFilter,
   getWhitelistApprovers, applyWhitelist, getWhitelistApplication,
   l1Approve, l1Reject, l2Approve, l2Reject, cancelWhitelist,
-  markSlowSqlOptimized, revokeSlowSqlOptimized, getSlowSqlOptimizeHistory,
+  markSlowSqlOptimized, revokeSlowSqlOptimized, getSlowSqlOptimizeHistory, getSlowSqlWhitelistFlow,
 } from '../../api/daoIndex.js'
 import { getCurrentUser } from '../../api/auth.js'
 
@@ -290,6 +311,7 @@ const l1Approvers = ref([]); const l2Approvers = ref([])
 async function reload() {
   loading.value = true; errorMsg.value = ''
   optHistCache.clear()   // 数据可能变了（打标/导入），优化路线缓存作废
+  wlFlowCache.clear()    // 白名单流转缓存同理作废
   try {
     const data = await listSlowSql({
       keyword: keyword.value, domain: domain.value, bizType: bizType.value,
@@ -417,7 +439,7 @@ async function openView(it) {
     const app = await getWhitelistApplication(it.whitelist_app_id)
     viewApp.value = app
     const u = currentUser.value
-    if (app?.status === 'PENDING_L1' && app?.l1_approver === u) viewMode.value = 'l1'
+    if ((app?.status === 'PENDING_L1' || app?.status === 'REJECTED_L2') && app?.l1_approver === u) viewMode.value = 'l1'
     else if (app?.status === 'PENDING_L2' && app?.l2_approver === u) viewMode.value = 'l2'
     else viewMode.value = ''
     viewOpen.value = true
@@ -519,17 +541,18 @@ function approverDisplay(username) {
 
 /* ── 文案 ── */
 function wlLabel(s) {
-  return ({ PENDING_L1: '待一级', PENDING_L2: '待二级', APPROVED: '已通过', REJECTED_L1: '已退回', CANCELLED: '已取消' })[s] || '未申请'
+  return ({ PENDING_L1: '待一级', PENDING_L2: '待二级', APPROVED: '已通过', REJECTED_L1: '一级退回', REJECTED_L2: '二级退回', CANCELLED: '已取消' })[s] || '未申请'
 }
 function wlClass(s) {
   if (s === 'APPROVED') return 'ok'
-  if (s === 'REJECTED_L1') return 'bad'
+  if (s === 'REJECTED_L1' || s === 'REJECTED_L2') return 'bad'
   if (s === 'PENDING_L1' || s === 'PENDING_L2') return 'pending'
   return ''
 }
 /* 操作列白名单按钮文案：待审=查看审批（审批人可操作），其余（已通过/已退回）=查看详情 */
 function wlActionLabel(s) {
-  return (s === 'PENDING_L1' || s === 'PENDING_L2') ? '查看审批' : '查看详情'
+  // 待审 + 二级退回(回一级重审) 都是"可审批"入口；已通过/一级退回是查看
+  return (s === 'PENDING_L1' || s === 'PENDING_L2' || s === 'REJECTED_L2') ? '查看审批' : '查看详情'
 }
 /* 已退回 → 重新申请：先取消旧申请（后端校验仅申请人本人可取消），再打开申请弹窗 */
 async function reapplyWhitelist(it) {
@@ -542,6 +565,60 @@ async function reapplyWhitelist(it) {
   } catch (e) {
     alert(`重新申请失败：${e?.message || e}`)
   }
+}
+
+/* 撤回申请（申请人本人，后端校验；撤回后白名单清空 → 可走去优化） */
+async function withdrawWhitelist(it) {
+  if (!it.whitelist_app_id) { alert('缺少申请信息，无法撤回'); return }
+  if (!window.confirm('确定撤回该白名单申请？\n\n撤回后状态回「未申请」，可重新申请白名单或走去优化流程；\n撤回动作会记录到白名单流转路径。')) return
+  try {
+    await cancelWhitelist(it.whitelist_app_id, { currentUser: currentUser.value })
+    await reload()
+  } catch (e) {
+    alert(`撤回失败：${e?.message || e}`)
+  }
+}
+
+/* ── 白名单流转路径悬浮弹层（与优化路线同款）：申请/一级·二级 通过/退回/撤回——谁、何时、理由 ── */
+const wlFlow = ref({ open: false, x: 0, y: 0, loading: false, items: [], key: '' })
+const wlFlowCache = new Map()
+let wlFlowHideTimer = null
+const WL_FLOW_META = {
+  APPLY:      { label: '申请白名单', cls: '' },
+  L1_APPROVE: { label: '一级通过', cls: 'ok' },
+  L1_REJECT:  { label: '一级退回', cls: 'bad' },
+  L2_APPROVE: { label: '申请通过', cls: 'ok' },
+  L2_REJECT:  { label: '二级退回', cls: 'bad' },
+  CANCEL:     { label: '撤回申请', cls: '' },
+}
+function wlFlowMeta(a) { return WL_FLOW_META[a] || { label: a, cls: '' } }
+async function showWlFlow(it, e) {
+  clearTimeout(wlFlowHideTimer)
+  const rect = e.currentTarget.getBoundingClientRect()
+  const key = it.service_name + '\n' + it.abstract_hash
+  wlFlow.value = {
+    open: true, key,
+    x: Math.min(rect.left, window.innerWidth - 380),
+    y: rect.bottom + 6,
+    loading: !wlFlowCache.has(key),
+    items: wlFlowCache.get(key) || [],
+  }
+  if (!wlFlowCache.has(key)) {
+    let items = []
+    try { items = await getSlowSqlWhitelistFlow(it.service_name, it.abstract_hash) } catch { /* 弹层容错 */ }
+    wlFlowCache.set(key, items)
+    if (wlFlow.value.key === key) { wlFlow.value = { ...wlFlow.value, loading: false, items } }
+  }
+}
+function scheduleHideWlFlow() {
+  clearTimeout(wlFlowHideTimer)
+  wlFlowHideTimer = setTimeout(() => { wlFlow.value = { ...wlFlow.value, open: false } }, 150)
+}
+function cancelHideWlFlow() { clearTimeout(wlFlowHideTimer) }
+function wlFlowWho(h) {
+  const name = h.actor_name, emp = h.actor
+  if (name && emp) return `${name}(${emp})`
+  return name || emp || '—'
 }
 /* ── 优化状态：文案带轮次上下文 + 标签色（复用 wl-tag 的 ok/bad） ── */
 function optLabel(it) {

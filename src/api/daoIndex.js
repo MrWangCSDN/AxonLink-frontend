@@ -681,6 +681,12 @@ export function revokeSlowSqlOptimized(body) {
   })
 }
 
+/** 白名单流转路径：该 (微服务, 抽象SQL) 跨多次申请的全部流转事件（升序），悬浮弹层用。 */
+export function getSlowSqlWhitelistFlow(serviceName, abstractHash) {
+  const qs = toQuery({ serviceName, abstractHash })
+  return request(`${PREFIX}/whitelist-applications/flow${qs}`)
+}
+
 /** 优化路线：该 (微服务, 抽象SQL) 的全部优化尝试（升序=第1次→最新），悬浮弹层用。 */
 export function getSlowSqlOptimizeHistory(serviceName, abstractHash) {
   const qs = toQuery({ serviceName, abstractHash })

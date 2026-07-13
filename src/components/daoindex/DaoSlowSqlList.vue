@@ -1,39 +1,25 @@
 <template>
   <div class="slow-wrap">
-    <!-- 顶部工具条 -->
+    <!-- 顶部工具条：常用外露（搜索/轮次/状态合一），低频进「更多筛选」面板 -->
     <div class="slow-toolbar">
       <div class="slow-tb-left">
-        <input v-model="keyword" class="slow-input" placeholder="搜索 抽象SQL / 微服务 / 来源文件" @keyup.enter="reload" />
-        <!-- v2：轮次下拉——展示永远是"某一轮"（默认最新一轮），可手选其他轮次；不提供"全部轮次" -->
+        <input v-model="keyword" class="slow-input" style="flex:1;min-width:200px" placeholder="搜索 抽象SQL / 微服务 / 来源文件" @keyup.enter="reload" />
         <select v-model="roundSel" class="slow-select" @change="page = 0; reload()">
           <option v-for="r in roundsDesc" :key="r" :value="r">{{ r }}</option>
         </select>
-        <select v-model="domain" class="slow-select" @change="reload">
-          <option value="">全部领域</option>
-          <option v-for="d in domains" :key="d" :value="d">{{ d }}</option>
-        </select>
-        <select v-model="bizType" class="slow-select" @change="reload">
-          <option value="">全部类型</option>
-          <option v-for="t in bizTypes" :key="t" :value="t">{{ t }}</option>
-        </select>
-        <select v-model="whitelistStatus" class="slow-select" @change="reload">
-          <option value="">全部白名单状态</option>
-          <option value="NONE">未申请</option>
-          <option value="PENDING_L1">待一级</option>
-          <option value="PENDING_L2">待二级</option>
-          <option value="APPROVED">已通过</option>
-          <option value="REJECTED_L1">一级退回</option>
-          <option value="REJECTED_L2">二级退回</option>
-        </select>
-        <input v-model="initiator" class="slow-input" style="width:140px" placeholder="发起人 姓名/工号" @keyup.enter="reload" />
-        <input v-model="curApprover" class="slow-input" style="width:150px" placeholder="当前审批人 姓名/工号" @keyup.enter="reload" />
-        <select v-model="optimizeStatus" class="slow-select" @change="reload">
-          <option value="">全部优化状态</option>
+        <!-- 状态合一：互斥后一条 SQL 只在一条路线上；映射回原两参数，后端不变 -->
+        <select v-model="unifiedStatus" class="slow-select" @change="reload">
+          <option value="">全部状态</option>
           <option value="NONE">未处理</option>
           <option value="OPTIMIZED">已优化</option>
           <option value="REGRESSED">优化未生效</option>
+          <option value="PENDING_L1">待一级</option>
+          <option value="PENDING_L2">待二级</option>
+          <option value="REJECTED_L1">一级退回</option>
+          <option value="REJECTED_L2">二级退回</option>
+          <option value="APPROVED">已通过</option>
         </select>
-        <button class="slow-btn" @click="reload">查询</button>
+        <button class="slow-btn" :class="{ active: showMoreFilter }" @click="showMoreFilter = !showMoreFilter">更多筛选</button>
       </div>
       <div class="slow-tb-right">
         <button class="slow-btn" @click="openImport">导入 Excel/CSV</button>
@@ -42,11 +28,34 @@
       </div>
     </div>
 
+    <!-- 更多筛选面板：领域 / 类型 / 发起人 / 当前审批人 -->
+    <div v-if="showMoreFilter" class="slow-morefilter">
+      <select v-model="domain" class="slow-select">
+        <option value="">全部领域</option>
+        <option v-for="d in domains" :key="d" :value="d">{{ d }}</option>
+      </select>
+      <select v-model="bizType" class="slow-select">
+        <option value="">全部类型</option>
+        <option v-for="t in bizTypes" :key="t" :value="t">{{ t }}</option>
+      </select>
+      <input v-model="initiator" class="slow-input" style="width:150px" placeholder="发起人 姓名/工号" @keyup.enter="applyMoreFilter" />
+      <input v-model="curApprover" class="slow-input" style="width:160px" placeholder="当前审批人 姓名/工号" @keyup.enter="applyMoreFilter" />
+      <button class="slow-btn primary" @click="applyMoreFilter">应用</button>
+      <button class="slow-btn" @click="clearMoreFilter">清空</button>
+    </div>
+
     <div v-if="filter?.myApprovalTodo" class="slow-todo-banner">
       🔔 仅显示「该我审批」的慢SQL（待一级 / 待二级）
       <button class="slow-link" @click="clearTodo">清除筛选</button>
     </div>
-    <div class="slow-kpi">共 <b>{{ total }}</b> 条抽象SQL</div>
+
+    <!-- 已生效筛选 chips + 总数 -->
+    <div class="slow-kpi">
+      <span v-for="c in activeChips" :key="c.key" class="slow-chip">
+        {{ c.label }}<button class="slow-chip-x" @click="removeChip(c.key)">×</button>
+      </span>
+      共 <b>{{ total }}</b> 条抽象SQL
+    </div>
 
     <!-- 列表（v4：表头固定 + 表体滚动——本容器滚动，thead sticky；工具栏/分页脚在容器外固定）-->
     <div class="slow-table-scroll">
@@ -56,41 +65,39 @@
     <table v-else class="slow-table">
       <thead>
         <tr>
-          <th>微服务</th><th>领域</th><th>类型</th><th>抽象SQL</th><th class="num">最大执行耗时</th>
-          <th>执行参数</th><th class="num">执行次数</th><th>来源文件</th><th>轮次</th><th>重复出现轮次</th><th>优化状态</th><th>白名单</th><th>发起人</th><th>当前审批人</th><th>操作</th>
+          <th style="width:42%">抽象SQL / 归属</th>
+          <th class="num">最大耗时</th><th class="num">次数</th>
+          <th>轮次</th><th>状态</th><th>发起人 / 当前审批人</th><th>操作</th>
         </tr>
       </thead>
       <tbody>
-        <!-- v3：长字段列 hover 看全文（title）+ 点击复制全文 -->
+        <!-- 悬浮 SQL 单元格 → 详情弹层(全文+复制)；点击 SQL 直接复制 -->
         <tr v-for="it in items" :key="it.id">
-          <td class="svc-cell copyable" :title="it.service_name + '\n（点击复制）'" @click="copyCell(it.service_name)">{{ it.service_name }}</td>
-          <td>{{ it.domain }}</td>
-          <td>{{ it.biz_type }}</td>
-          <td class="sql-cell copyable" :title="it.abstract_sql + '\n（点击复制）'" @click="copyCell(it.abstract_sql)">{{ it.abstract_sql }}</td>
+          <td @mouseenter="showSqlDetail(it, $event)" @mouseleave="scheduleHideSqlDetail">
+            <div class="sql-main copyable" @click="copyCell(it.abstract_sql)">{{ it.abstract_sql }}</div>
+            <div class="sql-sub">{{ it.service_name }} · {{ it.domain }} · {{ it.biz_type }} · {{ it.source_location }}</div>
+          </td>
           <td class="num" :title="it.max_time_cost_raw">{{ it.max_time_cost_ms }}ms</td>
-          <td class="param-cell copyable" :title="(it.exec_params || '') + '\n（点击复制）'" @click="copyCell(it.exec_params)">{{ it.exec_params }}</td>
           <td class="num">{{ it.exec_count }}</td>
-          <td class="loc-cell copyable" :title="(it.source_location || '') + '\n（点击复制）'" @click="copyCell(it.source_location)">{{ it.source_location }}</td>
-          <td>{{ it.round }}</td>
-          <td class="rounds-cell copyable" :title="(it.repeat_rounds || '') + '\n（点击复制）'" @click="copyCell(it.repeat_rounds)">{{ it.repeat_rounds || '—' }}</td>
-          <td><span class="wl-tag" :class="optClass(it.optimize_status)"
-                @mouseenter="showJourney(it, $event)" @mouseleave="scheduleHideJourney">{{ optLabel(it) }}</span></td>
-          <td><span class="wl-tag" :class="wlClass(it.whitelist_status)"
-                @mouseenter="showJourney(it, $event)" @mouseleave="scheduleHideJourney">{{ wlLabel(it.whitelist_status) }}</span></td>
-          <td class="who-cell">{{ personLabel(it.initiator, it.initiator_name) }}</td>
-          <td class="who-cell">{{ personLabel(it.current_approver, it.current_approver_name) }}</td>
+          <td class="round-cell">
+            <span class="round-badge">{{ it.round }}</span>
+            <span v-if="repeatCount(it)" class="round-badge repeat" :title="it.repeat_rounds">重复 ×{{ repeatCount(it) }}</span>
+          </td>
           <td>
-            <div class="slow-act-col">
-              <!-- 互斥：白名单与优化二选一。未处理→两个入口都给；优化生效中(OPTIMIZED)→只能编辑优化；
-                   未生效(REGRESSED)→上次尝试已失败归档，路线重新开放：可「去优化」(全新一次)也可「申请白名单」 -->
-              <button v-if="!it.whitelist_status && it.optimize_status !== 'OPTIMIZED'" class="slow-act-btn" @click="openApply(it)">申请白名单</button>
-              <template v-if="it.whitelist_status">
-                <button class="slow-act-btn" @click="openView(it)">{{ wlActionLabel(it.whitelist_status) }}</button>
-                <button v-if="it.whitelist_status === 'REJECTED_L1' && it.optimize_status !== 'OPTIMIZED'" class="slow-act-btn" @click="reapplyWhitelist(it)">重新申请</button>
-                <button v-if="it.whitelist_status === 'PENDING_L1' || it.whitelist_status === 'REJECTED_L1'" class="slow-act-btn" @click="withdrawWhitelist(it)">撤回申请</button>
-              </template>
-              <button v-if="isLatestRound && (it.optimize_status === 'OPTIMIZED' || !it.whitelist_status)" class="slow-act-btn" @click="openOptimize(it)">{{ it.optimize_status === 'OPTIMIZED' ? '编辑优化' : '去优化' }}</button>
-              <button v-if="isLatestRound && it.optimize_status === 'OPTIMIZED'" class="slow-act-btn" @click="revokeOptimize(it)">撤销优化</button>
+            <div class="stat-cell" @mouseenter="showJourney(it, $event)" @mouseleave="scheduleHideJourney">
+              <span v-if="it.optimize_status" class="wl-tag" :class="optClass(it.optimize_status)">{{ optShort(it.optimize_status) }}</span>
+              <span v-if="it.whitelist_status" class="wl-tag" :class="wlClass(it.whitelist_status)">{{ wlLabel(it.whitelist_status) }}</span>
+              <span v-if="!it.optimize_status && !it.whitelist_status" class="wl-tag">未处理</span>
+            </div>
+          </td>
+          <td class="who-cell">
+            <div>{{ personLabel(it.initiator, it.initiator_name) }}</div>
+            <div v-if="it.current_approver" class="who-sub">待审：{{ personLabel(it.current_approver, it.current_approver_name) }}</div>
+          </td>
+          <td>
+            <div class="act-wrap">
+              <button v-if="primaryAction(it)" class="slow-act-btn primary" @click="primaryAction(it).fn(it)">{{ primaryAction(it).label }}</button>
+              <button v-if="menuActions(it).length" class="act-more" @click.stop="toggleActMenu(it, $event)">⋯</button>
             </div>
           </td>
         </tr>
@@ -258,11 +265,31 @@
         </li>
       </ol>
     </div>
+
+    <!-- SQL 详情悬浮弹层：整行完整信息 + 点击复制（处理人员看全文/带走） -->
+    <div v-if="sqlDetail.open" class="opt-hist-pop sql-detail-pop" :style="{ left: sqlDetail.x + 'px', top: sqlDetail.y + 'px' }"
+         @mouseenter="cancelHideSqlDetail" @mouseleave="scheduleHideSqlDetail">
+      <div class="sqld-row"><span class="sqld-label">抽象SQL</span><button class="slow-link" @click="copyCell(sqlDetail.row?.abstract_sql)">复制</button></div>
+      <pre class="sqld-sql">{{ sqlDetail.row?.abstract_sql }}</pre>
+      <div class="sqld-row"><span class="sqld-label">执行参数</span><button class="slow-link" @click="copyCell(sqlDetail.row?.exec_params)">复制</button></div>
+      <pre class="sqld-sql sqld-param">{{ sqlDetail.row?.exec_params || '—' }}</pre>
+      <div class="sqld-row"><span class="sqld-label">来源文件</span><button class="slow-link" @click="copyCell(sqlDetail.row?.source_location)">复制</button></div>
+      <div class="sqld-meta">{{ sqlDetail.row?.source_location || '—' }}</div>
+      <div class="sqld-meta" style="margin-top:6px">
+        {{ sqlDetail.row?.service_name }} · {{ sqlDetail.row?.domain }} · {{ sqlDetail.row?.biz_type }}
+        <template v-if="sqlDetail.row?.repeat_rounds">　重复轮次：{{ sqlDetail.row.repeat_rounds }}</template>
+      </div>
+    </div>
+
+    <!-- 操作「⋯」下拉菜单（fixed 定位，避免表格滚动容器裁切） -->
+    <div v-if="actMenu.open" class="act-menu" :style="{ left: actMenu.x + 'px', top: actMenu.y + 'px' }" @click.stop>
+      <div v-for="m in actMenu.items" :key="m.label" class="act-menu-item" @click="m.fn(actMenu.row); closeActMenu()">{{ m.label }}</div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import {
   listSlowSql, listSlowSqlDomains, listSlowSqlBizTypes, listSlowSqlRounds,
   importSlowSql, exportSlowSql,
@@ -280,8 +307,9 @@ const props = defineProps({
 const emit = defineEmits(['update:env', 'clear-todo-filter'])
 
 const items = ref([]); const total = ref(0); const loading = ref(false); const errorMsg = ref('')
-const keyword = ref(''); const domain = ref(''); const bizType = ref(''); const whitelistStatus = ref('')
-const optimizeStatus = ref('')
+const keyword = ref(''); const domain = ref(''); const bizType = ref('')
+const unifiedStatus = ref('')      // 状态合一（映射回 whitelistStatus/optimizeStatus 两参数）
+const showMoreFilter = ref(false)
 const initiator = ref('')
 const curApprover = ref('')
 // v3：每页条数可选（20/50/100），服务端分页
@@ -293,6 +321,33 @@ const roundsDesc = computed(() => rounds.value.slice().reverse())
 const isLatestRound = computed(() =>
   rounds.value.length > 0 && roundSel.value === rounds.value[rounds.value.length - 1])
 
+/* 状态合一 → 原两参数（互斥后一条 SQL 只在一条路线上；未处理=两边都 NONE，后端本就支持同时 AND） */
+function statusParams() {
+  const v = unifiedStatus.value
+  if (!v) return {}
+  if (v === 'NONE') return { whitelistStatus: 'NONE', optimizeStatus: 'NONE' }
+  if (v === 'OPTIMIZED' || v === 'REGRESSED') return { optimizeStatus: v }
+  return { whitelistStatus: v }
+}
+function applyMoreFilter() { page.value = 0; reload() }
+function clearMoreFilter() {
+  domain.value = ''; bizType.value = ''; initiator.value = ''; curApprover.value = ''
+  page.value = 0; reload()
+}
+/* 已生效的「更多筛选」条件 chips（可单个删除） */
+const activeChips = computed(() => {
+  const c = []
+  if (domain.value) c.push({ key: 'domain', label: `领域：${domain.value}` })
+  if (bizType.value) c.push({ key: 'bizType', label: `类型：${bizType.value}` })
+  if (initiator.value) c.push({ key: 'initiator', label: `发起人：${initiator.value}` })
+  if (curApprover.value) c.push({ key: 'curApprover', label: `当前审批人：${curApprover.value}` })
+  return c
+})
+function removeChip(key) {
+  ({ domain, bizType, initiator, curApprover })[key].value = ''
+  page.value = 0; reload()
+}
+
 const currentUser = ref('')
 const l1Approvers = ref([]); const l2Approvers = ref([])
 
@@ -302,8 +357,7 @@ async function reload() {
   try {
     const data = await listSlowSql({
       keyword: keyword.value, domain: domain.value, bizType: bizType.value,
-      whitelistStatus: whitelistStatus.value,
-      optimizeStatus: optimizeStatus.value,
+      ...statusParams(),
       initiator: initiator.value || undefined,
       curApprover: curApprover.value || undefined,
       round: roundSel.value || undefined,   // v2：按轮次过滤（空=全部轮次）
@@ -322,6 +376,9 @@ async function reload() {
 function clearTodo() { emit('clear-todo-filter') }
 // filter 变化（铃铛跳来 / 清除）→ 重新加载（组件 v-show 常驻不会重挂载）
 watch(() => props.filter, () => { page.value = 0; reload() }, { deep: true })
+
+onMounted(() => { document.addEventListener('click', closeActMenu) })
+onBeforeUnmount(() => { document.removeEventListener('click', closeActMenu) })
 
 onMounted(async () => {
   try { domains.value = await listSlowSqlDomains() } catch { /* ignore */ }
@@ -385,8 +442,7 @@ async function doExport() {
       domain: domain.value || undefined,
       bizType: bizType.value || undefined,
       keyword: keyword.value || undefined,
-      whitelistStatus: whitelistStatus.value || undefined,
-      optimizeStatus: optimizeStatus.value || undefined,
+      ...statusParams(),
     })
   } catch (e) { alert(`导出失败：${e?.message || e}`) }
 }
@@ -548,6 +604,57 @@ function personLabel(emp, name) {
   if (name && emp) return `${name}(${emp})`
   return name || emp || ''
 }
+/* 状态 pill 短文案（详情在悬浮处理路径里） */
+function optShort(s) { return ({ OPTIMIZED: '已优化', REGRESSED: '未生效' })[s] || s }
+function repeatCount(it) { return it.repeat_rounds ? it.repeat_rounds.split(',').filter(Boolean).length : 0 }
+
+/* ── SQL 详情悬浮弹层（全文 + 复制） ── */
+const sqlDetail = ref({ open: false, x: 0, y: 0, row: null })
+let sqlDetailHideTimer = null
+function showSqlDetail(it, e) {
+  clearTimeout(sqlDetailHideTimer)
+  const rect = e.currentTarget.getBoundingClientRect()
+  sqlDetail.value = { open: true, row: it,
+    x: Math.min(rect.left + 12, window.innerWidth - 560),
+    y: Math.min(rect.bottom + 6, window.innerHeight - 320) }
+}
+function scheduleHideSqlDetail() {
+  clearTimeout(sqlDetailHideTimer)
+  sqlDetailHideTimer = setTimeout(() => { sqlDetail.value = { ...sqlDetail.value, open: false } }, 200)
+}
+function cancelHideSqlDetail() { clearTimeout(sqlDetailHideTimer) }
+
+/* ── 操作：主按钮（按状态智能选） + ⋯低频菜单 ── */
+function primaryAction(it) {
+  const wl = it.whitelist_status, op = it.optimize_status
+  if (wl === 'PENDING_L1' || wl === 'PENDING_L2' || wl === 'REJECTED_L2') return { label: '查看审批', fn: openView }
+  if (wl === 'APPROVED') return { label: '查看详情', fn: openView }
+  if (wl === 'REJECTED_L1') return op !== 'OPTIMIZED' ? { label: '重新申请', fn: reapplyWhitelist } : { label: '查看详情', fn: openView }
+  if (op === 'OPTIMIZED') return isLatestRound.value ? { label: '编辑优化', fn: openOptimize } : null
+  // 未处理 / 未生效：最新轮主推去优化，历史轮只剩申请白名单
+  return isLatestRound.value ? { label: '去优化', fn: openOptimize } : { label: '申请白名单', fn: openApply }
+}
+function menuActions(it) {
+  const wl = it.whitelist_status, op = it.optimize_status, m = []
+  if (wl) {
+    if (wl === 'REJECTED_L1') m.push({ label: '查看详情', fn: openView })
+    if (wl === 'PENDING_L1' || wl === 'REJECTED_L1') m.push({ label: '撤回申请', fn: withdrawWhitelist })
+    if (op === 'OPTIMIZED' && isLatestRound.value) m.push({ label: '编辑优化', fn: openOptimize })   // 存量双态
+  } else if (op === 'OPTIMIZED') {
+    if (isLatestRound.value) m.push({ label: '撤销优化', fn: revokeOptimize })
+  } else if (isLatestRound.value) {
+    m.push({ label: '申请白名单', fn: openApply })   // 主按钮=去优化，白名单入菜单
+  }
+  return m
+}
+const actMenu = ref({ open: false, x: 0, y: 0, row: null, items: [] })
+function toggleActMenu(it, e) {
+  if (actMenu.value.open && actMenu.value.row === it) { closeActMenu(); return }
+  const rect = e.currentTarget.getBoundingClientRect()
+  actMenu.value = { open: true, row: it, items: menuActions(it),
+    x: Math.min(rect.left, window.innerWidth - 150), y: rect.bottom + 4 }
+}
+function closeActMenu() { actMenu.value = { ...actMenu.value, open: false } }
 /* 已退回 → 重新申请：先取消旧申请（后端校验仅申请人本人可取消），再打开申请弹窗 */
 async function reapplyWhitelist(it) {
   if (!it.whitelist_app_id) { alert('缺少原申请信息，无法重新申请'); return }
@@ -751,6 +858,48 @@ async function revokeOptimize(it) {
   cursor: pointer; font-size: 12px; line-height: 1.5; white-space: nowrap;
 }
 .slow-act-btn:hover { background: var(--slow-brand); color: var(--slow-on-brand); }
+.slow-act-btn.primary { background: var(--slow-brand); color: var(--slow-on-brand); border-color: transparent; }
+.slow-act-btn.primary:hover { opacity: .88; }
+/* ── 重设计：工具条/面板/chips ── */
+.slow-btn.active { background: var(--bg-domain-active, #eef1f5); border-color: var(--slow-brand); color: var(--slow-brand); }
+.slow-morefilter { display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+  margin-top: 8px; padding: 10px 12px; border: 1px solid var(--border, #d4d8dd);
+  border-radius: 8px; background: var(--slow-panel); }
+.slow-chip { display: inline-flex; align-items: center; gap: 4px; margin-right: 8px;
+  font-size: 12px; padding: 2px 8px; border-radius: 10px;
+  background: var(--bg-domain-hover, #f5f7fa); color: var(--slow-brand); border: 1px solid var(--border-subtle, #ebeef2); }
+.slow-chip-x { background: none; border: none; cursor: pointer; color: inherit; font-size: 13px; padding: 0 2px; line-height: 1; }
+/* ── 重设计：表格列 ── */
+.sql-main { font-family: monospace; font-size: 12px; max-width: 480px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sql-sub { font-size: 11px; color: var(--text-secondary, #5a6172); margin-top: 3px;
+  max-width: 480px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.round-cell { white-space: nowrap; }
+.round-badge { display: inline-block; font-size: 11px; font-family: monospace; padding: 1px 7px;
+  border-radius: 9px; background: var(--bg-domain-hover, #f5f7fa); border: 1px solid var(--border-subtle, #ebeef2);
+  color: var(--text-secondary, #5a6172); margin-right: 4px; }
+.round-badge.repeat { color: var(--slow-warn); background: var(--slow-warn-bg); border-color: transparent; }
+.stat-cell { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.who-sub { font-size: 11px; color: var(--text-secondary, #5a6172); margin-top: 2px; }
+/* ── 重设计：操作 主按钮 + ⋯菜单 ── */
+.act-wrap { display: flex; gap: 6px; align-items: center; white-space: nowrap; }
+.act-more { width: 26px; height: 26px; border: 1px solid var(--border, #d4d8dd); border-radius: 6px;
+  background: transparent; color: var(--text-secondary, #5a6172); cursor: pointer; font-size: 14px; line-height: 1; }
+.act-more:hover { border-color: var(--slow-brand); color: var(--slow-brand); }
+.act-menu { position: fixed; z-index: 1300; min-width: 120px; padding: 4px;
+  background: var(--slow-panel); border: 1px solid var(--border, #d4d8dd); border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.16); }
+.act-menu-item { padding: 7px 12px; font-size: 13px; border-radius: 6px; cursor: pointer; color: var(--text-primary, #14171c); }
+.act-menu-item:hover { background: var(--bg-domain-hover, #f5f7fa); color: var(--slow-brand); }
+/* ── 重设计：SQL 详情弹层 ── */
+.sql-detail-pop { width: 540px; max-height: 420px; }
+.sqld-row { display: flex; justify-content: space-between; align-items: center; margin: 8px 0 4px; }
+.sqld-label { font-size: 12px; font-weight: 600; color: var(--text-secondary, #5a6172); }
+.sqld-sql { font-family: monospace; font-size: 12px; background: var(--bg-domain-hover, #f5f7fa);
+  padding: 8px 10px; border-radius: 6px; margin: 0; white-space: pre-wrap; word-break: break-all;
+  max-height: 160px; overflow: auto; color: var(--text-primary, #14171c); }
+.sqld-param { max-height: 72px; }
+.sqld-meta { font-size: 12px; color: var(--text-secondary, #5a6172); word-break: break-all; }
 /* ── 优化路线悬浮弹层：时间线，简洁清晰，token 亮暗自适应 ── */
 .opt-hist-pop {
   position: fixed; z-index: 1300; width: 360px; max-height: 320px; overflow: auto;

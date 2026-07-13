@@ -543,10 +543,10 @@ function wlActionLabel(s) {
   // 待审 + 二级退回(回一级重审) 都是"可审批"入口；已通过/一级退回是查看
   return (s === 'PENDING_L1' || s === 'PENDING_L2' || s === 'REJECTED_L2') ? '查看审批' : '查看详情'
 }
-/* 人员显示：姓名(工号)；只有工号显示工号；无 → — */
+/* 人员显示：姓名(工号)；只有工号显示工号；无 → 留空（发起人/当前审批人空态一致） */
 function personLabel(emp, name) {
   if (name && emp) return `${name}(${emp})`
-  return name || emp || '—'
+  return name || emp || ''
 }
 /* 已退回 → 重新申请：先取消旧申请（后端校验仅申请人本人可取消），再打开申请弹窗 */
 async function reapplyWhitelist(it) {

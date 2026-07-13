@@ -25,6 +25,7 @@
           <option value="REJECTED_L1">一级退回</option>
           <option value="REJECTED_L2">二级退回</option>
         </select>
+        <input v-model="initiator" class="slow-input" style="width:150px" placeholder="发起人 姓名/工号" @keyup.enter="reload" />
         <select v-model="optimizeStatus" class="slow-select" @change="reload">
           <option value="">全部优化状态</option>
           <option value="NONE">未处理</option>
@@ -55,7 +56,7 @@
       <thead>
         <tr>
           <th>微服务</th><th>领域</th><th>类型</th><th>抽象SQL</th><th class="num">最大执行耗时</th>
-          <th>执行参数</th><th class="num">执行次数</th><th>来源文件</th><th>轮次</th><th>重复出现轮次</th><th>优化状态</th><th>白名单</th><th>操作</th>
+          <th>执行参数</th><th class="num">执行次数</th><th>来源文件</th><th>轮次</th><th>重复出现轮次</th><th>优化状态</th><th>白名单</th><th>发起人</th><th>当前审批人</th><th>操作</th>
         </tr>
       </thead>
       <tbody>
@@ -75,6 +76,8 @@
                 @mouseenter="showJourney(it, $event)" @mouseleave="scheduleHideJourney">{{ optLabel(it) }}</span></td>
           <td><span class="wl-tag" :class="wlClass(it.whitelist_status)"
                 @mouseenter="showJourney(it, $event)" @mouseleave="scheduleHideJourney">{{ wlLabel(it.whitelist_status) }}</span></td>
+          <td class="who-cell">{{ personLabel(it.initiator, it.initiator_name) }}</td>
+          <td class="who-cell">{{ personLabel(it.current_approver, it.current_approver_name) }}</td>
           <td>
             <div class="slow-act-col">
               <!-- 互斥：白名单与优化二选一。未处理→两个入口都给；优化生效中(OPTIMIZED)→只能编辑优化；
@@ -278,6 +281,7 @@ const emit = defineEmits(['update:env', 'clear-todo-filter'])
 const items = ref([]); const total = ref(0); const loading = ref(false); const errorMsg = ref('')
 const keyword = ref(''); const domain = ref(''); const bizType = ref(''); const whitelistStatus = ref('')
 const optimizeStatus = ref('')
+const initiator = ref('')
 // v3：每页条数可选（20/50/100），服务端分页
 const domains = ref([]); const bizTypes = ref([]); const page = ref(0); const pageSize = ref(50)
 // v2：轮次（后端升序返回；下拉倒序展示，默认选最新一轮）
@@ -298,6 +302,7 @@ async function reload() {
       keyword: keyword.value, domain: domain.value, bizType: bizType.value,
       whitelistStatus: whitelistStatus.value,
       optimizeStatus: optimizeStatus.value,
+      initiator: initiator.value || undefined,
       round: roundSel.value || undefined,   // v2：按轮次过滤（空=全部轮次）
       // 铃铛「慢SQL待办」跳来：只看该我审批的待审慢SQL
       approverUser: props.filter?.myApprovalTodo ? (currentUser.value || undefined) : undefined,
@@ -535,6 +540,11 @@ function wlActionLabel(s) {
   // 待审 + 二级退回(回一级重审) 都是"可审批"入口；已通过/一级退回是查看
   return (s === 'PENDING_L1' || s === 'PENDING_L2' || s === 'REJECTED_L2') ? '查看审批' : '查看详情'
 }
+/* 人员显示：姓名(工号)；只有工号显示工号；无 → — */
+function personLabel(emp, name) {
+  if (name && emp) return `${name}(${emp})`
+  return name || emp || '—'
+}
 /* 已退回 → 重新申请：先取消旧申请（后端校验仅申请人本人可取消），再打开申请弹窗 */
 async function reapplyWhitelist(it) {
   if (!it.whitelist_app_id) { alert('缺少原申请信息，无法重新申请'); return }
@@ -727,6 +737,7 @@ async function revokeOptimize(it) {
 /* v2：微服务 / 来源文件 / 重复出现轮次 截断单元格 */
 .svc-cell { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .loc-cell { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; font-size: 12px; color: var(--text-secondary, #5a6172); }
+.who-cell { white-space: nowrap; color: var(--text-secondary, #5a6172); font-size: 12px; }
 .rounds-cell { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary, #5a6172); }
 .slow-link { background: none; border: none; color: var(--slow-brand); cursor: pointer; font-size: 13px; padding: 0; }
 /* 操作列：按钮样式，文字单行不换行，多个按钮纵向排列 */

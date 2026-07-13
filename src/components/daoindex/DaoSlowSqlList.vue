@@ -25,7 +25,8 @@
           <option value="REJECTED_L1">一级退回</option>
           <option value="REJECTED_L2">二级退回</option>
         </select>
-        <input v-model="initiator" class="slow-input" style="width:150px" placeholder="发起人 姓名/工号" @keyup.enter="reload" />
+        <input v-model="initiator" class="slow-input" style="width:140px" placeholder="发起人 姓名/工号" @keyup.enter="reload" />
+        <input v-model="curApprover" class="slow-input" style="width:150px" placeholder="当前审批人 姓名/工号" @keyup.enter="reload" />
         <select v-model="optimizeStatus" class="slow-select" @change="reload">
           <option value="">全部优化状态</option>
           <option value="NONE">未处理</option>
@@ -282,6 +283,7 @@ const items = ref([]); const total = ref(0); const loading = ref(false); const e
 const keyword = ref(''); const domain = ref(''); const bizType = ref(''); const whitelistStatus = ref('')
 const optimizeStatus = ref('')
 const initiator = ref('')
+const curApprover = ref('')
 // v3：每页条数可选（20/50/100），服务端分页
 const domains = ref([]); const bizTypes = ref([]); const page = ref(0); const pageSize = ref(50)
 // v2：轮次（后端升序返回；下拉倒序展示，默认选最新一轮）
@@ -303,6 +305,7 @@ async function reload() {
       whitelistStatus: whitelistStatus.value,
       optimizeStatus: optimizeStatus.value,
       initiator: initiator.value || undefined,
+      curApprover: curApprover.value || undefined,
       round: roundSel.value || undefined,   // v2：按轮次过滤（空=全部轮次）
       // 铃铛「慢SQL待办」跳来：只看该我审批的待审慢SQL
       approverUser: props.filter?.myApprovalTodo ? (currentUser.value || undefined) : undefined,

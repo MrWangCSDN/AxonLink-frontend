@@ -65,14 +65,18 @@
     <table v-else class="slow-table">
       <thead>
         <tr>
-          <th style="width:42%">抽象SQL / 归属</th>
-          <th class="num">最大耗时</th><th class="num">次数</th>
-          <th>轮次</th><th>状态</th><th>发起人 / 当前审批人</th><th>操作</th>
+          <!-- fixed 布局：窄列定宽，抽象SQL 列不给宽 → 吃掉全部剩余空间（截断跟随列宽，不再写死 px） -->
+          <th class="dim-col" style="width:64px">领域</th><th class="dim-col" style="width:64px">类型</th>
+          <th>抽象SQL / 归属</th>
+          <th class="num" style="width:78px">最大耗时</th><th class="num" style="width:56px">次数</th>
+          <th style="width:150px">轮次</th><th style="width:120px">状态</th><th style="width:170px">发起人 / 当前审批人</th><th style="width:140px">操作</th>
         </tr>
       </thead>
       <tbody>
         <!-- 悬浮 SQL 单元格 → 详情弹层(全文+复制)；点击 SQL 直接复制 -->
         <tr v-for="it in items" :key="it.id">
+          <td class="dim-col">{{ it.domain }}</td>
+          <td class="dim-col">{{ it.biz_type }}</td>
           <td @mouseenter="showSqlDetail(it, $event)" @mouseleave="scheduleHideSqlDetail">
             <div class="sql-main copyable" @click="copyCell(it.abstract_sql)">{{ it.abstract_sql }}</div>
             <div class="sql-sub">{{ it.service_name }} · {{ it.domain }} · {{ it.biz_type }} · {{ it.source_location }}</div>
@@ -84,10 +88,12 @@
             <span v-if="repeatCount(it)" class="round-badge repeat" :title="it.repeat_rounds">重复 ×{{ repeatCount(it) }}</span>
           </td>
           <td>
+            <!-- 只显「当前状态」：白名单流程存在则以它为准（如 未生效→转投白名单 显示审批态）；
+                 优化态退为兜底；完整轨迹看悬浮处理路径 -->
             <div class="stat-cell" @mouseenter="showJourney(it, $event)" @mouseleave="scheduleHideJourney">
-              <span v-if="it.optimize_status" class="wl-tag" :class="optClass(it.optimize_status)">{{ optShort(it.optimize_status) }}</span>
               <span v-if="it.whitelist_status" class="wl-tag" :class="wlClass(it.whitelist_status)">{{ wlLabel(it.whitelist_status) }}</span>
-              <span v-if="!it.optimize_status && !it.whitelist_status" class="wl-tag">未处理</span>
+              <span v-else-if="it.optimize_status" class="wl-tag" :class="optClass(it.optimize_status)">{{ optShort(it.optimize_status) }}</span>
+              <span v-else class="wl-tag">未处理</span>
             </div>
           </td>
           <td class="who-cell">
@@ -246,7 +252,7 @@
     </div>
 
     <!-- 统一「处理路径」悬浮弹层：优化侧+白名单侧一条时间线（追加不删，跨多次申请/尝试） -->
-    <div v-if="journey.open" class="opt-hist-pop" :style="{ left: journey.x + 'px', top: journey.y + 'px' }"
+    <div v-if="journey.open" ref="journeyEl" class="opt-hist-pop" :style="{ left: journey.x + 'px', top: journey.y + 'px' }"
          @mouseenter="cancelHideJourney" @mouseleave="scheduleHideJourney">
       <div class="opt-hist-head">处理路径<span class="opt-hist-count">{{ journey.items.length }} 步</span></div>
       <div v-if="journey.loading" class="opt-hist-empty">加载中…</div>
@@ -267,7 +273,7 @@
     </div>
 
     <!-- SQL 详情悬浮弹层：整行完整信息 + 点击复制（处理人员看全文/带走） -->
-    <div v-if="sqlDetail.open" class="opt-hist-pop sql-detail-pop" :style="{ left: sqlDetail.x + 'px', top: sqlDetail.y + 'px' }"
+    <div v-if="sqlDetail.open" ref="sqlDetailEl" class="opt-hist-pop sql-detail-pop" :style="{ left: sqlDetail.x + 'px', top: sqlDetail.y + 'px' }"
          @mouseenter="cancelHideSqlDetail" @mouseleave="scheduleHideSqlDetail">
       <div class="sqld-row"><span class="sqld-label">抽象SQL</span><button class="slow-link" @click="copyCell(sqlDetail.row?.abstract_sql)">复制</button></div>
       <pre class="sqld-sql">{{ sqlDetail.row?.abstract_sql }}</pre>
@@ -282,14 +288,14 @@
     </div>
 
     <!-- 操作「⋯」下拉菜单（fixed 定位，避免表格滚动容器裁切） -->
-    <div v-if="actMenu.open" class="act-menu" :style="{ left: actMenu.x + 'px', top: actMenu.y + 'px' }" @click.stop>
+    <div v-if="actMenu.open" ref="actMenuEl" class="act-menu" :style="{ left: actMenu.x + 'px', top: actMenu.y + 'px' }" @click.stop>
       <div v-for="m in actMenu.items" :key="m.label" class="act-menu-item" @click="m.fn(actMenu.row); closeActMenu()">{{ m.label }}</div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import {
   listSlowSql, listSlowSqlDomains, listSlowSqlBizTypes, listSlowSqlRounds,
   importSlowSql, exportSlowSql,
@@ -326,7 +332,8 @@ function statusParams() {
   const v = unifiedStatus.value
   if (!v) return {}
   if (v === 'NONE') return { whitelistStatus: 'NONE', optimizeStatus: 'NONE' }
-  if (v === 'OPTIMIZED' || v === 'REGRESSED') return { optimizeStatus: v }
+  // 与状态列「当前状态」口径一致：已转投白名单的行不再算优化态（否则筛「未生效」出来一堆显示「待一级」的行）
+  if (v === 'OPTIMIZED' || v === 'REGRESSED') return { optimizeStatus: v, whitelistStatus: 'NONE' }
   return { whitelistStatus: v }
 }
 function applyMoreFilter() { page.value = 0; reload() }
@@ -608,15 +615,29 @@ function personLabel(emp, name) {
 function optShort(s) { return ({ OPTIMIZED: '已优化', REGRESSED: '未生效' })[s] || s }
 function repeatCount(it) { return it.repeat_rounds ? it.repeat_rounds.split(',').filter(Boolean).length : 0 }
 
+/* ── fixed 弹层垂直防溢出：默认贴触发行下方；视口下缘放不下 → 翻到行上方。
+   nextTick 后按实际渲染高度计算（弹层内容异步到达后需再调一次重算）── */
+function flipPopY(elRef, rect, gap, apply) {
+  nextTick(() => {
+    const el = elRef.value
+    if (!el) return
+    let y = rect.bottom + gap
+    if (y + el.offsetHeight > window.innerHeight - 8) y = Math.max(8, rect.top - el.offsetHeight - gap)
+    apply(y)
+  })
+}
+
 /* ── SQL 详情悬浮弹层（全文 + 复制） ── */
 const sqlDetail = ref({ open: false, x: 0, y: 0, row: null })
+const sqlDetailEl = ref(null)
 let sqlDetailHideTimer = null
 function showSqlDetail(it, e) {
   clearTimeout(sqlDetailHideTimer)
   const rect = e.currentTarget.getBoundingClientRect()
   sqlDetail.value = { open: true, row: it,
     x: Math.min(rect.left + 12, window.innerWidth - 560),
-    y: Math.min(rect.bottom + 6, window.innerHeight - 320) }
+    y: rect.bottom + 6 }
+  flipPopY(sqlDetailEl, rect, 6, y => { if (sqlDetail.value.open && sqlDetail.value.row === it) sqlDetail.value.y = y })
 }
 function scheduleHideSqlDetail() {
   clearTimeout(sqlDetailHideTimer)
@@ -648,11 +669,13 @@ function menuActions(it) {
   return m
 }
 const actMenu = ref({ open: false, x: 0, y: 0, row: null, items: [] })
+const actMenuEl = ref(null)
 function toggleActMenu(it, e) {
   if (actMenu.value.open && actMenu.value.row === it) { closeActMenu(); return }
   const rect = e.currentTarget.getBoundingClientRect()
   actMenu.value = { open: true, row: it, items: menuActions(it),
     x: Math.min(rect.left, window.innerWidth - 150), y: rect.bottom + 4 }
+  flipPopY(actMenuEl, rect, 4, y => { if (actMenu.value.open && actMenu.value.row === it) actMenu.value.y = y })
 }
 function closeActMenu() { actMenu.value = { ...actMenu.value, open: false } }
 /* 已退回 → 重新申请：先取消旧申请（后端校验仅申请人本人可取消），再打开申请弹窗 */
@@ -696,6 +719,7 @@ function optClass(s) {
 /* ── 统一「处理路径」悬浮弹层：优化侧(标记/撤销) + 白名单侧(申请/审批/退回/撤回)
    按时间升序合并成一条时间线——悬浮「优化状态」或「白名单」列均显示 ── */
 const journey = ref({ open: false, x: 0, y: 0, loading: false, items: [], key: '', optStatus: '' })
+const journeyEl = ref(null)
 const journeyCache = new Map()
 let journeyHideTimer = null
 const JOURNEY_META = {
@@ -726,11 +750,14 @@ async function showJourney(it, e) {
     loading: !journeyCache.has(key),
     items: journeyCache.get(key) || [],
   }
+  // 底部行防溢出：加载态先按当前高度放一次；数据到达高度变化后再重算
+  const place = () => flipPopY(journeyEl, rect, 6, y => { if (journey.value.open && journey.value.key === key) journey.value.y = y })
+  place()
   if (!journeyCache.has(key)) {
     let items = []
     try { items = await getSlowSqlJourney(it.service_name, it.abstract_hash) } catch { /* 弹层容错 */ }
     journeyCache.set(key, items)
-    if (journey.value.key === key) { journey.value = { ...journey.value, loading: false, items } }
+    if (journey.value.key === key) { journey.value = { ...journey.value, loading: false, items }; place() }
   }
 }
 function scheduleHideJourney() {
@@ -832,7 +859,9 @@ async function revokeOptimize(it) {
   background: var(--slow-warn-bg); color: var(--slow-warn); display: flex; justify-content: space-between; align-items: center; }
 .slow-state { padding: 40px; text-align: center; color: var(--text-secondary, #5a6172); }
 .slow-err { color: var(--slow-bad); }
-.slow-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+/* fixed 布局：列宽由表头定死，唯一不给宽的 抽象SQL 列吸收全部剩余空间；
+   min-width 兜底——窄屏时外层 .slow-table-scroll 出横向滚动，而不是把 SQL 列压没 */
+.slow-table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; min-width: 1080px; }
 .slow-table th, .slow-table td {
   border-bottom: 1px solid var(--border-subtle, #ebeef2); padding: 8px 10px; text-align: left; vertical-align: top;
 }
@@ -842,12 +871,16 @@ async function revokeOptimize(it) {
   position: sticky; top: 0; z-index: 2; background: var(--slow-panel);
 }
 .slow-table .num { text-align: right; white-space: nowrap; }
+/* 领域/类型 前置窄列：定宽见表头，超长省略 */
+.slow-table .dim-col { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sql-cell { max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; }
 .param-cell { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary, #5a6172); }
 /* v2：微服务 / 来源文件 / 重复出现轮次 截断单元格 */
 .svc-cell { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .loc-cell { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; font-size: 12px; color: var(--text-secondary, #5a6172); }
 .who-cell { white-space: nowrap; color: var(--text-secondary, #5a6172); font-size: 12px; }
+/* fixed 定宽下姓名(工号)超长时省略，不顶破列 */
+.who-cell > div { overflow: hidden; text-overflow: ellipsis; }
 .rounds-cell { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary, #5a6172); }
 .slow-link { background: none; border: none; color: var(--slow-brand); cursor: pointer; font-size: 13px; padding: 0; }
 /* 操作列：按钮样式，文字单行不换行，多个按钮纵向排列 */
@@ -870,10 +903,11 @@ async function revokeOptimize(it) {
   background: var(--bg-domain-hover, #f5f7fa); color: var(--slow-brand); border: 1px solid var(--border-subtle, #ebeef2); }
 .slow-chip-x { background: none; border: none; cursor: pointer; color: inherit; font-size: 13px; padding: 0 2px; line-height: 1; }
 /* ── 重设计：表格列 ── */
-.sql-main { font-family: monospace; font-size: 12px; max-width: 480px;
+/* 不再写死 max-width：fixed 布局下块级 div 自动铺满列宽，截断点=列边界 */
+.sql-main { font-family: monospace; font-size: 12px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sql-sub { font-size: 11px; color: var(--text-secondary, #5a6172); margin-top: 3px;
-  max-width: 480px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .round-cell { white-space: nowrap; }
 .round-badge { display: inline-block; font-size: 11px; font-family: monospace; padding: 1px 7px;
   border-radius: 9px; background: var(--bg-domain-hover, #f5f7fa); border: 1px solid var(--border-subtle, #ebeef2);

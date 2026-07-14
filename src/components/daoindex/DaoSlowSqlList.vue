@@ -40,7 +40,7 @@
       </select>
       <input v-model="initiator" class="slow-input" style="width:150px" placeholder="发起人 姓名/工号" @keyup.enter="applyMoreFilter" />
       <input v-model="curApprover" class="slow-input" style="width:160px" placeholder="当前审批人 姓名/工号" @keyup.enter="applyMoreFilter" />
-      <button class="slow-btn primary" @click="applyMoreFilter">应用</button>
+      <button class="slow-btn primary" @click="applyMoreFilter">查询</button>
       <button class="slow-btn" @click="clearMoreFilter">清空</button>
     </div>
 

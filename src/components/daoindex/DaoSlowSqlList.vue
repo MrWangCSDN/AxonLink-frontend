@@ -68,8 +68,8 @@
           <!-- fixed 布局：窄列定宽，抽象SQL 列不给宽 → 吃掉全部剩余空间（截断跟随列宽，不再写死 px） -->
           <th class="dim-col" style="width:64px">领域</th><th class="dim-col" style="width:64px">类型</th>
           <th>抽象SQL / 归属</th>
-          <th class="num" style="width:78px">最大耗时</th><th class="num" style="width:56px">次数</th>
-          <th style="width:150px">轮次</th><th style="width:120px">状态</th><th style="width:170px">发起人 / 当前审批人</th><th style="width:140px">操作</th>
+          <th class="num" style="width:90px">最大耗时</th><th class="num" style="width:56px">次数</th>
+          <th style="width:160px">轮次</th><th style="width:120px">状态</th><th style="width:170px">发起人 / 当前审批人</th><th style="width:140px">操作</th>
         </tr>
       </thead>
       <tbody>
@@ -908,11 +908,13 @@ async function revokeOptimize(it) {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sql-sub { font-size: 11px; color: var(--text-secondary, #5a6172); margin-top: 3px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.round-cell { white-space: nowrap; }
+/* fixed 定宽下不能 nowrap：徽章之间允许换行堆叠（轮次一行、重复×N 一行），否则溢出压到状态列 */
+.round-cell { white-space: normal; }
 .round-badge { display: inline-block; font-size: 11px; font-family: monospace; padding: 1px 7px;
+  white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; vertical-align: top;
   border-radius: 9px; background: var(--bg-domain-hover, #f5f7fa); border: 1px solid var(--border-subtle, #ebeef2);
   color: var(--text-secondary, #5a6172); margin-right: 4px; }
-.round-badge.repeat { color: var(--slow-warn); background: var(--slow-warn-bg); border-color: transparent; }
+.round-badge.repeat { color: var(--slow-warn); background: var(--slow-warn-bg); border-color: transparent; margin-top: 2px; }
 .stat-cell { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
 .who-sub { font-size: 11px; color: var(--text-secondary, #5a6172); margin-top: 2px; }
 /* ── 重设计：操作 主按钮 + ⋯菜单 ── */

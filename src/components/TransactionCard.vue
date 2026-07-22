@@ -316,6 +316,7 @@
 
       <DeepAnalysisPanel
         v-if="deepAnalysisVisible"
+        :key="transaction.id"
         :tx-id="transaction.id"
         @close="deepAnalysisVisible = false"
       />

@@ -187,6 +187,13 @@
               </svg>
               刷新
             </button>
+            <button
+              class="ai-toolbar-btn"
+              :class="{ active: deepAnalysisVisible }"
+              @click.stop="deepAnalysisVisible = !deepAnalysisVisible"
+            >
+              深度分析
+            </button>
           </div>
           <div class="zoom-controls">
             <button class="zoom-btn" @click.stop="zoomOut">
@@ -306,6 +313,12 @@
           </section>
         </div>
       </div>
+
+      <DeepAnalysisPanel
+        v-if="deepAnalysisVisible"
+        :tx-id="transaction.id"
+        @close="deepAnalysisVisible = false"
+      />
 
       <!-- 链路画布 -->
       <div ref="chainCanvasEl" class="chain-canvas"
@@ -701,6 +714,7 @@
 import { ref, reactive, computed, watch, nextTick, onMounted } from 'vue'
 import MonacoCodeViewer from './MonacoCodeViewer.vue'
 import ApiTester from './ApiTester.vue'
+import DeepAnalysisPanel from './DeepAnalysisPanel.vue'
 import { analyzeFlowtranTransaction, getErrorCodes, exportErrorCodes } from '../api/index.js'
 
 const props = defineProps({
@@ -1131,6 +1145,7 @@ const aiAnalysis = reactive({
   result: null,
   requestKey: '',
 })
+const deepAnalysisVisible = ref(false)
 
 const analysisSelectedPath = computed(() => [
   ...activePath.serviceTrail,

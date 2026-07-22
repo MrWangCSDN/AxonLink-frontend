@@ -330,6 +330,81 @@ function normalizeStreamError(error) {
 }
 
 /**
+ * 深度分析流式接口（opencode 多轮探索）
+ * @param {string} txId 交易号
+ * @param {object} payload 分析请求
+ * @param {object} handlers 事件处理器 { onStart, onDelta, onTool, onFallback, onDone, onError, signal }
+ */
+export async function streamDeepAnalysis(txId, payload = {}, handlers = {}) {
+  try {
+    const res = await fetch(`${BASE}/ai/transactions/${encodeURIComponent(txId)}/deep-analysis/stream`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/x-ndjson',
+      },
+      body: JSON.stringify(payload),
+      signal: handlers.signal,
+    })
+
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}: /ai/transactions/${txId}/deep-analysis/stream`)
+    }
+    if (!res.body) {
+      throw new Error('流式响应不可用')
+    }
+
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder('utf-8')
+    let buffer = ''
+
+    const emit = (event) => {
+      if (!event || typeof event !== 'object') return
+      if (event.type === 'start') handlers.onStart?.(event)
+      else if (event.type === 'delta') handlers.onDelta?.(event)
+      else if (event.type === 'tool') handlers.onTool?.(event)
+      else if (event.type === 'fallback') handlers.onFallback?.(event)
+      else if (event.type === 'done') handlers.onDone?.(event)
+      else if (event.type === 'error') handlers.onError?.(event)
+    }
+
+    const parseLine = (line) => {
+      const trimmed = line.trim()
+      if (!trimmed) return
+      const event = JSON.parse(trimmed)
+      emit(event)
+    }
+
+    while (true) {
+      const { value, done } = await reader.read()
+      buffer += decoder.decode(value || new Uint8Array(), { stream: !done })
+
+      let newlineIndex = buffer.indexOf('\n')
+      while (newlineIndex >= 0) {
+        const line = buffer.slice(0, newlineIndex)
+        buffer = buffer.slice(newlineIndex + 1)
+        parseLine(line)
+        newlineIndex = buffer.indexOf('\n')
+      }
+
+      if (done) {
+        if (buffer.trim()) {
+          parseLine(buffer)
+        }
+        break
+      }
+    }
+  } catch (error) {
+    if (handlers.signal?.aborted) {
+      throw error
+    }
+    const message = normalizeStreamError(error)
+    handlers.onError?.({ type: 'error', message })
+    throw new Error(message)
+  }
+}
+
+/**
  * 热重载元数据缓存（不重启服务）
  */
 export function refreshFlowtranCache() {

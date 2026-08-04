@@ -68,7 +68,7 @@
         </thead>
         <tbody>
           <tr v-for="row in items" :key="row.id" data-testid="replay-row">
-            <td v-for="column in columns" :key="column.key" :title="display(row[column.key])">{{ display(row[column.key]) }}</td>
+            <td v-for="column in columns" :key="column.key" :title="displayColumn(column.key, row[column.key])">{{ displayColumn(column.key, row[column.key]) }}</td>
           </tr>
           <tr v-if="!loading && !error && items.length === 0"><td class="replay-state" :colspan="columns.length">暂无回放问题数据</td></tr>
           <tr v-if="loading"><td class="replay-state" :colspan="columns.length">正在加载回放问题…</td></tr>
@@ -143,7 +143,7 @@ const columns = [
   ['resolver', '解决人', '100px'], ['serial_no', '流水号', '160px'], ['data_repair_date', '数据修复日期', '120px'],
   ['remark', '备注', '160px'], ['affected_transaction_count', '受影响交易数', '124px'], ['issue_id', '问题编号', '112px'],
   ['issue_key', '问题键', '180px'], ['historical_occurrence_count', '历史出现次数', '128px'],
-  ['first_occurrence_date', '首次出现日期', '180px'], ['last_occurrence_date', '最近出现日期', '180px'], ['imported_at', '导入时间', '172px'],
+  ['first_occurrence_date', '首次出现日期', '180px'], ['last_occurrence_date', '最近出现日期', '180px'], ['is_sandbox', '是否沙箱', '90px'],
 ].map(([key, label, width]) => ({ key, label, width }))
 
 const filters = reactive({ groupName: '', issueLevel: '', issueType: '', sandbox: '', keyword: '' })
@@ -168,6 +168,11 @@ const pageCount = computed(() => Math.max(1, Math.ceil(total.value / pageSize.va
 
 function display(value) {
   return value === undefined || value === null || value === '' ? '-' : String(value)
+}
+
+function displayColumn(key, value) {
+  if (key === 'is_sandbox') return value === true || value === 1 || value === 'true' || value === '1' ? '是' : '否'
+  return display(value)
 }
 
 function requestParams() {

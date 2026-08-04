@@ -30,6 +30,27 @@ describe('replay issues API', () => {
     expect(fetch.mock.calls[0][0]).toContain('keyword=CCBS%20%E5%93%8D%E5%BA%94')
   })
 
+  it('defaults an omitted list limit to 50', async () => {
+    global.fetch = vi.fn().mockResolvedValue(jsonResponse({ code: 200, data: { total: 0, items: [] } }))
+
+    await listReplayIssues({ offset: 100 })
+
+    expect(fetch.mock.calls[0][0]).toContain('limit=50')
+    expect(fetch.mock.calls[0][0]).toContain('offset=100')
+  })
+
+  it.each([
+    [0, 1],
+    [500, 200],
+  ])('clamps list limit %i to %i', async (limit, expectedLimit) => {
+    global.fetch = vi.fn().mockResolvedValue(jsonResponse({ code: 200, data: { total: 0, items: [] } }))
+
+    await listReplayIssues({ limit, offset: 100 })
+
+    expect(fetch.mock.calls[0][0]).toContain(`limit=${expectedLimit}`)
+    expect(fetch.mock.calls[0][0]).toContain('offset=100')
+  })
+
   it('gets replay issue filter options', async () => {
     global.fetch = vi.fn().mockResolvedValue(jsonResponse({ code: 200, data: { groups: [] } }))
 

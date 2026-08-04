@@ -3,7 +3,11 @@ import { request } from './index.js'
 const PREFIX = '/ai/parallel-replay/issues'
 
 export function listReplayIssues(params = {}) {
-  const query = Object.entries(params)
+  const normalizedParams = {
+    ...params,
+    limit: Math.min(Math.max(params.limit ?? 50, 1), 200),
+  }
+  const query = Object.entries(normalizedParams)
     .filter(([, value]) => value !== undefined && value !== null && value !== '')
     .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
     .join('&')

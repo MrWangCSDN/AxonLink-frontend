@@ -8,6 +8,7 @@
 
     <div class="page-body">
       <ChainImpactSidebar
+        :class="{ 'is-mobile-open': mobileNavigationOpen }"
         :domains="domains"
         :active-domain-id="activeDomain?.id"
         :system-stats="systemStats"
@@ -20,6 +21,13 @@
         @select-dii-page="onSelectDiiPage"
         @select-replay-page="onSelectReplayPage"
         @select-code-page="onSelectCodePage"
+      />
+      <button
+        v-if="currentPage === 'replay-issues' && mobileNavigationOpen"
+        class="replay-mobile-backdrop"
+        type="button"
+        aria-label="关闭导航"
+        @click="mobileNavigationOpen = false"
       />
 
       <main v-show="currentPage === 'chain'" class="main-content">
@@ -214,6 +222,7 @@
       <ReplayIssuePage
         v-show="currentPage === 'replay-issues'"
         class="impact-main"
+        @toggle-navigation="mobileNavigationOpen = !mobileNavigationOpen"
       />
 
       <!-- ══════════ 源码提交分析大屏 ══════════ -->
@@ -303,6 +312,7 @@ const buildSyncInfo = ref({
 const currentPage = ref(
   (typeof window !== 'undefined' && window.location.hash?.slice(1)) || 'chain',
 )
+const mobileNavigationOpen = ref(false)
 const impactMode = ref('table')
 const impactSelectedId = ref(null)
 const impactResult = ref(null)
@@ -692,6 +702,7 @@ const onSelectDiiPage = (pageKey) => {
 
 const onSelectReplayPage = (pageKey) => {
   currentPage.value = pageKey
+  mobileNavigationOpen.value = false
 }
 
 // ══════════ 代码提交（独立分区）侧边栏点击 ══════════
@@ -951,6 +962,8 @@ async function downloadAllErrorCodes() {
   min-width: 0;
   overflow: hidden;
 }
+
+.replay-mobile-backdrop { display: none; }
 
 /* ── 固定头部 ── */
 .sticky-header {
@@ -1248,6 +1261,27 @@ async function downloadAllErrorCodes() {
 }
 
 @media (max-width: 768px) {
+  .page-body :deep(.cis) {
+    position: fixed;
+    z-index: 25;
+    top: 56px;
+    bottom: 0;
+    left: 0;
+    transform: translateX(-100%);
+    transition: transform .2s ease;
+  }
+
+  .page-body :deep(.cis.is-mobile-open) { transform: translateX(0); }
+
+  .replay-mobile-backdrop {
+    position: fixed;
+    z-index: 24;
+    inset: 56px 0 0;
+    display: block;
+    border: 0;
+    background: rgba(13, 20, 36, .42);
+  }
+
   .build-sync-inline {
     width: 100%;
     margin-left: 0;

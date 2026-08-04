@@ -201,4 +201,13 @@ describe('ReplayIssuePage', () => {
 
     expect(wrapper.findAll('[data-testid="replay-row"]').map((row) => row.findAll('td').at(-1).text())).toEqual(['是', '否', '是', '否'])
   })
+
+  it('requests the mobile navigation drawer from the compact toolbar control', async () => {
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="mobile-navigation-toggle"]').trigger('click')
+
+    expect(wrapper.emitted('toggleNavigation')).toEqual([[]])
+  })
 })

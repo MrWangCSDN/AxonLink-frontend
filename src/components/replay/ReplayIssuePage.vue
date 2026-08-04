@@ -1,9 +1,21 @@
 <template>
   <section class="replay-page" aria-label="并行回放问题清单">
     <header class="replay-toolbar">
-      <div>
-        <h2>并行回放问题清单</h2>
-        <p v-if="stats.importedAt">最近导入：{{ stats.importedAt }}</p>
+      <div class="replay-toolbar-title">
+        <button
+          class="replay-icon-button replay-mobile-navigation"
+          type="button"
+          title="打开导航"
+          aria-label="打开导航"
+          data-testid="mobile-navigation-toggle"
+          @click="$emit('toggleNavigation')"
+        >
+          <Menu :size="18" aria-hidden="true" />
+        </button>
+        <div>
+          <h2>并行回放问题清单</h2>
+          <p v-if="stats.importedAt">最近导入：{{ stats.importedAt }}</p>
+        </div>
       </div>
       <button class="replay-button replay-button-primary" type="button" data-testid="open-import" @click="openImport">
         <Upload :size="16" aria-hidden="true" />
@@ -131,8 +143,10 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ChevronLeft, ChevronRight, RotateCcw, Search, Upload, X } from 'lucide-vue-next'
+import { ChevronLeft, ChevronRight, Menu, RotateCcw, Search, Upload, X } from 'lucide-vue-next'
 import { getReplayIssueOptions, getReplayIssueStats, importReplayIssues, listReplayIssues } from '../../api/replayIssues.js'
+
+defineEmits(['toggleNavigation'])
 
 const columns = [
   ['domain', '领域', '120px'], ['sequence_no', '序号', '72px'], ['batch_no', '批次号', '220px'],
@@ -313,6 +327,8 @@ onMounted(() => {
 
 .replay-toolbar h2, .replay-import-modal h3 { margin: 0; font-size: 18px; line-height: 24px; font-weight: 650; }
 .replay-toolbar p, .replay-import-modal p { margin: 3px 0 0; color: var(--text-muted, #6b7280); font-size: 12px; line-height: 18px; }
+.replay-toolbar-title { min-width: 0; display: flex; align-items: center; gap: 10px; }
+.replay-icon-button.replay-mobile-navigation { display: none; }
 
 .replay-summary {
   flex: 0 0 auto;
@@ -400,8 +416,15 @@ onMounted(() => {
 
 @media (max-width: 760px) {
   .replay-toolbar, .replay-filters, .replay-pager { padding-left: 12px; padding-right: 12px; }
+  .replay-toolbar { min-height: auto; align-items: flex-start; flex-wrap: wrap; }
+  .replay-toolbar-title { width: 100%; }
+  .replay-icon-button.replay-mobile-navigation { flex: 0 0 auto; display: inline-grid; }
   .replay-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); padding-left: 12px; padding-right: 12px; }
   .replay-summary-card { padding-left: 8px; padding-right: 8px; }
-  .replay-pager { justify-content: space-between; gap: 8px; }
+  .replay-filters label { flex: 1 1 126px; }
+  .replay-filters select { width: 100%; }
+  .replay-keyword-field, .replay-keyword-field input { width: 100% !important; }
+  .replay-table-viewport { padding-left: 12px; padding-right: 12px; }
+  .replay-pager { justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 }
 </style>

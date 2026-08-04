@@ -153,7 +153,58 @@
 
       <div class="cis-sep-dashed" role="presentation" />
 
-      <!-- ══════════ 第 4 大模块：代码提交（与 SQL 巡检 / 影响分析 平级） ══════════ -->
+      <!-- ══════════ 第 4 大模块：并行回放（与 SQL 巡检平级） ══════════ -->
+      <button type="button" class="cis-section-hd" data-testid="replay-section-toggle" @click="replayOpen = !replayOpen">
+        <span v-if="isReplayPage" class="cis-section-hd-bar" :style="barGradient(REPLAY_SECTION_ACCENT)" />
+        <span class="cis-section-hd-ico-wrap" :class="{ on: isReplayPage }" :style="{ '--accent': REPLAY_SECTION_ACCENT }">
+          <PlaySquare class="cis-section-hd-ico" :size="15" />
+        </span>
+        <span class="cis-section-hd-label" :class="{ on: isReplayPage }" :style="{ '--accent': REPLAY_SECTION_ACCENT }">并行回放</span>
+        <span v-if="isReplayPage" class="cis-pulse-wrap" aria-hidden="true">
+          <span class="cis-pulse-ring" :style="{ '--accent': REPLAY_SECTION_ACCENT }" />
+          <span class="cis-pulse-dot" :style="{ '--accent': REPLAY_SECTION_ACCENT }" />
+        </span>
+        <IconChevronDown class="cis-section-hd-chev" :class="{ collapsed: !replayOpen }" />
+      </button>
+
+      <transition
+        name="cis-collapse"
+        @before-enter="onCollapseBeforeEnter"
+        @enter="onCollapseEnter"
+        @after-enter="onCollapseAfterEnter"
+        @before-leave="onCollapseBeforeLeave"
+        @leave="onCollapseLeave"
+      >
+      <div v-show="replayOpen" class="cis-block cis-block-sub" :class="{ 'is-section-on': isReplayPage }">
+        <button
+          v-for="m in replayMenu"
+          :key="m.key"
+          type="button"
+          class="cis-impact"
+          :class="{ active: currentPage === m.key }"
+          :style="diiRowStyle(m)"
+          :data-testid="m.testId"
+          @click="$emit('selectReplayPage', m.key)"
+        >
+          <span
+            v-if="currentPage === m.key"
+            class="cis-impact-bar"
+            :style="impactBarGradient(m.color)"
+          />
+          <span class="cis-impact-ico-wrap" :style="diiIcoWrapStyle(m)">
+            <component :is="replayIconMap[m.key]" :style="{ color: diiActive(m) ? '#0b70db' : '#5e6975' }" />
+          </span>
+          <div class="cis-impact-txt">
+            <div class="cis-impact-title" :style="diiTitleStyle(m)">{{ m.label }}</div>
+            <div class="cis-impact-desc" :style="diiDescStyle(m)">{{ m.desc }}</div>
+          </div>
+        </button>
+      </div>
+      </transition>
+
+      <div class="cis-sep-dashed" role="presentation" />
+
+      <!-- ══════════ 第 5 大模块：代码提交（与 SQL 巡检 / 影响分析 平级） ══════════ -->
       <button type="button" class="cis-section-hd" @click="codeOpen = !codeOpen">
         <span v-if="isCodePage" class="cis-section-hd-bar" :style="barGradient(CODE_SECTION_ACCENT)" />
         <span class="cis-section-hd-ico-wrap" :class="{ on: isCodePage }" :style="{ '--accent': CODE_SECTION_ACCENT }">
@@ -233,6 +284,7 @@
 
 <script setup>
 import { computed, h, ref } from 'vue'
+import { SquarePlay as PlaySquare } from 'lucide-vue-next'
 
 const props = defineProps({
   domains: { type: Array, required: true },
@@ -250,19 +302,22 @@ const props = defineProps({
   impactMode: { type: String, default: 'table' },
 })
 
-defineEmits(['selectDomain', 'selectImpactMode', 'selectDiiPage', 'selectCodePage'])
+defineEmits(['selectDomain', 'selectImpactMode', 'selectDiiPage', 'selectReplayPage', 'selectCodePage'])
 
 const chainOpen = ref(true)
 const impactOpen = ref(true)
 const diiOpen = ref(true)
+const replayOpen = ref(true)
 const codeOpen = ref(true)
 // 各分区的 accent 统一为 Sourcegraph 蓝；不再每区一个颜色
 const IMPACT_SECTION_ACCENT = '#0b70db'
 const DII_SECTION_ACCENT = '#0b70db'
+const REPLAY_SECTION_ACCENT = '#0b70db'
 const CODE_SECTION_ACCENT = '#0b70db'
 
 // 当 currentPage 命中 dii-* 任意页时视为 DAO 模块激活
 const isDiiPage = computed(() => (props.currentPage || '').startsWith('dii-'))
+const isReplayPage = computed(() => props.currentPage === 'replay-issues')
 // 代码提交分区激活判定
 const isCodePage = computed(() => props.currentPage === 'code-dashboard')
 
@@ -528,6 +583,10 @@ const codeMenu = [
   { key: 'code-dashboard', label: '代码提交大屏', desc: '工程/作者/领域 占比' },
 ]
 
+const replayMenu = [
+  { key: 'replay-issues', label: '回放问题清单', desc: '导入与分页查询', testId: 'replay-issues-menu' },
+]
+
 const IconDatabaseLg = iconLucide(
   'M12 3C7 3 4 4.5 4 6v12c0 1.5 3 3 8 3s8-1.5 8-3V6c0-1.5-3-3-8-3Z M4 10c0 1.5 3 3 8 3s8-1.5 8-3 M4 14c0 1.5 3 3 8 3s8-1.5 8-3',
   14
@@ -560,6 +619,10 @@ const diiIconMap = {
 
 const codeIconMap = {
   'code-dashboard': IconCodeDash,
+}
+
+const replayIconMap = {
+  'replay-issues': PlaySquare,
 }
 
 function diiActive(m) { return props.currentPage === m.key }

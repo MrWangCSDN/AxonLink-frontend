@@ -8,6 +8,7 @@
 
     <div class="page-body">
       <ChainImpactSidebar
+        :class="{ 'is-mobile-open': mobileNavigationOpen }"
         :domains="domains"
         :active-domain-id="activeDomain?.id"
         :system-stats="systemStats"
@@ -18,7 +19,15 @@
         @select-domain="onSelectDomainNav"
         @select-impact-mode="onSelectImpactMode"
         @select-dii-page="onSelectDiiPage"
+        @select-replay-page="onSelectReplayPage"
         @select-code-page="onSelectCodePage"
+      />
+      <button
+        v-if="currentPage === 'replay-issues' && mobileNavigationOpen"
+        class="replay-mobile-backdrop"
+        type="button"
+        aria-label="关闭导航"
+        @click="mobileNavigationOpen = false"
       />
 
       <main v-show="currentPage === 'chain'" class="main-content">
@@ -210,6 +219,12 @@
         @navigate-page="currentPage = $event"
       />
 
+      <ReplayIssuePage
+        v-show="currentPage === 'replay-issues'"
+        class="impact-main"
+        @toggle-navigation="mobileNavigationOpen = !mobileNavigationOpen"
+      />
+
       <!-- ══════════ 源码提交分析大屏 ══════════ -->
       <CodeDashboard
         v-show="currentPage === 'code-dashboard'"
@@ -226,6 +241,7 @@ import ChainImpactSidebar from '../components/ChainImpactSidebar.vue'
 import TransactionCard from '../components/TransactionCard.vue'
 import ImpactAnalysisPage from '../components/impact/ImpactAnalysisPage.vue'
 import DaoIndexPage from '../components/daoindex/DaoIndexPage.vue'
+import ReplayIssuePage from '../components/replay/ReplayIssuePage.vue'
 import CodeDashboard from '../components/code-dashboard/CodeDashboard.vue'
 import {
   getAllTables,
@@ -296,6 +312,7 @@ const buildSyncInfo = ref({
 const currentPage = ref(
   (typeof window !== 'undefined' && window.location.hash?.slice(1)) || 'chain',
 )
+const mobileNavigationOpen = ref(false)
 const impactMode = ref('table')
 const impactSelectedId = ref(null)
 const impactResult = ref(null)
@@ -641,6 +658,11 @@ watch(activeDomain, () => {
   globalQuery.value    = ''
   loadFirstPage()
 })
+
+watch(currentPage, (page) => {
+  if (page !== 'replay-issues') mobileNavigationOpen.value = false
+})
+
 // 防抖：停止输入 300ms 才查一次，避免每敲一个字就发一次（原先每键一查 + 加载丢弃 = 只跑了首字符查询）
 watch(localSearch, () => {
   clearTimeout(searchTimer)
@@ -681,6 +703,11 @@ const onSelectDomainNav = (domain) => {
 const onSelectDiiPage = (pageKey) => {
   // pageKey ∈ diiMenu 的 key（dii-dashboard / dii-sqls(AI-SQL分析) / dii-slow-sql / dii-sql-whitelist / dii-tasks / dii-er）
   currentPage.value = pageKey
+}
+
+const onSelectReplayPage = (pageKey) => {
+  currentPage.value = pageKey
+  mobileNavigationOpen.value = false
 }
 
 // ══════════ 代码提交（独立分区）侧边栏点击 ══════════
@@ -940,6 +967,8 @@ async function downloadAllErrorCodes() {
   min-width: 0;
   overflow: hidden;
 }
+
+.replay-mobile-backdrop { display: none; }
 
 /* ── 固定头部 ── */
 .sticky-header {
@@ -1237,6 +1266,27 @@ async function downloadAllErrorCodes() {
 }
 
 @media (max-width: 768px) {
+  .page-body :deep(.cis) {
+    position: fixed;
+    z-index: 25;
+    top: 56px;
+    bottom: 0;
+    left: 0;
+    transform: translateX(-100%);
+    transition: transform .2s ease;
+  }
+
+  .page-body :deep(.cis.is-mobile-open) { transform: translateX(0); }
+
+  .replay-mobile-backdrop {
+    position: fixed;
+    z-index: 24;
+    inset: 56px 0 0;
+    display: block;
+    border: 0;
+    background: rgba(13, 20, 36, .42);
+  }
+
   .build-sync-inline {
     width: 100%;
     margin-left: 0;

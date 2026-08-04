@@ -18,6 +18,7 @@
         @select-domain="onSelectDomainNav"
         @select-impact-mode="onSelectImpactMode"
         @select-dii-page="onSelectDiiPage"
+        @select-replay-page="onSelectReplayPage"
         @select-code-page="onSelectCodePage"
       />
 
@@ -210,6 +211,11 @@
         @navigate-page="currentPage = $event"
       />
 
+      <ReplayIssuePage
+        v-show="currentPage === 'replay-issues'"
+        class="impact-main"
+      />
+
       <!-- ══════════ 源码提交分析大屏 ══════════ -->
       <CodeDashboard
         v-show="currentPage === 'code-dashboard'"
@@ -226,6 +232,7 @@ import ChainImpactSidebar from '../components/ChainImpactSidebar.vue'
 import TransactionCard from '../components/TransactionCard.vue'
 import ImpactAnalysisPage from '../components/impact/ImpactAnalysisPage.vue'
 import DaoIndexPage from '../components/daoindex/DaoIndexPage.vue'
+import ReplayIssuePage from '../components/replay/ReplayIssuePage.vue'
 import CodeDashboard from '../components/code-dashboard/CodeDashboard.vue'
 import {
   getAllTables,
@@ -680,6 +687,10 @@ const onSelectDomainNav = (domain) => {
 // ══════════ SQL 巡检侧边栏点击处理 ══════════
 const onSelectDiiPage = (pageKey) => {
   // pageKey ∈ diiMenu 的 key（dii-dashboard / dii-sqls(AI-SQL分析) / dii-slow-sql / dii-sql-whitelist / dii-tasks / dii-er）
+  currentPage.value = pageKey
+}
+
+const onSelectReplayPage = (pageKey) => {
   currentPage.value = pageKey
 }
 

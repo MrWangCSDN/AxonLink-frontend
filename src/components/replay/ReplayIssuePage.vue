@@ -149,15 +149,15 @@ import { getReplayIssueOptions, getReplayIssueStats, importReplayIssues, listRep
 defineEmits(['toggleNavigation'])
 
 const columns = [
-  ['domain', '领域', '120px'], ['sequence_no', '序号', '72px'], ['batch_no', '批次号', '220px'],
+  ['domain', '领域', '120px'], ['sequence_no', '序号', '72px'], ['batch_no', '批次', '220px'],
   ['transaction_code', '交易码', '100px'], ['transaction_name', '交易名称', '180px'], ['issue_level', '问题级别', '100px'],
-  ['registered_date', '登记日期', '108px'], ['field_name', '字段名称', '120px'], ['issue_description', '问题描述', '220px'],
-  ['transaction_owner', '交易负责人', '112px'], ['issue_type', '问题类型', '112px'], ['initial_analysis', '初步分析', '180px'],
-  ['final_solution', '最终解决方案', '180px'], ['resolved_date', '解决日期', '108px'], ['cooperation_group', '配合组', '120px'],
-  ['resolver', '解决人', '100px'], ['serial_no', '流水号', '160px'], ['data_repair_date', '数据修复日期', '120px'],
-  ['remark', '备注', '160px'], ['affected_transaction_count', '受影响交易数', '124px'], ['issue_id', '问题编号', '112px'],
-  ['issue_key', '问题键', '180px'], ['historical_occurrence_count', '历史出现次数', '128px'],
-  ['first_occurrence_date', '首次出现日期', '180px'], ['last_occurrence_date', '最近出现日期', '180px'], ['is_sandbox', '是否沙箱', '90px'],
+  ['registered_date', '登记日期', '108px'], ['field_name', '字段名', '120px'], ['issue_description', '问题描述', '220px'],
+  ['transaction_owner', '交易负责人', '112px'], ['issue_type', '问题类型', '112px'], ['initial_analysis', '初步问题分析', '180px'],
+  ['final_solution', '最终处理方案', '180px'], ['resolved_date', '解决日期', '108px'], ['cooperation_group', '需协同组', '120px'],
+  ['resolver', '解决人员', '100px'], ['serial_no', '流水号', '160px'], ['data_repair_date', '数据修复日期', '120px'],
+  ['remark', '备注', '160px'], ['affected_transaction_count', '该问题出现在的交易笔数', '176px'], ['issue_id', 'issue_id', '112px'],
+  ['issue_key', 'issue_key', '180px'], ['historical_occurrence_count', '历史出现次数', '128px'],
+  ['first_occurrence_date', '首次出现日期', '180px'], ['last_occurrence_date', '上次出现日期', '180px'], ['is_sandbox', '是否沙箱', '90px'],
 ].map(([key, label, width]) => ({ key, label, width }))
 
 const filters = reactive({ groupName: '', issueLevel: '', issueType: '', sandbox: '', keyword: '' })

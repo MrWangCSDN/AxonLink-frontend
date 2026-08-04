@@ -658,6 +658,11 @@ watch(activeDomain, () => {
   globalQuery.value    = ''
   loadFirstPage()
 })
+
+watch(currentPage, (page) => {
+  if (page !== 'replay-issues') mobileNavigationOpen.value = false
+})
+
 // 防抖：停止输入 300ms 才查一次，避免每敲一个字就发一次（原先每键一查 + 加载丢弃 = 只跑了首字符查询）
 watch(localSearch, () => {
   clearTimeout(searchTimer)

@@ -414,7 +414,7 @@ onMounted(() => {
 
 [data-theme="dark"] .replay-page { --replay-teal: #145c67; --replay-row-alt: rgba(126, 184, 255, .07); }
 
-@media (max-width: 760px) {
+@media (max-width: 768px) {
   .replay-toolbar, .replay-filters, .replay-pager { padding-left: 12px; padding-right: 12px; }
   .replay-toolbar { min-height: auto; align-items: flex-start; flex-wrap: wrap; }
   .replay-toolbar-title { width: 100%; }

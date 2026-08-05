@@ -23,6 +23,21 @@ export function getReplayIssueStats() {
   return request(`${PREFIX}/stats`)
 }
 
+export function updateReplayIssue(id, payload) {
+  return request(`${PREFIX}/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function searchReplayIssueUsers(keyword = '', limit = 20) {
+  return request(`${PREFIX}/users?keyword=${encodeURIComponent(keyword)}&limit=${Math.min(Math.max(limit, 1), 50)}`)
+}
+
+export function getReplayIssueTracking(id) {
+  return request(`${PREFIX}/${encodeURIComponent(id)}/tracking?limit=200`)
+}
+
 export async function importReplayIssues(file, token) {
   const formData = new FormData()
   formData.append('file', file)

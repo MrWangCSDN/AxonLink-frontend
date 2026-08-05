@@ -634,7 +634,7 @@ onMounted(() => {
 .replay-user-options { position: absolute; z-index: 8; top: calc(100% + 2px); left: 0; right: 0; display: grid; max-height: 180px; overflow: auto; border: 1px solid var(--border, #e8edf5); background: var(--bg-card, #fff); box-shadow: 0 8px 18px rgba(13, 20, 36, .16); }
 .replay-user-options button { border: 0; padding: 7px 8px; text-align: left; color: var(--text-primary, #1f2937); background: transparent; font: inherit; cursor: pointer; }
 .replay-user-options button:hover { background: var(--replay-row-alt); }
-.replay-drawer-mask { position: fixed; z-index: 40; inset: 0; background: rgba(13, 20, 36, .28); }
+.replay-drawer-mask { position: fixed; z-index: 1100; inset: 0; background: rgba(13, 20, 36, .28); }
 .replay-tracking-drawer { position: absolute; top: 0; right: 0; width: min(470px, 100%); height: 100%; display: flex; flex-direction: column; color: var(--text-primary, #1f2937); background: var(--bg-card, #fff); box-shadow: -12px 0 32px rgba(13, 20, 36, .2); }
 .replay-tracking-drawer > header { flex: 0 0 auto; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 18px 20px; border-bottom: 1px solid var(--border, #e8edf5); }
 .replay-tracking-drawer h3 { margin: 0; font-size: 17px; line-height: 24px; }

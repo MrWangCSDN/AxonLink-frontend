@@ -233,5 +233,6 @@ describe('ReplayIssuePage', () => {
     await flushPromises()
     expect(wrapper.get('[data-testid="tracking-drawer"]').text()).toContain('人工保存')
     expect(wrapper.get('[data-testid="tracking-drawer"]').text()).toContain('编辑人')
+    expect(wrapper.get('.replay-drawer-mask').exists()).toBe(true)
   })
 })

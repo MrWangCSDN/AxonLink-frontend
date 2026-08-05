@@ -158,12 +158,11 @@
       </section>
     </div>
 
-    <div v-if="editOpen" class="replay-modal-mask" @click.self="!savingId && closeEdit()">
+    <div v-if="editOpen" class="replay-modal-mask">
       <section class="replay-edit-modal" role="dialog" aria-modal="true" aria-labelledby="replay-edit-title" data-testid="edit-modal">
         <header>
           <div>
             <h3 id="replay-edit-title">编辑回放问题</h3>
-            <p>{{ editIssue?.issue_key }}</p>
           </div>
           <button class="replay-icon-button" type="button" title="关闭编辑窗口" aria-label="关闭编辑窗口" :disabled="savingId === editIssue?.id" @click="closeEdit"><X :size="16" aria-hidden="true" /></button>
         </header>
@@ -371,6 +370,8 @@ async function saveEdit() {
   }
   const viewport = document.querySelector('[data-testid="table-viewport"]')
   const scrollLeft = viewport?.scrollLeft || 0
+  const savedPage = page.value
+  const savedIssueId = editIssue.value.id
   savingId.value = editIssue.value.id
   editError.value = ''
   try {
@@ -382,7 +383,15 @@ async function saveEdit() {
       cooperationPersonUsername: editDraft.cooperationPersonUsername || null,
       remark: editDraft.remark,
     })
-    await loadList()
+    const refreshed = await loadList({ preserveOnError: true })
+    if (!refreshed || page.value !== savedPage) {
+      editError.value = '保存成功，但列表刷新失败，请重试刷新当前页'
+      return
+    }
+    if (!items.value.some((item) => item.id === savedIssueId)) {
+      editError.value = '保存成功，但当前问题未出现在刷新结果中，请重新查询'
+      return
+    }
     savingId.value = null
     closeEdit()
     await nextTick()
@@ -422,7 +431,7 @@ function formatSnapshots(event) {
   return [event.beforeSnapshot ? `操作前：${event.beforeSnapshot}` : '操作前：-', event.afterSnapshot ? `操作后：${event.afterSnapshot}` : '操作后：-', event.incomingSnapshot ? `导入输入：${event.incomingSnapshot}` : '导入输入：-'].join('\n')
 }
 
-async function loadList() {
+async function loadList({ preserveOnError = false } = {}) {
   loading.value = true
   error.value = ''
   try {
@@ -430,12 +439,16 @@ async function loadList() {
     items.value = result.items || []
     total.value = result.total || 0
   } catch (cause) {
-    items.value = []
-    total.value = 0
+    if (!preserveOnError) {
+      items.value = []
+      total.value = 0
+    }
     error.value = `加载失败：${cause?.message || cause}`
+    return false
   } finally {
     loading.value = false
   }
+  return true
 }
 
 async function loadMetadata() {

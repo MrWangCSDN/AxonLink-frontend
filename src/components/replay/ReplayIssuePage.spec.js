@@ -85,6 +85,16 @@ afterEach(() => {
 })
 
 describe('ReplayIssuePage', () => {
+  it('labels and orders the domain and sandbox filters consistently', async () => {
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    expect(wrapper.findAll('.replay-filters > label').slice(0, 5).map((label) => label.get('span').text())).toEqual([
+      '领域', '是否沙箱', '问题级别', '问题类型', '问题状态',
+    ])
+    expect(wrapper.get('[data-testid="sandbox-filter"]').findAll('option').map((option) => option.text())).toEqual(['全部', '是', '否'])
+  })
+
   it('keeps server paging and all filters in the list request', async () => {
     const wrapper = mount(ReplayIssuePage)
     await flushPromises()

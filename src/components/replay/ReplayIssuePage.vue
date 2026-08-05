@@ -34,10 +34,18 @@
 
     <form class="replay-filters" @submit.prevent="query">
       <label>
-        <span>问题组</span>
+        <span>领域</span>
         <select v-model="filters.groupName" data-testid="group-filter">
           <option value="">全部</option>
           <option v-for="group in options.groups" :key="group" :value="group">{{ group }}</option>
+        </select>
+      </label>
+      <label>
+        <span>是否沙箱</span>
+        <select v-model="filters.sandbox" data-testid="sandbox-filter">
+          <option value="">全部</option>
+          <option value="true">是</option>
+          <option value="false">否</option>
         </select>
       </label>
       <label>
@@ -59,14 +67,6 @@
         <select v-model="filters.issueStatus" data-testid="issue-status-filter">
           <option value="">全部</option>
           <option v-for="status in options.issueStatuses" :key="status" :value="status">{{ status }}</option>
-        </select>
-      </label>
-      <label>
-        <span>数据范围</span>
-        <select v-model="filters.sandbox" data-testid="sandbox-filter">
-          <option value="">全部</option>
-          <option value="true">沙箱</option>
-          <option value="false">非沙箱</option>
         </select>
       </label>
       <label>

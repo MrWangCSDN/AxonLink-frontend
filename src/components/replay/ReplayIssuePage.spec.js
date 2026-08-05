@@ -281,6 +281,35 @@ describe('ReplayIssuePage', () => {
     expect(wrapper.find('[data-testid="edit-modal"]').exists()).toBe(false)
   })
 
+  it('refreshes lifecycle totals after saving a status change', async () => {
+    const initialStats = {
+      total: 4607,
+      openTotal: 1200,
+      processingTotal: 800,
+      pendingVerificationTotal: 500,
+      fixedTotal: 2107,
+      groupCounts: {},
+      importedAt: '2026-08-04T10:00:00',
+    }
+    const updatedStats = { ...initialStats, openTotal: 1199, pendingVerificationTotal: 501 }
+    getReplayIssueStats.mockReset()
+    getReplayIssueStats.mockResolvedValueOnce(initialStats).mockResolvedValueOnce(updatedStats)
+    updateReplayIssue.mockResolvedValueOnce({ ...fixtureRow, issue_status: '修复待验证' })
+
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+    expect(wrapper.findAll('.replay-summary-card')[1].find('strong').text()).toBe('1200')
+
+    await wrapper.get('[data-testid="edit-1"]').trigger('click')
+    await wrapper.get('[data-testid="edit-status"]').setValue('修复待验证')
+    await wrapper.get('[data-testid="save-edit"]').trigger('click')
+    await flushPromises()
+
+    expect(getReplayIssueStats).toHaveBeenCalledTimes(2)
+    expect(wrapper.findAll('.replay-summary-card')[1].find('strong').text()).toBe('1199')
+    expect(wrapper.findAll('.replay-summary-card')[3].find('strong').text()).toBe('501')
+  })
+
   it('keeps the edited row and modal open when refresh fails after save', async () => {
     updateReplayIssue.mockResolvedValueOnce({ ...fixtureRow })
     const wrapper = mount(ReplayIssuePage)

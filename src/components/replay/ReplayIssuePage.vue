@@ -418,6 +418,7 @@ async function saveEdit() {
       editError.value = '保存成功，但列表刷新失败，请重试刷新当前页'
       return
     }
+    await loadMetadata()
     if (!items.value.some((item) => item.id === savedIssueId)) {
       editError.value = '保存成功，但当前问题未出现在刷新结果中，请重新查询'
       return

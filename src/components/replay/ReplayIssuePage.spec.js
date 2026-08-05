@@ -28,7 +28,7 @@ const fixtureRow = {
   registered_date: '20260803', field_name: '响应码', issue_description: 'CCBS响应不一致',
   transaction_owner: '张济华', issue_status: '分析中', issue_type: '代码问题', initial_analysis: '核对返回值',
   final_solution: '修正映射', cooperation_person_username: 'sunhy1', cooperation_person_real_name: '孙海英',
-  serial_no: '001012213710102', defect_repair_date: '', remark: '', import_date: '2026-08-04',
+  serial_no: '001012213710102', defect_repair_date: '', remark: '历史备注', import_date: '2026-08-04',
   affected_transaction_count: '58', issue_id: '000845', issue_key: 'TRAN|6208|响应码',
   historical_occurrence_count: '4', first_occurrence_date: '2026-07-28 00:00:00.0',
   last_occurrence_date: '2026-07-31 00:00:00.0', imported_at: '2026-08-04T10:00:00',
@@ -36,8 +36,8 @@ const fixtureRow = {
 
 const visibleColumnLabels = [
   '领域', '是否沙箱', '批次', '交易码', '交易名称', '问题级别', '登记日期', '导入时间', '字段名', '问题描述',
-  '交易负责人', '问题状态', '问题类型', '初步问题分析', '最终处理方案', '需协同人', '流水号', '缺陷修复日期',
-  '备注', '该问题出现在的交易笔数', 'issue_id', 'issue_key', '历史出现次数', '首次出现日期', '上次出现日期',
+  '交易负责人', '操作', '问题状态', '问题类型', '初步问题分析', '最终处理方案', '需协同人', '备注', '流水号', '缺陷修复日期',
+  '该问题出现在的交易笔数', 'issue_id', 'issue_key', '历史出现次数', '首次出现日期', '上次出现日期',
 ]
 
 function arrangeApi({ total = 4607, items = [fixtureRow] } = {}) {
@@ -177,17 +177,17 @@ describe('ReplayIssuePage', () => {
     await flushPromises()
   })
 
-  it('renders Excel A-Y plus a normalized is_sandbox column in order', async () => {
+  it('renders the requested columns in order and keeps manual content read-only and red', async () => {
     const wrapper = mount(ReplayIssuePage)
     await flushPromises()
 
     expect(wrapper.findAll('thead th').map((header) => header.text())).toEqual(visibleColumnLabels)
     const row = wrapper.get('[data-testid="replay-row"]')
-    expect(row.find('[data-testid="status-1"]').element.value).toBe('分析中')
-    expect(row.find('[data-testid="type-1"]').element.value).toBe('代码问题')
-    expect(row.find('[data-testid="analysis-1"]').element.value).toBe('核对返回值')
-    expect(row.find('[data-testid="solution-1"]').element.value).toBe('修正映射')
-    expect(row.find('[data-testid="collaborator-1"]').element.value).toBe('孙海英(sunhy1)')
+    expect(row.find('.replay-manual-value').exists()).toBe(true)
+    expect(row.find('.replay-manual-value').attributes('class')).toContain('replay-manual-value')
+    expect(row.find('[data-testid="edit-1"]').exists()).toBe(true)
+    expect(row.find('[data-testid="tracking-1"]').exists()).toBe(true)
+    expect(row.find('select').exists()).toBe(false)
   })
 
   it('normalizes numeric and boolean is_sandbox values for the visible sandbox column', async () => {
@@ -215,16 +215,19 @@ describe('ReplayIssuePage', () => {
     expect(wrapper.emitted('toggleNavigation')).toEqual([[]])
   })
 
-  it('saves the status and four manual fields together and opens tracking drawer', async () => {
+  it('edits all six fields together and opens tracking from the operation column', async () => {
     updateReplayIssue.mockResolvedValueOnce({ ...fixtureRow })
     searchReplayIssueUsers.mockResolvedValueOnce([{ username: 'sunhy1', realName: '孙海英', displayName: '孙海英(sunhy1)' }])
     getReplayIssueTracking.mockResolvedValueOnce([{ id: 1, operationType: '人工保存', operationAt: '2026-08-05 10:00:00', operatorRealName: '编辑人', operatorUsername: 'editor', issueStatus: '分析中', issueType: '代码问题', initialAnalysis: '核对返回值', finalSolution: '修正映射', cooperationPersonUsername: 'sunhy1', cooperationPersonRealName: '孙海英', beforeSnapshot: '{}', afterSnapshot: '{}', incomingSnapshot: null }])
     const wrapper = mount(ReplayIssuePage)
     await flushPromises()
-    await wrapper.get('[data-testid="status-1"]').setValue('修复待验证')
-    await wrapper.get('[data-testid="save-row-1"]').trigger('click')
+    await wrapper.get('[data-testid="edit-1"]').trigger('click')
+    expect(wrapper.get('[data-testid="edit-modal"]').text()).toContain('编辑回放问题')
+    await wrapper.get('[data-testid="edit-status"]').setValue('修复待验证')
+    await wrapper.get('[data-testid="edit-remark"]').setValue('本轮需要联调验证')
+    await wrapper.get('[data-testid="save-edit"]').trigger('click')
     await flushPromises()
-    expect(updateReplayIssue).toHaveBeenCalledWith(1, expect.objectContaining({ issueStatus: '修复待验证', issueType: '代码问题', cooperationPersonUsername: 'sunhy1' }))
+    expect(updateReplayIssue).toHaveBeenCalledWith(1, expect.objectContaining({ issueStatus: '修复待验证', issueType: '代码问题', cooperationPersonUsername: 'sunhy1', remark: '本轮需要联调验证' }))
 
     await wrapper.get('[data-testid="tracking-1"]').trigger('click')
     await flushPromises()

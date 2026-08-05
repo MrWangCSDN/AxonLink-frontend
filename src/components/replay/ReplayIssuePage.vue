@@ -92,33 +92,12 @@
         </thead>
         <tbody>
           <tr v-for="row in items" :key="row.id" data-testid="replay-row">
-            <td v-for="column in columns" :key="column.key" :title="editableKeys.has(column.key) ? '' : displayColumn(column.key, row[column.key])">
-              <template v-if="column.key === 'issue_status'">
-                <div class="replay-inline-control">
-                  <span v-if="!manualStatuses.includes(row.issue_status)" class="replay-status-text">{{ display(row.issue_status) }}</span>
-                  <select v-model="draftFor(row).issueStatus" :data-testid="`status-${row.id}`">
-                    <option value="" disabled>选择状态</option>
-                    <option v-for="status in manualStatuses" :key="status" :value="status">{{ status }}</option>
-                  </select>
-                  <button class="replay-icon-button replay-save" type="button" title="保存本行" :aria-label="`保存 ${row.issue_key}`" :data-testid="`save-row-${row.id}`" :disabled="savingId === row.id" @click="saveRow(row)"><Save :size="14" aria-hidden="true" /></button>
-                </div>
-              </template>
-              <select v-else-if="column.key === 'issue_type'" v-model="draftFor(row).issueType" :data-testid="`type-${row.id}`">
-                <option value="">请选择</option>
-                <option v-for="type in issueTypes" :key="type" :value="type">{{ type }}</option>
-              </select>
-              <textarea v-else-if="column.key === 'initial_analysis'" v-model="draftFor(row).initialAnalysis" maxlength="500" rows="2" :data-testid="`analysis-${row.id}`" />
-              <textarea v-else-if="column.key === 'final_solution'" v-model="draftFor(row).finalSolution" maxlength="500" rows="2" :data-testid="`solution-${row.id}`" />
-              <div v-else-if="column.key === 'cooperation_person_username'" class="replay-user-picker">
-                <input v-model="draftFor(row).cooperationPersonDisplay" type="search" placeholder="姓名或账号" :data-testid="`collaborator-${row.id}`" @input="searchUsers(row)" />
-                <div v-if="userOptions[row.id]?.length" class="replay-user-options">
-                  <button v-for="user in userOptions[row.id]" :key="user.username" type="button" @click="selectUser(row, user)">{{ user.displayName }}</button>
-                </div>
+            <td v-for="column in columns" :key="column.key" :title="displayColumn(column.key, row[column.key])">
+              <div v-if="column.key === 'operation'" class="replay-operation-buttons">
+                <button class="replay-button replay-button-compact" type="button" :data-testid="`edit-${row.id}`" @click="openEdit(row)"><Pencil :size="13" aria-hidden="true" />编辑</button>
+                <button class="replay-button replay-button-compact" type="button" :data-testid="`tracking-${row.id}`" @click="openTracking(row)"><HistoryIcon :size="13" aria-hidden="true" />问题跟踪</button>
               </div>
-              <div v-else-if="column.key === 'issue_key'" class="replay-issue-key-cell">
-                <span>{{ display(row.issue_key) }}</span>
-                <button class="replay-icon-button" type="button" title="查看问题跟踪路径" :aria-label="`查看 ${row.issue_key} 跟踪路径`" :data-testid="`tracking-${row.id}`" @click="openTracking(row)"><HistoryIcon :size="14" aria-hidden="true" /></button>
-              </div>
+              <span v-else-if="manualDisplayKeys.has(column.key)" class="replay-manual-value">{{ displayColumn(column.key, row[column.key]) }}</span>
               <template v-else>{{ displayColumn(column.key, row[column.key]) }}</template>
             </td>
           </tr>
@@ -179,6 +158,60 @@
       </section>
     </div>
 
+    <div v-if="editOpen" class="replay-modal-mask" @click.self="!savingId && closeEdit()">
+      <section class="replay-edit-modal" role="dialog" aria-modal="true" aria-labelledby="replay-edit-title" data-testid="edit-modal">
+        <header>
+          <div>
+            <h3 id="replay-edit-title">编辑回放问题</h3>
+            <p>{{ editIssue?.issue_key }}</p>
+          </div>
+          <button class="replay-icon-button" type="button" title="关闭编辑窗口" aria-label="关闭编辑窗口" :disabled="savingId === editIssue?.id" @click="closeEdit"><X :size="16" aria-hidden="true" /></button>
+        </header>
+        <div class="replay-edit-grid">
+          <label>
+            <span>问题状态</span>
+            <select v-model="editDraft.issueStatus" data-testid="edit-status">
+              <option value="" disabled>{{ editIssue && !manualStatuses.includes(editIssue.issue_status) ? `当前：${display(editIssue.issue_status)}，请选择` : '请选择状态' }}</option>
+              <option v-for="status in manualStatuses" :key="status" :value="status">{{ status }}</option>
+            </select>
+          </label>
+          <label>
+            <span>问题类型</span>
+            <select v-model="editDraft.issueType" data-testid="edit-type">
+              <option value="">请选择</option>
+              <option v-for="type in issueTypes" :key="type" :value="type">{{ type }}</option>
+            </select>
+          </label>
+          <label class="replay-edit-wide">
+            <span>初步问题分析 <em>{{ editDraft.initialAnalysis.length }}/500</em></span>
+            <textarea v-model="editDraft.initialAnalysis" maxlength="500" rows="4" data-testid="edit-analysis" />
+          </label>
+          <label class="replay-edit-wide">
+            <span>最终处理方案 <em>{{ editDraft.finalSolution.length }}/500</em></span>
+            <textarea v-model="editDraft.finalSolution" maxlength="500" rows="4" data-testid="edit-solution" />
+          </label>
+          <label class="replay-edit-wide">
+            <span>备注 <em>{{ editDraft.remark.length }}/500</em></span>
+            <textarea v-model="editDraft.remark" maxlength="500" rows="3" data-testid="edit-remark" />
+          </label>
+          <label class="replay-edit-wide">
+            <span>需协同人</span>
+            <div class="replay-user-picker">
+              <input v-model="editDraft.cooperationPersonDisplay" type="search" placeholder="姓名或账号" data-testid="edit-collaborator" @input="searchEditUsers" />
+              <div v-if="editUserOptions.length" class="replay-user-options">
+                <button v-for="user in editUserOptions" :key="user.username" type="button" @click="selectEditUser(user)">{{ user.displayName }}</button>
+              </div>
+            </div>
+          </label>
+        </div>
+        <p v-if="editError" class="replay-edit-error">{{ editError }}</p>
+        <footer>
+          <button class="replay-button" type="button" :disabled="savingId === editIssue?.id" @click="closeEdit">取消</button>
+          <button class="replay-button replay-button-primary" type="button" data-testid="save-edit" :disabled="savingId === editIssue?.id" @click="saveEdit"><Save :size="15" aria-hidden="true" />{{ savingId === editIssue?.id ? '保存中…' : '保存' }}</button>
+        </footer>
+      </section>
+    </div>
+
     <div v-if="trackingOpen" class="replay-drawer-mask" @click.self="closeTracking">
       <aside class="replay-tracking-drawer" role="dialog" aria-modal="true" aria-labelledby="replay-tracking-title" data-testid="tracking-drawer">
         <header>
@@ -199,6 +232,7 @@
                 <div><dt>初步问题分析</dt><dd>{{ display(event.initialAnalysis) }}</dd></div>
                 <div><dt>最终处理方案</dt><dd>{{ display(event.finalSolution) }}</dd></div>
                 <div><dt>需协同人</dt><dd>{{ collaboratorDisplay(event) }}</dd></div>
+                <div><dt>备注</dt><dd>{{ display(event.remark) }}</dd></div>
               </dl>
               <details><summary>完整快照</summary><pre>{{ formatSnapshots(event) }}</pre></details>
             </article>
@@ -212,7 +246,7 @@
 
 <script setup>
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
-import { ChevronLeft, ChevronRight, HelpCircle, History as HistoryIcon, Menu, RotateCcw, Save, Search, Upload, X } from 'lucide-vue-next'
+import { ChevronLeft, ChevronRight, HelpCircle, History as HistoryIcon, Menu, Pencil, RotateCcw, Save, Search, Upload, X } from 'lucide-vue-next'
 import { getReplayIssueOptions, getReplayIssueStats, getReplayIssueTracking, importReplayIssues, listReplayIssues, searchReplayIssueUsers, updateReplayIssue } from '../../api/replayIssues.js'
 
 defineEmits(['toggleNavigation'])
@@ -221,16 +255,16 @@ const columns = [
   ['domain', '领域', '120px'], ['is_sandbox', '是否沙箱', '90px'], ['batch_no', '批次', '220px'],
   ['transaction_code', '交易码', '100px'], ['transaction_name', '交易名称', '180px'], ['issue_level', '问题级别', '100px'],
   ['registered_date', '登记日期', '108px'], ['import_date', '导入时间', '108px'], ['field_name', '字段名', '120px'], ['issue_description', '问题描述', '220px'],
-  ['transaction_owner', '交易负责人', '112px'], ['issue_status', '问题状态', '132px'], ['issue_type', '问题类型', '132px'], ['initial_analysis', '初步问题分析', '220px'],
-  ['final_solution', '最终处理方案', '220px'], ['cooperation_person_username', '需协同人', '180px'], ['serial_no', '流水号', '160px'], ['defect_repair_date', '缺陷修复日期', '120px'],
-  ['remark', '备注', '160px'], ['affected_transaction_count', '该问题出现在的交易笔数', '176px'], ['issue_id', 'issue_id', '112px'],
+  ['transaction_owner', '交易负责人', '112px'], ['operation', '操作', '176px'], ['issue_status', '问题状态', '132px'], ['issue_type', '问题类型', '132px'], ['initial_analysis', '初步问题分析', '220px'],
+  ['final_solution', '最终处理方案', '220px'], ['cooperation_person_username', '需协同人', '180px'], ['remark', '备注', '160px'], ['serial_no', '流水号', '160px'], ['defect_repair_date', '缺陷修复日期', '120px'],
+  ['affected_transaction_count', '该问题出现在的交易笔数', '176px'], ['issue_id', 'issue_id', '112px'],
   ['issue_key', 'issue_key', '180px'], ['historical_occurrence_count', '历史出现次数', '128px'],
   ['first_occurrence_date', '首次出现日期', '180px'], ['last_occurrence_date', '上次出现日期', '180px'],
 ].map(([key, label, width]) => ({ key, label, width }))
 
 const manualStatuses = ['分析中', '延后修复', '修复待验证']
 const issueTypes = ['迁移问题', '防腐问题', '代码问题', '新核心下线', '其他问题']
-const editableKeys = new Set(['issue_status', 'issue_type', 'initial_analysis', 'final_solution', 'cooperation_person_username'])
+const manualDisplayKeys = new Set(['issue_status', 'issue_type', 'initial_analysis', 'final_solution', 'cooperation_person_username', 'remark'])
 const filters = reactive({ groupName: '', issueLevel: '', issueType: '', issueStatus: '', sandbox: '', keyword: '' })
 const options = reactive({ groups: [], issueLevels: [], issueTypes, issueStatuses: [] })
 const stats = reactive({ total: 0, groupCount: 0, sandboxCount: 0, importedAt: '' })
@@ -248,9 +282,12 @@ const importing = ref(false)
 const importComplete = ref(false)
 const importMessage = ref('')
 const importError = ref(false)
-const drafts = reactive({})
-const userOptions = reactive({})
 const savingId = ref(null)
+const editOpen = ref(false)
+const editIssue = ref(null)
+const editDraft = reactive({ issueStatus: '', issueType: '', initialAnalysis: '', finalSolution: '', cooperationPersonUsername: '', cooperationPersonDisplay: '', remark: '' })
+const editUserOptions = ref([])
+const editError = ref('')
 const trackingOpen = ref(false)
 const trackingIssue = ref(null)
 const trackingEvents = ref([])
@@ -281,66 +318,77 @@ function requestParams() {
   }
 }
 
-function draftFor(row) {
-  if (!drafts[row.id]) {
-    drafts[row.id] = {
-      issueStatus: manualStatuses.includes(row.issue_status) ? row.issue_status : '',
-      issueType: row.issue_type || '',
-      initialAnalysis: row.initial_analysis || '',
-      finalSolution: row.final_solution || '',
-      cooperationPersonUsername: row.cooperation_person_username || '',
-      cooperationPersonDisplay: row.cooperation_person_real_name && row.cooperation_person_username
-        ? `${row.cooperation_person_real_name}(${row.cooperation_person_username})` : '',
-    }
-  }
-  return drafts[row.id]
+function openEdit(row) {
+  editIssue.value = row
+  Object.assign(editDraft, {
+    issueStatus: manualStatuses.includes(row.issue_status) ? row.issue_status : '',
+    issueType: row.issue_type || '',
+    initialAnalysis: row.initial_analysis || '',
+    finalSolution: row.final_solution || '',
+    cooperationPersonUsername: row.cooperation_person_username || '',
+    cooperationPersonDisplay: row.cooperation_person_real_name && row.cooperation_person_username
+      ? `${row.cooperation_person_real_name}(${row.cooperation_person_username})` : '',
+    remark: row.remark || '',
+  })
+  editUserOptions.value = []
+  editError.value = ''
+  editOpen.value = true
 }
 
-async function searchUsers(row) {
-  const draft = draftFor(row)
-  draft.cooperationPersonUsername = ''
-  if (!draft.cooperationPersonDisplay.trim()) {
-    userOptions[row.id] = []
+function closeEdit() {
+  if (savingId.value === editIssue.value?.id) return
+  editOpen.value = false
+  editIssue.value = null
+  editUserOptions.value = []
+  editError.value = ''
+}
+
+async function searchEditUsers() {
+  editDraft.cooperationPersonUsername = ''
+  if (!editDraft.cooperationPersonDisplay.trim()) {
+    editUserOptions.value = []
     return
   }
   try {
-    userOptions[row.id] = await searchReplayIssueUsers(draft.cooperationPersonDisplay.trim())
+    editUserOptions.value = await searchReplayIssueUsers(editDraft.cooperationPersonDisplay.trim())
   } catch (cause) {
-    userOptions[row.id] = []
-    error.value = `协同人检索失败：${cause?.message || cause}`
+    editUserOptions.value = []
+    editError.value = `协同人检索失败：${cause?.message || cause}`
   }
 }
 
-function selectUser(row, user) {
-  const draft = draftFor(row)
-  draft.cooperationPersonUsername = user.username
-  draft.cooperationPersonDisplay = user.displayName
-  userOptions[row.id] = []
+function selectEditUser(user) {
+  editDraft.cooperationPersonUsername = user.username
+  editDraft.cooperationPersonDisplay = user.displayName
+  editUserOptions.value = []
 }
 
-async function saveRow(row) {
-  const draft = draftFor(row)
-  if (draft.initialAnalysis.length > 500 || draft.finalSolution.length > 500) {
-    error.value = '初步问题分析和最终处理方案不能超过500个字符'
+async function saveEdit() {
+  if (!editIssue.value) return
+  if (editDraft.initialAnalysis.length > 500 || editDraft.finalSolution.length > 500 || editDraft.remark.length > 500) {
+    editError.value = '初步问题分析、最终处理方案和备注不能超过500个字符'
     return
   }
   const viewport = document.querySelector('[data-testid="table-viewport"]')
   const scrollLeft = viewport?.scrollLeft || 0
-  savingId.value = row.id
-  error.value = ''
+  savingId.value = editIssue.value.id
+  editError.value = ''
   try {
-    await updateReplayIssue(row.id, {
-      issueStatus: draft.issueStatus,
-      issueType: draft.issueType,
-      initialAnalysis: draft.initialAnalysis,
-      finalSolution: draft.finalSolution,
-      cooperationPersonUsername: draft.cooperationPersonUsername || null,
+    await updateReplayIssue(editIssue.value.id, {
+      issueStatus: editDraft.issueStatus,
+      issueType: editDraft.issueType,
+      initialAnalysis: editDraft.initialAnalysis,
+      finalSolution: editDraft.finalSolution,
+      cooperationPersonUsername: editDraft.cooperationPersonUsername || null,
+      remark: editDraft.remark,
     })
     await loadList()
+    savingId.value = null
+    closeEdit()
     await nextTick()
     if (viewport) viewport.scrollLeft = scrollLeft
   } catch (cause) {
-    error.value = `保存失败：${cause?.message || cause}`
+    editError.value = `保存失败：${cause?.message || cause}`
   } finally {
     savingId.value = null
   }
@@ -558,6 +606,7 @@ onMounted(() => {
   font: inherit;
 }
 .replay-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 11px; white-space: nowrap; }
+.replay-button-compact { min-height: 27px; padding: 0 7px; font-size: 11px; }
 .replay-icon-button { width: 32px; min-width: 32px; display: inline-grid; place-items: center; padding: 0; }
 .replay-button-primary { border-color: var(--text-active, #3b5adb); color: var(--btn-primary-text, #fff); background: var(--text-active, #3b5adb); }
 .replay-button:disabled, .replay-icon-button:disabled { cursor: not-allowed; opacity: .48; }
@@ -573,6 +622,8 @@ onMounted(() => {
 .replay-table tbody tr:nth-child(odd) td { background: var(--bg-card, #fff); }
 .replay-state { text-align: center !important; color: var(--text-muted, #6b7280); }
 .replay-error { color: var(--c-error-code-text, #cf1124); }
+.replay-manual-value { color: #cf1124; white-space: pre-wrap; overflow-wrap: anywhere; }
+.replay-operation-buttons { display: flex; align-items: center; gap: 5px; }
 .replay-table td select, .replay-table td input, .replay-table td textarea { width: 100%; min-width: 0; border: 1px solid var(--border, #e8edf5); border-radius: 3px; padding: 4px 5px; color: inherit; background: var(--bg-input, #fff); font: inherit; }
 .replay-table td textarea { min-height: 42px; resize: vertical; line-height: 16px; }
 .replay-inline-control, .replay-issue-key-cell { display: flex; align-items: center; gap: 5px; min-width: 0; }
@@ -611,6 +662,17 @@ onMounted(() => {
 
 .replay-modal-mask { position: fixed; z-index: 30; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(13, 20, 36, .42); }
 .replay-import-modal { width: min(460px, 100%); display: grid; gap: 16px; padding: 20px; border: 1px solid var(--border, #e8edf5); border-radius: 6px; color: var(--text-primary, #1f2937); background: var(--bg-card, #fff); box-shadow: 0 16px 42px rgba(13, 20, 36, .24); }
+.replay-edit-modal { width: min(680px, 100%); display: grid; gap: 16px; padding: 20px; border: 1px solid var(--border, #e8edf5); border-radius: 6px; color: var(--text-primary, #1f2937); background: var(--bg-card, #fff); box-shadow: 0 16px 42px rgba(13, 20, 36, .24); }
+.replay-edit-modal header, .replay-edit-modal footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.replay-edit-modal footer { justify-content: flex-end; }
+.replay-edit-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px 14px; }
+.replay-edit-grid label { display: grid; gap: 5px; color: var(--text-secondary, #374151); font-size: 12px; line-height: 16px; }
+.replay-edit-grid label > span { display: flex; justify-content: space-between; gap: 8px; }
+.replay-edit-grid em { color: var(--text-muted, #6b7280); font-style: normal; font-variant-numeric: tabular-nums; }
+.replay-edit-wide { grid-column: 1 / -1; }
+.replay-edit-grid select, .replay-edit-grid input, .replay-edit-grid textarea { width: 100%; border: 1px solid var(--border, #e8edf5); border-radius: 4px; padding: 7px 9px; color: var(--text-primary, #1f2937); background: var(--bg-input, #fff); font: inherit; }
+.replay-edit-grid textarea { min-height: 78px; resize: vertical; line-height: 18px; }
+.replay-edit-error { margin: 0; color: var(--c-error-code-text, #cf1124); font-size: 12px; }
 .replay-import-modal header, .replay-import-modal footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .replay-import-modal footer { justify-content: flex-end; }
 .replay-file-field small { color: var(--text-muted, #6b7280); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -629,6 +691,8 @@ onMounted(() => {
   .replay-filters label { flex: 1 1 126px; }
   .replay-filters select { width: 100%; }
   .replay-keyword-field, .replay-keyword-field input { width: 100% !important; }
+  .replay-edit-grid { grid-template-columns: 1fr; }
+  .replay-edit-wide { grid-column: auto; }
   .replay-table-viewport { padding-left: 12px; padding-right: 12px; }
   .replay-pager { justify-content: space-between; gap: 8px; flex-wrap: wrap; }
   .replay-tracking-drawer { width: 100%; }

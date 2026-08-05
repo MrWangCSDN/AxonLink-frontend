@@ -50,8 +50,16 @@ function arrangeApi({ total = 4607, items = [fixtureRow] } = {}) {
   })
   getReplayIssueStats.mockResolvedValue({
     total,
-    groupCount: 4,
-    sandboxCount: 1213,
+    openTotal: 1200,
+    processingTotal: 800,
+    pendingVerificationTotal: 500,
+    fixedTotal: 2107,
+    groupCounts: {
+      公共组: { total: 1000, open: 300, processing: 200, pendingVerification: 100, fixed: 400 },
+      存款组: { total: 1100, open: 300, processing: 200, pendingVerification: 100, fixed: 500 },
+      贷款组: { total: 1200, open: 300, processing: 200, pendingVerification: 100, fixed: 600 },
+      结算组: { total: 1307, open: 300, processing: 200, pendingVerification: 200, fixed: 607 },
+    },
     importedAt: '2026-08-04T10:00:00',
   })
   importReplayIssues.mockResolvedValue({ totalRows: 16, sandboxRows: 8, nonSandboxRows: 8, rowsBySheet: {} })
@@ -85,6 +93,8 @@ describe('ReplayIssuePage', () => {
     await wrapper.get('[data-testid="issue-level-filter"]').setValue('交易级')
     await wrapper.get('[data-testid="issue-type-filter"]').setValue('代码问题')
     await wrapper.get('[data-testid="sandbox-filter"]').setValue('false')
+    await wrapper.get('[data-testid="transaction-owner-filter"]').setValue('张')
+    await wrapper.get('[data-testid="cooperation-person-filter"]').setValue('孙')
     await wrapper.get('[data-testid="keyword-filter"]').setValue('CCBS')
     await wrapper.get('[data-testid="query-button"]').trigger('click')
 
@@ -93,6 +103,8 @@ describe('ReplayIssuePage', () => {
       issueLevel: '交易级',
       issueType: '代码问题',
       sandbox: false,
+      transactionOwner: '张',
+      cooperationPerson: '孙',
       keyword: 'CCBS',
       limit: 50,
       offset: 0,
@@ -188,6 +200,19 @@ describe('ReplayIssuePage', () => {
     expect(row.find('[data-testid="edit-1"]').exists()).toBe(true)
     expect(row.find('[data-testid="tracking-1"]').exists()).toBe(true)
     expect(row.find('select').exists()).toBe(false)
+  })
+
+  it('renders five lifecycle totals with four merged group details and all statuses', async () => {
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    const cards = wrapper.findAll('.replay-summary-card')
+    expect(cards).toHaveLength(5)
+    expect(cards.map((card) => card.find('strong').text())).toEqual(['4607', '1200', '800', '500', '2107'])
+    expect(cards[0].find('.replay-summary-tooltip').text()).toContain('公共组1000')
+    expect(wrapper.get('[data-testid="issue-status-filter"]').findAll('option').map((option) => option.text())).toEqual([
+      '全部', '打开', '分析中', '延后修复', '修复待验证', '重新打开', '已修复',
+    ])
   })
 
   it('normalizes numeric and boolean is_sandbox values for the visible sandbox column', async () => {

@@ -24,9 +24,12 @@
     </header>
 
     <div class="replay-summary" aria-label="汇总数据">
-      <div class="replay-summary-card"><span>问题总数</span><strong>{{ stats.total ?? total }}</strong></div>
-      <div class="replay-summary-card"><span>问题组数</span><strong>{{ stats.groupCount ?? 0 }}</strong></div>
-      <div class="replay-summary-card"><span>沙箱问题</span><strong>{{ stats.sandboxCount ?? 0 }}</strong></div>
+      <div v-for="card in summaryCards" :key="card.key" class="replay-summary-card" tabindex="0">
+        <span>{{ card.label }}</span><strong>{{ summaryValue(card) }}</strong>
+        <div class="replay-summary-tooltip" role="tooltip">
+          <div v-for="group in summaryGroups" :key="group"><span>{{ group }}</span><b>{{ groupSummary(card, group) }}</b></div>
+        </div>
+      </div>
     </div>
 
     <form class="replay-filters" @submit.prevent="query">
@@ -65,6 +68,14 @@
           <option value="true">沙箱</option>
           <option value="false">非沙箱</option>
         </select>
+      </label>
+      <label>
+        <span>交易负责人</span>
+        <input v-model.trim="filters.transactionOwner" data-testid="transaction-owner-filter" type="search" placeholder="模糊查询" />
+      </label>
+      <label>
+        <span>需协同人</span>
+        <input v-model.trim="filters.cooperationPerson" data-testid="cooperation-person-filter" type="search" placeholder="姓名或账号" />
       </label>
       <label class="replay-keyword-field">
         <span>关键词</span>
@@ -264,9 +275,18 @@ const columns = [
 const manualStatuses = ['分析中', '延后修复', '修复待验证']
 const issueTypes = ['迁移问题', '防腐问题', '代码问题', '新核心下线', '其他问题']
 const manualDisplayKeys = new Set(['issue_status', 'issue_type', 'initial_analysis', 'final_solution', 'cooperation_person_username', 'remark'])
-const filters = reactive({ groupName: '', issueLevel: '', issueType: '', issueStatus: '', sandbox: '', keyword: '' })
-const options = reactive({ groups: [], issueLevels: [], issueTypes, issueStatuses: [] })
-const stats = reactive({ total: 0, groupCount: 0, sandboxCount: 0, importedAt: '' })
+const filters = reactive({ groupName: '', issueLevel: '', issueType: '', issueStatus: '', sandbox: '', transactionOwner: '', cooperationPerson: '', keyword: '' })
+const allStatuses = ['打开', '分析中', '延后修复', '修复待验证', '重新打开', '已修复']
+const options = reactive({ groups: [], issueLevels: [], issueTypes, issueStatuses: allStatuses })
+const stats = reactive({ total: 0, openTotal: 0, processingTotal: 0, pendingVerificationTotal: 0, fixedTotal: 0, groupCounts: {}, importedAt: '' })
+const summaryGroups = ['公共组', '存款组', '贷款组', '结算组']
+const summaryCards = [
+  { key: 'total', label: '问题总数（全部状态）', valueKey: 'total' },
+  { key: 'open', label: '问题打开总数', valueKey: 'openTotal' },
+  { key: 'processing', label: '问题处理中总数', valueKey: 'processingTotal' },
+  { key: 'pendingVerification', label: '问题待验证总数', valueKey: 'pendingVerificationTotal' },
+  { key: 'fixed', label: '问题已修复总数', valueKey: 'fixedTotal' },
+]
 const items = ref([])
 const total = ref(0)
 const page = ref(0)
@@ -304,6 +324,14 @@ function displayColumn(key, value) {
   return display(value)
 }
 
+function summaryValue(card) {
+  return stats[card.valueKey] ?? 0
+}
+
+function groupSummary(card, group) {
+  return stats.groupCounts?.[group]?.[card.key] ?? 0
+}
+
 function requestParams() {
   return {
     groupName: filters.groupName || undefined,
@@ -311,6 +339,8 @@ function requestParams() {
     issueType: filters.issueType || undefined,
     ...(filters.issueStatus ? { issueStatus: filters.issueStatus } : {}),
     sandbox: filters.sandbox === '' ? undefined : filters.sandbox === 'true',
+    ...(filters.transactionOwner ? { transactionOwner: filters.transactionOwner } : {}),
+    ...(filters.cooperationPerson ? { cooperationPerson: filters.cooperationPerson } : {}),
     keyword: filters.keyword || undefined,
     limit: pageSize.value,
     offset: page.value * pageSize.value,
@@ -455,6 +485,7 @@ async function loadMetadata() {
   try {
     const [nextOptions, nextStats] = await Promise.all([getReplayIssueOptions(), getReplayIssueStats()])
     Object.assign(options, nextOptions || {})
+    options.issueStatuses = allStatuses
     Object.assign(stats, nextStats || {})
   } catch (cause) {
     error.value = `加载筛选项失败：${cause?.message || cause}`
@@ -467,7 +498,7 @@ function query() {
 }
 
 function resetFilters() {
-  Object.assign(filters, { groupName: '', issueLevel: '', issueType: '', issueStatus: '', sandbox: '', keyword: '' })
+  Object.assign(filters, { groupName: '', issueLevel: '', issueType: '', issueStatus: '', sandbox: '', transactionOwner: '', cooperationPerson: '', keyword: '' })
   return query()
 }
 
@@ -567,7 +598,7 @@ onMounted(() => {
 .replay-summary {
   flex: 0 0 auto;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 180px));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 10px;
   padding: 12px 20px 0;
 }
@@ -582,9 +613,15 @@ onMounted(() => {
   border: 1px solid var(--border, #e8edf5);
   background: var(--bg-card, #fff);
   border-radius: 6px;
+  position: relative;
+  outline: none;
 }
 .replay-summary-card span { color: var(--text-muted, #6b7280); font-size: 12px; line-height: 16px; }
 .replay-summary-card strong { font-size: 20px; line-height: 26px; font-variant-numeric: tabular-nums; }
+.replay-summary-tooltip { position: absolute; z-index: 12; top: calc(100% + 6px); left: 0; min-width: 180px; display: none; padding: 9px 10px; border: 1px solid var(--border, #d7dee8); border-radius: 5px; background: var(--bg-card, #fff); box-shadow: 0 8px 20px rgba(13, 20, 36, .16); }
+.replay-summary-card:hover .replay-summary-tooltip, .replay-summary-card:focus-visible .replay-summary-tooltip { display: grid; gap: 5px; }
+.replay-summary-tooltip div { display: flex; justify-content: space-between; gap: 18px; font-size: 12px; line-height: 16px; }
+.replay-summary-tooltip b { color: var(--text-primary, #1f2937); font-variant-numeric: tabular-nums; }
 
 .replay-filters {
   display: flex;
@@ -699,7 +736,7 @@ onMounted(() => {
   .replay-toolbar { min-height: auto; align-items: flex-start; flex-wrap: wrap; }
   .replay-toolbar-title { width: 100%; }
   .replay-icon-button.replay-mobile-navigation { flex: 0 0 auto; display: inline-grid; }
-  .replay-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); padding-left: 12px; padding-right: 12px; }
+  .replay-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); padding-left: 12px; padding-right: 12px; }
   .replay-summary-card { padding-left: 8px; padding-right: 8px; }
   .replay-filters label { flex: 1 1 126px; }
   .replay-filters select { width: 100%; }

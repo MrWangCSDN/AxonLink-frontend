@@ -270,12 +270,13 @@ import { getReplayIssueOptions, getReplayIssueStats, getReplayIssueTracking, imp
 defineEmits(['toggleNavigation'])
 
 const columns = [
-  ['domain', '领域', '120px'], ['is_sandbox', '是否沙箱', '90px'], ['batch_no', '批次', '220px'],
+  ['domain', '领域', '120px'], ['issue_id', 'issue_id', '112px'], ['is_sandbox', '是否沙箱', '90px'],
   ['transaction_code', '交易码', '100px'], ['transaction_name', '交易名称', '180px'], ['issue_level', '问题级别', '100px'],
-  ['registered_date', '登记日期', '108px'], ['import_date', '导入时间', '108px'], ['field_name', '字段名', '120px'], ['issue_description', '问题描述', '220px'],
+  ['field_name', '字段名', '120px'], ['serial_no', '流水号', '160px'], ['issue_description', '问题描述', '220px'],
   ['transaction_owner', '交易负责人', '112px'], ['operation', '操作', '176px'], ['issue_status', '问题状态', '132px'], ['issue_type', '问题类型', '132px'], ['initial_analysis', '初步问题分析', '220px'],
-  ['final_solution', '最终处理方案', '220px'], ['cooperation_person_username', '需协同人', '180px'], ['remark', '备注', '160px'], ['serial_no', '流水号', '160px'], ['defect_repair_date', '缺陷修复日期', '120px'],
-  ['affected_transaction_count', '该问题出现在的交易笔数', '176px'], ['issue_id', 'issue_id', '112px'],
+  ['final_solution', '最终处理方案', '220px'], ['cooperation_person_username', '需协同人', '180px'], ['remark', '备注', '160px'], ['batch_no', '批次', '220px'],
+  ['import_date', '导入时间', '108px'], ['registered_date', '登记时间', '108px'], ['defect_repair_date', '缺陷修复日期', '120px'],
+  ['affected_transaction_count', '该问题出现在的交易笔数', '176px'],
   ['issue_key', 'issue_key', '180px'], ['historical_occurrence_count', '历史出现次数', '128px'],
   ['first_occurrence_date', '首次出现日期', '180px'], ['last_occurrence_date', '上次出现日期', '180px'],
 ].map(([key, label, width]) => ({ key, label, width }))

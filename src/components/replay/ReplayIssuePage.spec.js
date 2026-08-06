@@ -35,9 +35,9 @@ const fixtureRow = {
 }
 
 const visibleColumnLabels = [
-  '领域', '是否沙箱', '批次', '交易码', '交易名称', '问题级别', '登记日期', '导入时间', '字段名', '问题描述',
-  '交易负责人', '操作', '问题状态', '问题类型', '初步问题分析', '最终处理方案', '需协同人', '备注', '流水号', '缺陷修复日期',
-  '该问题出现在的交易笔数', 'issue_id', 'issue_key', '历史出现次数', '首次出现日期', '上次出现日期',
+  '领域', 'issue_id', '是否沙箱', '交易码', '交易名称', '问题级别', '字段名', '流水号', '问题描述',
+  '交易负责人', '操作', '问题状态', '问题类型', '初步问题分析', '最终处理方案', '需协同人', '备注',
+  '批次', '导入时间', '登记时间', '缺陷修复日期', '该问题出现在的交易笔数', 'issue_key', '历史出现次数', '首次出现日期', '上次出现日期',
 ]
 
 function arrangeApi({ total = 4607, items = [fixtureRow] } = {}) {
@@ -249,7 +249,7 @@ describe('ReplayIssuePage', () => {
         .filter(Boolean)
 
       expect(copyableLabels).toEqual([
-        '批次', '交易名称', '字段名', '问题描述', '初步问题分析', '最终处理方案', '备注', '流水号', 'issue_key',
+        '交易名称', '字段名', '流水号', '问题描述', '初步问题分析', '最终处理方案', '备注', '批次', 'issue_key',
       ])
 
       await cells.at(visibleColumnLabels.indexOf('问题描述')).trigger('click')
@@ -293,7 +293,8 @@ describe('ReplayIssuePage', () => {
     const wrapper = mount(ReplayIssuePage)
     await flushPromises()
 
-    expect(wrapper.findAll('[data-testid="replay-row"]').map((row) => row.findAll('td').at(1).text())).toEqual(['是', '否', '是', '否'])
+    const sandboxIndex = visibleColumnLabels.indexOf('是否沙箱')
+    expect(wrapper.findAll('[data-testid="replay-row"]').map((row) => row.findAll('td').at(sandboxIndex).text())).toEqual(['是', '否', '是', '否'])
   })
 
   it('requests the mobile navigation drawer from the compact toolbar control', async () => {

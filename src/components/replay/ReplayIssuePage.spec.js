@@ -212,6 +212,61 @@ describe('ReplayIssuePage', () => {
     expect(row.find('select').exists()).toBe(false)
   })
 
+  it('displays the cooperation person as real name and username', async () => {
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    const cooperationIndex = visibleColumnLabels.indexOf('需协同人')
+    expect(wrapper.get('[data-testid="replay-row"]').findAll('td').at(cooperationIndex).text()).toBe('孙海英(sunhy1)')
+  })
+
+  it('disables editing for fixed issues', async () => {
+    arrangeApi({ items: [{ ...fixtureRow, issue_status: '已修复' }] })
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    const editButton = wrapper.get('[data-testid="edit-1"]')
+    expect(editButton.attributes('disabled')).toBeDefined()
+    await editButton.trigger('click')
+    expect(wrapper.find('[data-testid="edit-modal"]').exists()).toBe(false)
+  })
+
+  it('copies complete values only from the nine selected columns', async () => {
+    const longDescription = '这是一个在表格中会被省略但复制时必须保留的完整问题描述'.repeat(8)
+    arrangeApi({ items: [{ ...fixtureRow, issue_description: longDescription }] })
+    const clipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
+    const secureContextDescriptor = Object.getOwnPropertyDescriptor(window, 'isSecureContext')
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+    Object.defineProperty(window, 'isSecureContext', { configurable: true, value: true })
+
+    try {
+      const wrapper = mount(ReplayIssuePage)
+      await flushPromises()
+      const cells = wrapper.get('[data-testid="replay-row"]').findAll('td')
+      const copyableLabels = cells
+        .map((cell, index) => cell.classes().includes('replay-copyable-cell') ? visibleColumnLabels[index] : null)
+        .filter(Boolean)
+
+      expect(copyableLabels).toEqual([
+        '批次', '交易名称', '字段名', '问题描述', '初步问题分析', '最终处理方案', '备注', '流水号', 'issue_key',
+      ])
+
+      await cells.at(visibleColumnLabels.indexOf('问题描述')).trigger('click')
+      await flushPromises()
+      expect(writeText).toHaveBeenCalledWith(longDescription)
+
+      await cells.at(visibleColumnLabels.indexOf('交易码')).trigger('click')
+      await flushPromises()
+      expect(writeText).toHaveBeenCalledTimes(1)
+    } finally {
+      if (clipboardDescriptor) Object.defineProperty(navigator, 'clipboard', clipboardDescriptor)
+      else delete navigator.clipboard
+      if (secureContextDescriptor) Object.defineProperty(window, 'isSecureContext', secureContextDescriptor)
+      else delete window.isSecureContext
+    }
+  })
+
   it('renders five lifecycle totals with four merged group details and all statuses', async () => {
     const wrapper = mount(ReplayIssuePage)
     await flushPromises()

@@ -103,13 +103,19 @@
         </thead>
         <tbody>
           <tr v-for="row in items" :key="row.id" data-testid="replay-row">
-            <td v-for="column in columns" :key="column.key" :title="displayColumn(column.key, row[column.key])">
+            <td
+              v-for="column in columns"
+              :key="column.key"
+              :class="{ 'replay-copyable-cell': copyableColumnKeys.has(column.key) }"
+              :title="cellTitle(column, row)"
+              @click="copyableColumnKeys.has(column.key) && copyCell(column, row)"
+            >
               <div v-if="column.key === 'operation'" class="replay-operation-buttons">
-                <button class="replay-button replay-button-compact" type="button" :data-testid="`edit-${row.id}`" @click="openEdit(row)"><Pencil :size="13" aria-hidden="true" />编辑</button>
+                <button class="replay-button replay-button-compact" type="button" :data-testid="`edit-${row.id}`" :disabled="row.issue_status === '已修复'" :title="row.issue_status === '已修复' ? '已修复问题不可编辑' : '编辑'" @click="openEdit(row)"><Pencil :size="13" aria-hidden="true" />编辑</button>
                 <button class="replay-button replay-button-compact" type="button" :data-testid="`tracking-${row.id}`" @click="openTracking(row)"><HistoryIcon :size="13" aria-hidden="true" />问题跟踪</button>
               </div>
-              <span v-else-if="manualDisplayKeys.has(column.key)" class="replay-manual-value">{{ displayColumn(column.key, row[column.key]) }}</span>
-              <template v-else>{{ displayColumn(column.key, row[column.key]) }}</template>
+              <span v-else-if="manualDisplayKeys.has(column.key)" class="replay-manual-value">{{ displayColumn(column.key, row[column.key], row) }}</span>
+              <template v-else>{{ displayColumn(column.key, row[column.key], row) }}</template>
             </td>
           </tr>
           <tr v-if="!loading && !error && items.length === 0"><td class="replay-state" :colspan="columns.length">暂无回放问题数据</td></tr>
@@ -118,6 +124,8 @@
         </tbody>
       </table>
     </div>
+
+    <p v-if="copyMessage" class="replay-copy-toast" role="status" aria-live="polite">{{ copyMessage }}</p>
 
     <footer class="replay-pager">
       <span>共 {{ total }} 条，第 {{ page + 1 }} / {{ pageCount }} 页</span>
@@ -255,7 +263,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ChevronLeft, ChevronRight, HelpCircle, History as HistoryIcon, Menu, Pencil, RotateCcw, Save, Search, Upload, X } from 'lucide-vue-next'
 import { getReplayIssueOptions, getReplayIssueStats, getReplayIssueTracking, importReplayIssues, listReplayIssues, searchReplayIssueUsers, updateReplayIssue } from '../../api/replayIssues.js'
 
@@ -272,6 +280,7 @@ const columns = [
   ['first_occurrence_date', '首次出现日期', '180px'], ['last_occurrence_date', '上次出现日期', '180px'],
 ].map(([key, label, width]) => ({ key, label, width }))
 
+const copyableColumnKeys = new Set(['batch_no', 'transaction_name', 'field_name', 'issue_description', 'initial_analysis', 'final_solution', 'remark', 'serial_no', 'issue_key'])
 const manualStatuses = ['分析中', '延后修复', '修复待验证']
 const issueTypes = ['迁移问题', '防腐问题', '代码问题', '新核心下线', '其他问题']
 const manualDisplayKeys = new Set(['issue_status', 'issue_type', 'initial_analysis', 'final_solution', 'cooperation_person_username', 'remark'])
@@ -293,6 +302,8 @@ const page = ref(0)
 const pageSize = ref(50)
 const loading = ref(false)
 const error = ref('')
+const copyMessage = ref('')
+let copyMessageTimer = null
 
 const importOpen = ref(false)
 const importFile = ref(null)
@@ -319,8 +330,12 @@ function display(value) {
   return value === undefined || value === null || value === '' ? '-' : String(value)
 }
 
-function displayColumn(key, value) {
+function displayColumn(key, value, row) {
   if (key === 'is_sandbox') return value === true || value === 1 || value === 'true' || value === '1' ? '是' : '否'
+  if (key === 'cooperation_person_username') {
+    if (!value) return '-'
+    return row?.cooperation_person_real_name ? `${row.cooperation_person_real_name}(${value})` : String(value)
+  }
   return display(value)
 }
 
@@ -330,6 +345,56 @@ function summaryValue(card) {
 
 function groupSummary(card, group) {
   return stats.groupCounts?.[group]?.[card.key] ?? 0
+}
+
+function cellTitle(column, row) {
+  const value = displayColumn(column.key, row[column.key], row)
+  return copyableColumnKeys.has(column.key) ? `点击复制：${value}` : value
+}
+
+async function copyCell(column, row) {
+  const rawValue = row[column.key]
+  if (rawValue === undefined || rawValue === null || rawValue === '') {
+    showCopyMessage('暂无内容可复制')
+    return
+  }
+  const copied = await copyText(displayColumn(column.key, rawValue, row))
+  showCopyMessage(copied ? `已复制：${column.label}` : '复制失败，请重试')
+}
+
+async function copyText(value) {
+  const text = String(value)
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch {
+    // Fall through to the textarea fallback for non-secure or restricted browsers.
+  }
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.style.position = 'fixed'
+  textarea.style.left = '-9999px'
+  textarea.style.opacity = '0'
+  document.body.appendChild(textarea)
+  textarea.select()
+  try {
+    return document.execCommand('copy')
+  } catch {
+    return false
+  } finally {
+    textarea.remove()
+  }
+}
+
+function showCopyMessage(message) {
+  copyMessage.value = message
+  if (copyMessageTimer) clearTimeout(copyMessageTimer)
+  copyMessageTimer = setTimeout(() => {
+    copyMessage.value = ''
+    copyMessageTimer = null
+  }, 1600)
 }
 
 function requestParams() {
@@ -348,6 +413,7 @@ function requestParams() {
 }
 
 function openEdit(row) {
+  if (row.issue_status === '已修复') return
   editIssue.value = row
   Object.assign(editDraft, {
     issueStatus: manualStatuses.includes(row.issue_status) ? row.issue_status : '',
@@ -564,6 +630,10 @@ onMounted(() => {
   loadList()
   loadMetadata()
 })
+
+onBeforeUnmount(() => {
+  if (copyMessageTimer) clearTimeout(copyMessageTimer)
+})
 </script>
 
 <style scoped>
@@ -671,6 +741,8 @@ onMounted(() => {
 .replay-table th:first-child, .replay-table td:first-child { border-left: 1px solid var(--border, #e8edf5); }
 .replay-table tbody tr:nth-child(even) td { background: var(--replay-row-alt); }
 .replay-table tbody tr:nth-child(odd) td { background: var(--bg-card, #fff); }
+.replay-copyable-cell { cursor: copy; }
+.replay-copyable-cell:hover { background: var(--bg-domain-hover, #f5f7fa) !important; }
 .replay-state { text-align: center !important; color: var(--text-muted, #6b7280); }
 .replay-error { color: var(--c-error-code-text, #cf1124); }
 .replay-manual-value { color: #cf1124; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -705,6 +777,7 @@ onMounted(() => {
 .replay-timeline summary { color: var(--text-active, #3b5adb); cursor: pointer; }
 .replay-timeline pre { max-height: 180px; overflow: auto; margin: 7px 0 0; padding: 7px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-secondary, #374151); background: var(--bg-page, #f0f2f7); font: 11px/16px ui-monospace, SFMono-Regular, Menlo, monospace; }
 .replay-drawer-state { padding: 20px; color: var(--text-muted, #6b7280); }
+.replay-copy-toast { position: fixed; z-index: 1200; left: 50%; bottom: 48px; transform: translateX(-50%); margin: 0; padding: 8px 18px; border: 1px solid var(--text-active, #3b5adb); border-radius: 5px; color: var(--text-active, #3b5adb); background: var(--bg-card, #fff); box-shadow: 0 4px 16px rgba(0, 0, 0, .15); font-size: 12px; }
 
 .replay-pager { min-height: 52px; display: flex; align-items: center; justify-content: flex-end; gap: 14px; padding: 10px 20px; border-top: 1px solid var(--border, #e8edf5); background: var(--bg-card, #fff); color: var(--text-muted, #6b7280); font-size: 12px; }
 .replay-pager label { display: inline-flex; align-items: center; gap: 6px; }

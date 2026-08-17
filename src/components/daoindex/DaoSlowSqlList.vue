@@ -3,12 +3,12 @@
     <!-- 顶部工具条：常用外露（搜索/轮次/状态合一），低频进「更多筛选」面板 -->
     <div class="slow-toolbar">
       <div class="slow-tb-left">
-        <input v-model="keyword" class="slow-input" style="flex:1;min-width:200px" placeholder="搜索 抽象SQL / 微服务 / 来源文件" @keyup.enter="reload" />
+        <input v-model="keyword" class="slow-input" style="flex:1;min-width:200px" placeholder="搜索 抽象SQL / 微服务 / 来源文件" @keyup.enter="page = 0; reload()" />
         <select v-model="roundSel" class="slow-select" @change="page = 0; reload()">
           <option v-for="r in roundsDesc" :key="r" :value="r">{{ r }}</option>
         </select>
         <!-- 状态合一：互斥后一条 SQL 只在一条路线上；映射回原两参数，后端不变 -->
-        <select v-model="unifiedStatus" class="slow-select" @change="reload">
+        <select v-model="unifiedStatus" class="slow-select" @change="page = 0; reload()">
           <option value="">全部状态</option>
           <option value="NONE">未处理</option>
           <option value="OPTIMIZED">已优化</option>
@@ -378,6 +378,12 @@ async function reload() {
   } finally {
     loading.value = false
   }
+  // 防御钳位：筛选把结果缩小后当前页可能越界（如停在第2页而总数只够1页），
+  // 自动回到最后一个有效页重查，杜绝「共N条却显示暂无数据」
+  if (!errorMsg.value && page.value > 0 && items.value.length === 0 && total.value > 0) {
+    page.value = Math.max(0, Math.ceil(total.value / pageSize.value) - 1)
+    return reload()
+  }
 }
 // 清除「我的待审」过滤（通知父级重置 filter）
 function clearTodo() { emit('clear-todo-filter') }
@@ -424,7 +430,7 @@ async function doImport() {
       + `（${r.repeatHit} 条曾在历史轮次出现，跳过 ${r.skipped}`
       + `${r.filtered ? `，采集过滤名单排除 ${r.filtered} 行` : ''}`
       + `${r.overwritten ? `，覆盖旧轮 ${r.overwritten} 条` : ''}`
-      + `${r.reappearedHit ? `，本轮 ${r.reappearedHit} 条优化未生效` : ''}）`
+      + `${r.reappearedHit ? `，本批次 ${r.reappearedHit} 条优化未生效` : ''}）`
     page.value = 0
     domains.value = await listSlowSqlDomains()
     bizTypes.value = await listSlowSqlBizTypes()
@@ -633,11 +639,15 @@ const sqlDetailEl = ref(null)
 let sqlDetailHideTimer = null
 function showSqlDetail(it, e) {
   clearTimeout(sqlDetailHideTimer)
+  // 同行重入（含从弹层滑回单元格）只续命不重定位，避免弹层跳动
+  if (sqlDetail.value.open && sqlDetail.value.row === it) return
   const rect = e.currentTarget.getBoundingClientRect()
+  // 贴边 2px 重叠（负间隙）：原 +6px 空隙压在下一行单元格上，鼠标穿越时触发下一行
+  // mouseenter → 弹层跟着切行下移，永远追不上；重叠后可直接滑入弹层
   sqlDetail.value = { open: true, row: it,
     x: Math.min(rect.left + 12, window.innerWidth - 560),
-    y: rect.bottom + 6 }
-  flipPopY(sqlDetailEl, rect, 6, y => { if (sqlDetail.value.open && sqlDetail.value.row === it) sqlDetail.value.y = y })
+    y: rect.bottom - 2 }
+  flipPopY(sqlDetailEl, rect, -2, y => { if (sqlDetail.value.open && sqlDetail.value.row === it) sqlDetail.value.y = y })
 }
 function scheduleHideSqlDetail() {
   clearTimeout(sqlDetailHideTimer)
@@ -741,17 +751,19 @@ function journeyWho(ev) {
 }
 async function showJourney(it, e) {
   clearTimeout(journeyHideTimer)
-  const rect = e.currentTarget.getBoundingClientRect()
   const key = it.service_name + '\n' + it.abstract_hash
+  // 同行重入只续命不重定位（与 SQL 详情弹层同理，防"追不上"）
+  if (journey.value.open && journey.value.key === key) return
+  const rect = e.currentTarget.getBoundingClientRect()
   journey.value = {
     open: true, key, optStatus: it.optimize_status || '',
     x: Math.min(rect.left, window.innerWidth - 400),
-    y: rect.bottom + 6,
+    y: rect.bottom - 2,   // 贴边 2px 重叠，鼠标可直接滑入弹层
     loading: !journeyCache.has(key),
     items: journeyCache.get(key) || [],
   }
   // 底部行防溢出：加载态先按当前高度放一次；数据到达高度变化后再重算
-  const place = () => flipPopY(journeyEl, rect, 6, y => { if (journey.value.open && journey.value.key === key) journey.value.y = y })
+  const place = () => flipPopY(journeyEl, rect, -2, y => { if (journey.value.open && journey.value.key === key) journey.value.y = y })
   place()
   if (!journeyCache.has(key)) {
     let items = []
@@ -875,7 +887,7 @@ async function revokeOptimize(it) {
 .slow-table .dim-col { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sql-cell { max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; }
 .param-cell { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary, #5a6172); }
-/* v2：微服务 / 来源文件 / 重复出现轮次 截断单元格 */
+/* v2：微服务 / 来源文件 / 重复出现批次 截断单元格 */
 .svc-cell { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .loc-cell { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; font-size: 12px; color: var(--text-secondary, #5a6172); }
 .who-cell { white-space: nowrap; color: var(--text-secondary, #5a6172); font-size: 12px; }

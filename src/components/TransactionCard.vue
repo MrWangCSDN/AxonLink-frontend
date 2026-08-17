@@ -3100,14 +3100,14 @@ defineExpose({
 .ai-toolbar-actions { display: flex; align-items: center; gap: 6px; margin-right: 4px; }
 .ai-toolbar-btn {
   height: 28px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-  padding: 0 10px; background: rgba(79,124,255,0.08); border: 1px solid rgba(79,124,255,0.18);
-  border-radius: 6px; cursor: pointer; color: #315fd7; font-size: 12px; font-weight: 600;
+  padding: 0 10px; background: var(--btn-accent-bg); border: 1px solid var(--btn-accent-bd);
+  border-radius: 6px; cursor: pointer; color: var(--text-active); font-size: 12px; font-weight: 600;
   transition: all 0.15s; font-family: inherit;
 }
-.ai-toolbar-btn:hover:not(:disabled) { background: rgba(79,124,255,0.14); border-color: rgba(79,124,255,0.28); }
-.ai-toolbar-btn.active { background: rgba(79,124,255,0.18); border-color: rgba(79,124,255,0.32); }
+.ai-toolbar-btn:hover:not(:disabled) { background: var(--btn-accent-bg-hover); border-color: var(--btn-accent-bd-hover); }
+.ai-toolbar-btn.active { background: var(--btn-accent-bg-active); border-color: var(--btn-accent-bd-active); }
 .ai-toolbar-btn.secondary { background: var(--bg-action-btn); color: var(--text-muted); border-color: var(--card-border); }
-.ai-toolbar-btn.secondary:hover:not(:disabled) { background: rgba(79,124,255,0.08); color: #4F7CFF; border-color: rgba(79,124,255,0.22); }
+.ai-toolbar-btn.secondary:hover:not(:disabled) { background: var(--btn-accent-bg); color: var(--text-active); border-color: var(--btn-accent-bd); }
 .ai-toolbar-btn:disabled { opacity: 0.65; cursor: not-allowed; }
 
 /* 选中信息栏 */

@@ -23,7 +23,7 @@
         @select-code-page="onSelectCodePage"
       />
       <button
-        v-if="currentPage === 'replay-issues' && mobileNavigationOpen"
+        v-if="(currentPage === 'replay-issues' || currentPage === 'replay-transaction-persons') && mobileNavigationOpen"
         class="replay-mobile-backdrop"
         type="button"
         aria-label="关闭导航"
@@ -224,6 +224,10 @@
         class="impact-main"
         @toggle-navigation="mobileNavigationOpen = !mobileNavigationOpen"
       />
+      <ReplayTransactionPersonPage
+        v-if="currentPage === 'replay-transaction-persons'"
+        class="impact-main"
+      />
 
       <!-- ══════════ 源码提交分析大屏 ══════════ -->
       <CodeDashboard
@@ -242,6 +246,7 @@ import TransactionCard from '../components/TransactionCard.vue'
 import ImpactAnalysisPage from '../components/impact/ImpactAnalysisPage.vue'
 import DaoIndexPage from '../components/daoindex/DaoIndexPage.vue'
 import ReplayIssuePage from '../components/replay/ReplayIssuePage.vue'
+import ReplayTransactionPersonPage from '../components/replay/ReplayTransactionPersonPage.vue'
 import CodeDashboard from '../components/code-dashboard/CodeDashboard.vue'
 import {
   getAllTables,

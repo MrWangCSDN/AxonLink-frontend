@@ -58,8 +58,18 @@ export async function request(url, options = {}) {
   }
 
   if (!res.ok) {
-    // 其它 HTTP 错误（404/500/...）：不跳 /login，原样抛出
-    throw new ApiError(`HTTP ${res.status}: ${url}`, { status: res.status, code: 0, url })
+    // 其它 HTTP 错误（404/500/...）：不跳 /login，优先保留后端业务提示
+    let json = null
+    try {
+      json = await res.json()
+    } catch (_) {
+      // 后端可能未返回 JSON 体
+    }
+    throw new ApiError(json?.message || `HTTP ${res.status}: ${url}`, {
+      status: res.status,
+      code: json?.code || 0,
+      url,
+    })
   }
 
   const json = await res.json()

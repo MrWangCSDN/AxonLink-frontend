@@ -1,9 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   getReplayIssueOptions,
+  getReplayImportRounds,
+  getReplayIssueRoundTracking,
+  getReplayIssueGroupSummaries,
+  getReplayIssuePersonRankings,
   getReplayIssueStats,
+  fullRefreshReplayIssues,
   importReplayIssues,
   listReplayIssues,
+  updateReplayIssue,
 } from './replayIssues.js'
 
 const jsonResponse = (payload, status = 200) => new Response(JSON.stringify(payload), {
@@ -67,6 +73,37 @@ describe('replay issues API', () => {
     expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues/stats')
   })
 
+  it('gets hover summary tables from their dedicated endpoints', async () => {
+    global.fetch = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ code: 200, data: [] }))
+      .mockResolvedValueOnce(jsonResponse({ code: 200, data: [] }))
+
+    await getReplayIssueGroupSummaries()
+    await getReplayIssuePersonRankings()
+
+    expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues/stats/groups')
+    expect(fetch.mock.calls[1][0]).toBe('/api/ai/parallel-replay/issues/stats/person-ranking')
+  })
+
+  it('gets formal import rounds and grouped issue tracking', async () => {
+    global.fetch = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ code: 200, data: [] }))
+      .mockResolvedValueOnce(jsonResponse({ code: 200, data: [] }))
+
+    await getReplayImportRounds()
+    await getReplayIssueRoundTracking(16960)
+
+    expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues/rounds')
+    expect(fetch.mock.calls[1][0]).toBe('/api/ai/parallel-replay/issues/16960/round-tracking')
+  })
+
+  it('preserves the backend validation message for an update HTTP 400 response', async () => {
+    global.fetch = vi.fn().mockResolvedValue(jsonResponse({ code: 400, message: '该问题状态不能手工选择' }, 400))
+
+    await expect(updateReplayIssue(16960, { issueStatus: null, remark: '111' }))
+      .rejects.toThrow('该问题状态不能手工选择')
+  })
+
   it('sends multipart import without a JSON content type', async () => {
     global.fetch = vi.fn().mockResolvedValue(jsonResponse({ code: 200, data: { totalRows: 8 } }))
 
@@ -100,5 +137,31 @@ describe('replay issues API', () => {
     global.fetch = vi.fn().mockResolvedValue(jsonResponse({ code: 400, message: '文件为空' }, 400))
 
     await expect(importReplayIssues(new File(['x'], 'issues.xlsx'), 'secret')).rejects.toThrow('文件为空')
+  })
+
+  it('sends the full refresh file token and explicit confirmation', async () => {
+    global.fetch = vi.fn().mockResolvedValue(jsonResponse({ code: 200, data: { totalRows: 2 } }))
+    const file = new File(['x'], 'full-refresh.xlsx')
+
+    await fullRefreshReplayIssues(file, 'secret')
+
+    expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues/full-refresh')
+    const options = fetch.mock.calls[0][1]
+    expect(options.headers['X-DII-Trigger-Token']).toBe('secret')
+    expect(options.headers).not.toHaveProperty('Content-Type')
+    expect(options.body.get('file')).toBe(file)
+    expect(options.body.get('confirm')).toBe('FULL_REFRESH')
+  })
+
+  it.each([
+    [401, 'TOKEN_INVALID'],
+    [409, 'IMPORT_BUSY'],
+  ])('maps full refresh status %i to %s while preserving the message', async (status, code) => {
+    global.fetch = vi.fn().mockResolvedValue(jsonResponse({ code: status, message: '后端原始提示' }, status))
+
+    await expect(fullRefreshReplayIssues(new File(['x'], 'issues.xlsx'), 'secret')).rejects.toMatchObject({
+      code,
+      message: '后端原始提示',
+    })
   })
 })

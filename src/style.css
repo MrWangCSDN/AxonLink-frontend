@@ -127,6 +127,16 @@
   /* 错误码徽章（告警红橙系，与 component 徽章区分）—— light */
   --c-error-code-bg:   #fff0f0;
   --c-error-code-text: #cf1124;   /* 深红字，对比度 ≥ 4.5:1 */
+
+  /* accent 按钮（品牌蓝浅底描边款，如链路图 AI 工具栏按钮）：
+     底/边框 × 基础/hover/active 三档渐进；文字色直接用 --text-active。
+     light 取值即原硬编码值，收敛到 token 供 dark 覆盖。 */
+  --btn-accent-bg:        rgba(79,124,255,0.08);
+  --btn-accent-bd:        rgba(79,124,255,0.18);
+  --btn-accent-bg-hover:  rgba(79,124,255,0.14);
+  --btn-accent-bd-hover:  rgba(79,124,255,0.28);
+  --btn-accent-bg-active: rgba(79,124,255,0.18);
+  --btn-accent-bd-active: rgba(79,124,255,0.32);
 }
 
 /* ── 夜间模式 ── */
@@ -254,6 +264,15 @@
   /* 错误码徽章 —— dark（亮一档，避免暗底对比不足） */
   --c-error-code-bg:   rgba(255, 122, 126, 0.16);
   --c-error-code-text: #ff7a7e;
+
+  /* accent 按钮 —— dark：同色相提高 alpha（浅蓝叠加暗底会发灰，靠透明度加档保持可辨），
+     文字随 --text-active=#7EB8FF，三档底色上对比度均 ≥ 4.5:1（实测 6.0/5.3/4.9）。 */
+  --btn-accent-bg:        rgba(79,124,255,0.16);
+  --btn-accent-bd:        rgba(79,124,255,0.36);
+  --btn-accent-bg-hover:  rgba(79,124,255,0.24);
+  --btn-accent-bd-hover:  rgba(79,124,255,0.48);
+  --btn-accent-bg-active: rgba(79,124,255,0.30);
+  --btn-accent-bd-active: rgba(79,124,255,0.55);
 }
 
 *, *::before, *::after {
@@ -286,8 +305,8 @@ body {
 }
 
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 12px;
+  height: 12px;
 }
 
 ::-webkit-scrollbar-track {
@@ -296,7 +315,7 @@ body {
 
 ::-webkit-scrollbar-thumb {
   background: var(--scrollbar-thumb);
-  border-radius: 3px;
+  border-radius: 6px;
 }
 
 ::-webkit-scrollbar-thumb:hover {

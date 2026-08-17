@@ -317,7 +317,7 @@ const CODE_SECTION_ACCENT = '#0b70db'
 
 // 当 currentPage 命中 dii-* 任意页时视为 DAO 模块激活
 const isDiiPage = computed(() => (props.currentPage || '').startsWith('dii-'))
-const isReplayPage = computed(() => props.currentPage === 'replay-issues')
+const isReplayPage = computed(() => props.currentPage === 'replay-issues' || props.currentPage === 'replay-transaction-persons')
 // 代码提交分区激活判定
 const isCodePage = computed(() => props.currentPage === 'code-dashboard')
 
@@ -584,6 +584,7 @@ const codeMenu = [
 ]
 
 const replayMenu = [
+  { key: 'replay-transaction-persons', label: '全量交易人员清单', desc: '全量导入与导出', testId: 'replay-transaction-persons-menu' },
   { key: 'replay-issues', label: '回放问题清单', desc: '导入与分页查询', testId: 'replay-issues-menu' },
 ]
 
@@ -622,6 +623,7 @@ const codeIconMap = {
 }
 
 const replayIconMap = {
+  'replay-transaction-persons': IconList,
   'replay-issues': PlaySquare,
 }
 

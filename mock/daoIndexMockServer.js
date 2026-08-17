@@ -452,9 +452,108 @@ function parseQuery(url) {
   for (const part of q.split('&')) {
     if (!part) continue
     const [k, v = ''] = part.split('=')
-    out[decodeURIComponent(k)] = decodeURIComponent(v.replace(/\+/g, ' '))
+    const key = decodeURIComponent(k)
+    const value = decodeURIComponent(v.replace(/\+/g, ' '))
+    if (out[key] === undefined) out[key] = value
+    else out[key] = Array.isArray(out[key]) ? [...out[key], value] : [out[key], value]
   }
   return out
+}
+
+const REPLAY_GROUPS = ['公共组', '存款组', '贷款组', '结算组']
+const REPLAY_LEVELS = ['交易级', '字段级', '系统级']
+const REPLAY_TYPES = ['迁移问题', '防腐问题', '代码问题', '新核心下线', '参数问题', '平台问题', '规则差异问题', '合理差异', '其他问题']
+const REPLAY_STATUSES = ['新建', '打开', '延后修复', '修复待验证', '重新打开', '已修复']
+const REPLAY_DEVELOPERS = ['张三(c-zhangs3)', '李四(c-lisi)', '王五(c-wangw5)', '赵六(c-zhaol6)']
+const REPLAY_GROUP_SUMMARIES = Array.from({ length: 30 }, (_, index) => {
+  const newCount = 5 + (index % 7)
+  const openCount = 12 + (index % 11)
+  const deferredCount = 3 + (index % 5)
+  const reopenedCount = 2 + (index % 4)
+  const pendingVerificationCount = 4 + (index % 6)
+  return {
+    groupName: `${REPLAY_GROUPS[index % REPLAY_GROUPS.length]}-${String(Math.floor(index / REPLAY_GROUPS.length) + 1).padStart(2, '0')}`,
+    newCount,
+    openCount,
+    deferredCount,
+    reopenedCount,
+    pendingVerificationCount,
+    totalCount: newCount + openCount + deferredCount + reopenedCount + pendingVerificationCount,
+  }
+})
+const REPLAY_PERSON_RANKINGS = Array.from({ length: 30 }, (_, index) => {
+  const newCount = 2 + (index % 6)
+  const openCount = 7 + (index % 13)
+  const deferredCount = 1 + (index % 5)
+  const reopenedCount = index % 4
+  const pendingVerificationCount = 2 + (index % 7)
+  return {
+    rank: index + 1,
+    groupName: REPLAY_GROUPS[index % REPLAY_GROUPS.length],
+    developer: `开发负责人${String(index + 1).padStart(2, '0')}(c-dev${String(index + 1).padStart(2, '0')})`,
+    newCount,
+    openCount,
+    deferredCount,
+    reopenedCount,
+    pendingVerificationCount,
+    totalCount: newCount + openCount + deferredCount + reopenedCount + pendingVerificationCount,
+  }
+})
+const SPLIT_FILTER_COLUMNS = new Set(['occurrence_rounds', 'matched_developer', 'matched_bank_owner'])
+function splitFilterValues(value) {
+  return String(value || '').split('、').map(v => v.trim()).filter(Boolean)
+}
+function isEmptyFilterValue(value) {
+  return value === null || value === undefined || String(value).trim() === ''
+}
+function filterValueMatches(rowValue, selected) {
+  return selected === '空' ? isEmptyFilterValue(rowValue) : String(rowValue ?? '').trim() === selected
+}
+const REPLAY_ISSUES = Array.from({ length: 100 }, (_, index) => {
+  const n = index + 1
+  return {
+    id: n, domain: REPLAY_GROUPS[index % REPLAY_GROUPS.length], issue_id: String(2900 + n), is_sandbox: false,
+    transaction_code: `E${String(810 + (index % 24)).padStart(3, '0')}`, transaction_name: `回放交易${n}`,
+    issue_level: REPLAY_LEVELS[index % REPLAY_LEVELS.length], field_name: '响应码', serial_no: `10150160${String(n).padStart(8, '0')}`,
+    global_serial_no: `GS-${String(n).padStart(8, '0')}`, issue_description: `第${n}条回放问题描述`,
+    matched_developer: index % 10 === 0 ? '' : (index % 5 === 0 ? '张三(c-zhangs3)、李四(c-lisi)' : REPLAY_DEVELOPERS[index % REPLAY_DEVELOPERS.length]),
+    matched_bank_owner: index % 12 === 0 ? null : (index % 6 === 0 ? '刘六(c-liul6)、王七(c-wangq7)' : '行方负责人'),
+    issue_status: REPLAY_STATUSES[index % REPLAY_STATUSES.length], issue_type: REPLAY_TYPES[index % REPLAY_TYPES.length],
+    initial_analysis: '', final_solution: '', cooperation_person_username: '', cooperation_person_real_name: '', remark: '',
+    batch_no: 'MOCK-20260812', import_date: '2026-08-12', registered_date: '2026-08-12', defect_repair_date: '',
+    affected_transaction_count: 1, issue_key: `MOCK-${String(n).padStart(4, '0')}`, historical_occurrence_count: 1,
+    first_occurrence_date: '2026-08-12', last_occurrence_date: '2026-08-12', occurrence_rounds: index % 15 === 0 ? '' : 'MOCK-20260812',
+  }
+})
+const REPLAY_MAIL_STATUS = new Map()
+
+function replayFilterRows(q) {
+  let rows = REPLAY_ISSUES
+  if (q.groupName) rows = rows.filter(r => r.domain === q.groupName)
+  if (q.issueLevel) rows = rows.filter(r => r.issue_level === q.issueLevel)
+  if (q.issueStatus) rows = rows.filter(r => r.issue_status === q.issueStatus)
+  if (q.issueType) rows = rows.filter(r => r.issue_type === q.issueType)
+  if (q.occurrenceBatches) {
+    const values = Array.isArray(q.occurrenceBatches) ? q.occurrenceBatches : [q.occurrenceBatches]
+    rows = rows.filter(r => values.some(value => value === '空' ? isEmptyFilterValue(r.occurrence_rounds) : splitFilterValues(r.occurrence_rounds).includes(value)))
+  }
+  const inFilter = (key, column) => {
+    if (!q[key]) return
+    const values = Array.isArray(q[key]) ? q[key] : [q[key]]
+    rows = rows.filter(r => {
+      const rowValues = SPLIT_FILTER_COLUMNS.has(column) ? splitFilterValues(r[column]) : [r[column]]
+      return values.some(value => value === '空' ? isEmptyFilterValue(r[column]) : rowValues.includes(value))
+    })
+  }
+  inFilter('transactionCodes', 'transaction_code')
+  inFilter('issueLevels', 'issue_level')
+  inFilter('developers', 'matched_developer')
+  inFilter('bankOwners', 'matched_bank_owner')
+  inFilter('issueStatuses', 'issue_status')
+  inFilter('issueTypes', 'issue_type')
+  inFilter('cooperationPersons', 'cooperation_person_username')
+  if (q.keyword) rows = rows.filter(r => Object.values(r).some(v => String(v || '').includes(q.keyword)))
+  return rows
 }
 
 // ────────────── Vite 插件 ──────────────
@@ -465,6 +564,62 @@ export function daoIndexMockPlugin() {
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         const url = req.url || ''
+        if (url.startsWith('/api/ai/parallel-replay/issues')) {
+          const q = parseQuery(url)
+          if (url.includes('/users')) {
+            return ok(res, [
+              { displayName: '张三', username: 'c-wangsh8', email: 'c-wangsh8@spdbdev.com' },
+              { displayName: '孙海英', username: 'sunhy1', email: 'sunhy1@example.com' },
+              { displayName: '李四', username: 'lisi', email: 'lisi@example.com' },
+            ])
+          }
+          if (req.method === 'PATCH') {
+            const issueId = Number(url.match(/issues\/(\d+)/)?.[1] || 1)
+            return ok(res, REPLAY_ISSUES.find(item => item.id === issueId) || REPLAY_ISSUES[0])
+          }
+          if (url.endsWith('/stats/groups')) return ok(res, REPLAY_GROUP_SUMMARIES)
+          if (url.endsWith('/stats/person-ranking')) return ok(res, REPLAY_PERSON_RANKINGS)
+          if (url.includes('/mail-status')) {
+            const issueId = Number(url.match(/issues\/(\d+)\//)?.[1] || 0)
+            return ok(res, REPLAY_MAIL_STATUS.get(issueId) || {
+              status: 'UNSENT', sentAt: null, recipientEmail: 'c-wangsh8@spdbdev.com', failureMessage: null,
+              recipients: [
+                { displayName: '张三', username: 'c-wangsh8', email: 'c-wangsh8@spdbdev.com', role: '协同人', status: 'UNSENT', sentAt: null, failureMessage: null },
+                { displayName: '李四', username: 'lisi', email: 'lisi@example.com', role: '开发负责人', status: 'UNSENT', sentAt: null, failureMessage: null },
+                { displayName: '王五', username: 'wangwu', email: 'wangwu@example.com', role: '科技负责人', status: 'UNSENT', sentAt: null, failureMessage: null },
+              ],
+            })
+          }
+          if (url.includes('/mail-send')) {
+            const issueId = Number(url.match(/issues\/(\d+)\//)?.[1] || 0)
+            const status = {
+              status: 'FAILED', sentAt: null, recipientEmail: null, failureMessage: 'SMTP 连接超时（mock）',
+              recipients: [
+                { displayName: '张三', username: 'c-wangsh8', email: 'c-wangsh8@spdbdev.com', role: '协同人', status: 'SENT', sentAt: '2026-08-15 10:00:00', failureMessage: null },
+                { displayName: '李四', username: 'lisi', email: 'lisi@example.com', role: '开发负责人', status: 'FAILED', sentAt: null, failureMessage: 'SMTP 连接超时（mock）' },
+                { displayName: '王五', username: 'wangwu', email: 'wangwu@example.com', role: '科技负责人', status: 'SENT', sentAt: '2026-08-15 10:00:00', failureMessage: null },
+              ],
+            }
+            REPLAY_MAIL_STATUS.set(issueId, status)
+            return ok(res, status)
+          }
+          if (url.includes('/header-filter-options')) {
+            const fieldMap = { transactionCode: 'transaction_code', issueLevel: 'issue_level', developer: 'matched_developer', bankOwner: 'matched_bank_owner', issueStatus: 'issue_status', issueType: 'issue_type', cooperationPerson: 'cooperation_person_username', occurrenceBatch: 'occurrence_rounds' }
+            const column = fieldMap[q.field]
+            const rows = replayFilterRows(q)
+            const hasEmpty = rows.some(row => isEmptyFilterValue(row[column]))
+            const values = [...new Set(rows.flatMap(row => SPLIT_FILTER_COLUMNS.has(column) ? splitFilterValues(row[column]) : [row[column]]).filter(v => !isEmptyFilterValue(v)))].sort()
+            if (hasEmpty) values.unshift('空')
+            const filtered = values.filter(v => !q.keyword || (v === '空' ? q.keyword === '空' : v.includes(q.keyword)))
+            return ok(res, filtered)
+          }
+          if (url.endsWith('/options')) return ok(res, { groups: REPLAY_GROUPS, issueLevels: REPLAY_LEVELS, issueTypes: REPLAY_TYPES, issueStatuses: REPLAY_STATUSES, coverageRounds: ['MOCK-20260812'] })
+          if (url.endsWith('/stats')) return ok(res, { total: 100, newTotal: 17, openTotal: 17, reopenedTotal: 17, deferredTotal: 17, pendingVerificationTotal: 16, fixedTotal: 16, groupCounts: {} })
+          if (url.includes('/stats/')) return ok(res, [])
+          const rows = replayFilterRows(q)
+          const offset = Number(q.offset || 0); const limit = Number(q.limit || 50)
+          return ok(res, { total: rows.length, items: rows.slice(offset, offset + limit) })
+        }
         if (!url.startsWith('/api/ai/dao-index/') &&
             url !== '/api/flowtran/env' &&
             !url.startsWith('/api/system/build-sync-status') &&

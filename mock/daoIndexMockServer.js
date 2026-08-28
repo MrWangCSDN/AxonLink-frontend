@@ -465,20 +465,28 @@ const REPLAY_LEVELS = ['交易级', '字段级', '系统级']
 const REPLAY_TYPES = ['迁移问题', '防腐问题', '代码问题', '新核心下线', '参数问题', '平台问题', '规则差异问题', '合理差异', '其他问题']
 const REPLAY_STATUSES = ['新建', '打开', '延后修复', '修复待验证', '重新打开', '已修复']
 const REPLAY_DEVELOPERS = ['张三(c-zhangs3)', '李四(c-lisi)', '王五(c-wangw5)', '赵六(c-zhaol6)']
-const REPLAY_GROUP_SUMMARIES = Array.from({ length: 30 }, (_, index) => {
+const REPLAY_GROUP_SUMMARIES = REPLAY_GROUPS.map((groupName, index) => {
   const newCount = 5 + (index % 7)
   const openCount = 12 + (index % 11)
   const deferredCount = 3 + (index % 5)
   const reopenedCount = 2 + (index % 4)
   const pendingVerificationCount = 4 + (index % 6)
+  const pendingTotalCount = newCount + openCount + reopenedCount + deferredCount + pendingVerificationCount
+  const noActionCount = 1 + (index % 3)
+  const fixedCount = 6 + (index % 8)
+  const fixedTotalCount = noActionCount + fixedCount
   return {
-    groupName: `${REPLAY_GROUPS[index % REPLAY_GROUPS.length]}-${String(Math.floor(index / REPLAY_GROUPS.length) + 1).padStart(2, '0')}`,
+    groupName,
     newCount,
     openCount,
-    deferredCount,
     reopenedCount,
+    deferredCount,
     pendingVerificationCount,
-    totalCount: newCount + openCount + deferredCount + reopenedCount + pendingVerificationCount,
+    pendingTotalCount,
+    noActionCount,
+    fixedCount,
+    fixedTotalCount,
+    totalCount: pendingTotalCount + fixedTotalCount,
   }
 })
 const REPLAY_PERSON_RANKINGS = Array.from({ length: 30 }, (_, index) => {
@@ -487,16 +495,24 @@ const REPLAY_PERSON_RANKINGS = Array.from({ length: 30 }, (_, index) => {
   const deferredCount = 1 + (index % 5)
   const reopenedCount = index % 4
   const pendingVerificationCount = 2 + (index % 7)
+  const pendingTotalCount = newCount + openCount + reopenedCount + deferredCount + pendingVerificationCount
+  const noActionCount = index % 3
+  const fixedCount = 3 + (index % 9)
+  const fixedTotalCount = noActionCount + fixedCount
   return {
-    rank: index + 1,
+    rank: Math.floor(index / REPLAY_GROUPS.length) + 1,
     groupName: REPLAY_GROUPS[index % REPLAY_GROUPS.length],
     developer: `开发负责人${String(index + 1).padStart(2, '0')}(c-dev${String(index + 1).padStart(2, '0')})`,
     newCount,
     openCount,
-    deferredCount,
     reopenedCount,
+    deferredCount,
     pendingVerificationCount,
-    totalCount: newCount + openCount + deferredCount + reopenedCount + pendingVerificationCount,
+    pendingTotalCount,
+    noActionCount,
+    fixedCount,
+    fixedTotalCount,
+    totalCount: pendingTotalCount + fixedTotalCount,
   }
 })
 const SPLIT_FILTER_COLUMNS = new Set(['occurrence_rounds', 'matched_developer', 'matched_bank_owner'])
@@ -511,28 +527,167 @@ function filterValueMatches(rowValue, selected) {
 }
 const REPLAY_ISSUES = Array.from({ length: 100 }, (_, index) => {
   const n = index + 1
+  const groupName = REPLAY_GROUPS[index % REPLAY_GROUPS.length]
+  const occurrenceBatches = index < 30 ? ['MOCK-20260819']
+    : index < 60 ? ['MOCK-20260815']
+      : index < 85 ? ['MOCK-20260812'] : []
+  if (index > 0 && index % 10 === 0) occurrenceBatches.push('MOCK-20260808')
   return {
-    id: n, domain: REPLAY_GROUPS[index % REPLAY_GROUPS.length], issue_id: String(2900 + n), is_sandbox: false,
+    id: n, domain: groupName, group_name: groupName, issue_id: String(2900 + n), is_sandbox: false,
     transaction_code: `E${String(810 + (index % 24)).padStart(3, '0')}`, transaction_name: `回放交易${n}`,
     issue_level: REPLAY_LEVELS[index % REPLAY_LEVELS.length], field_name: '响应码', serial_no: `10150160${String(n).padStart(8, '0')}`,
     global_serial_no: `GS-${String(n).padStart(8, '0')}`, issue_description: `第${n}条回放问题描述`,
     matched_developer: index % 10 === 0 ? '' : (index % 5 === 0 ? '张三(c-zhangs3)、李四(c-lisi)' : REPLAY_DEVELOPERS[index % REPLAY_DEVELOPERS.length]),
     matched_bank_owner: index % 12 === 0 ? null : (index % 6 === 0 ? '刘六(c-liul6)、王七(c-wangq7)' : '行方负责人'),
     issue_status: REPLAY_STATUSES[index % REPLAY_STATUSES.length], issue_type: REPLAY_TYPES[index % REPLAY_TYPES.length],
-    initial_analysis: '', final_solution: '', cooperation_person_username: '', cooperation_person_real_name: '', remark: '',
-    batch_no: 'MOCK-20260812', import_date: '2026-08-12', registered_date: '2026-08-12', defect_repair_date: '',
+    initial_analysis: `初步分析：已定位第${n}条问题的响应码与字段映射差异`,
+    final_solution: `最终方案：调整第${n}条交易映射并完成回放验证`,
+    cooperation_person_username: '', cooperation_person_real_name: '',
+    remark: index % 3 === 0 ? `备注：第${n}条问题需要关注后续批次验证结果` : `备注：第${n}条问题已纳入跟踪`,
+    batch_no: 'MOCK-20260812', import_date: '2026-08-12', registered_date: '2026-08-12',
+    planned_completion_date: groupName === '公共组' ? (index % 8 === 0 ? '2026-08-26' : '')
+      : groupName === '贷款组' ? (index % 8 === 2 ? '2026-09-10' : '') : '',
+    defect_repair_date: index % 5 === 0 ? `2026-08-${String(20 + (index % 8)).padStart(2, '0')}` : '',
     affected_transaction_count: 1, issue_key: `MOCK-${String(n).padStart(4, '0')}`, historical_occurrence_count: 1,
-    first_occurrence_date: '2026-08-12', last_occurrence_date: '2026-08-12', occurrence_rounds: index % 15 === 0 ? '' : 'MOCK-20260812',
+    first_occurrence_date: '2026-08-12', last_occurrence_date: '2026-08-19', occurrence_rounds: occurrenceBatches.join('、'),
   }
 })
 const REPLAY_MAIL_STATUS = new Map()
+let REPLAY_WEEKLY_TASK_BATCHES = ['MOCK-20260819']
+const REPLAY_AVAILABLE_BATCHES = ['MOCK-20260808', 'MOCK-20260812', 'MOCK-20260815', 'MOCK-20260819']
+
+const REPLAY_COMPLETION_DEVELOPERS = Array.from(
+  { length: 15 },
+  (_, index) => `开发负责人${String(index + 1).padStart(2, '0')}(c-dev${String(index + 1).padStart(2, '0')})`,
+)
+const REPLAY_COMPLETION_DEVELOPER_INDEXES = [
+  0, 0, 0, 0, 0,
+  1, 1, 1, 1,
+  2, 2, 2,
+  3, 3, 3,
+  4, 4,
+  5, 5,
+  6, 6,
+  7, 7,
+  8, 9, 10, 11, 12, 13, 14,
+]
+const REPLAY_COMPLETION_DATES = Array.from(
+  { length: 30 },
+  (_, index) => `2026-08-${String(index + 1).padStart(2, '0')}`,
+)
+const REPLAY_COMPLETION_ISSUES = REPLAY_GROUPS.flatMap((groupName, groupIndex) =>
+  Array.from({ length: 30 }, (_, index) => {
+    const categoryIndex = index % 4
+    const plannedDateIndex = groupIndex === 0
+      ? index
+      : (index * (groupIndex + 2) + groupIndex) % REPLAY_COMPLETION_DATES.length
+    const plannedCompletionDate = REPLAY_COMPLETION_DATES[plannedDateIndex]
+    const plannedTime = new Date(`${plannedCompletionDate}T00:00:00Z`)
+    const repaired = new Date(plannedTime)
+    if (categoryIndex === 0) repaired.setUTCDate(repaired.getUTCDate() - 1)
+    if (categoryIndex === 1) repaired.setUTCDate(repaired.getUTCDate() + 3)
+    const defectRepairDate = categoryIndex < 2 ? repaired.toISOString().slice(0, 10) : null
+    const id = 5000 + groupIndex * 30 + index + 1
+    return {
+      id,
+      issueId: `MOCK-C-${String(id).padStart(5, '0')}`,
+      transactionCode: `C${groupIndex + 1}${String(index + 1).padStart(3, '0')}`,
+      transactionName: `${groupName}计划完成跟踪交易${index + 1}`,
+      issueStatus: defectRepairDate ? '已修复' : '打开',
+      plannedCompletionDate,
+      defectRepairDate,
+      groupName,
+      matchedDeveloper: REPLAY_COMPLETION_DEVELOPERS[
+        (REPLAY_COMPLETION_DEVELOPER_INDEXES[index] + groupIndex) % REPLAY_COMPLETION_DEVELOPERS.length
+      ],
+      issueKey: `MOCK-COMPLETION-${groupIndex + 1}-${String(index + 1).padStart(2, '0')}`,
+    }
+  }),
+)
+
+function replayCompletionCategory(issue, today = '2026-08-27') {
+  if (issue.defectRepairDate) return issue.defectRepairDate <= issue.plannedCompletionDate ? 'ON_TIME_FIXED' : 'LATE_FIXED'
+  return today <= issue.plannedCompletionDate ? 'UNFINISHED' : 'OVERDUE_UNFINISHED'
+}
+
+function replayCompletionCounts(rows) {
+  const counts = { onTimeFixedCount: 0, lateFixedCount: 0, unfinishedCount: 0, overdueUnfinishedCount: 0 }
+  const fieldByCategory = {
+    ON_TIME_FIXED: 'onTimeFixedCount',
+    LATE_FIXED: 'lateFixedCount',
+    UNFINISHED: 'unfinishedCount',
+    OVERDUE_UNFINISHED: 'overdueUnfinishedCount',
+  }
+  rows.forEach(issue => { counts[fieldByCategory[replayCompletionCategory(issue)]] += 1 })
+  const plannedTotal = rows.length
+  const completionRate = plannedTotal ? Number((((counts.onTimeFixedCount + counts.lateFixedCount) * 100) / plannedTotal).toFixed(2)) : null
+  return { plannedTotal, ...counts, completionRate }
+}
+
+function replayCompletionRange(q) {
+  const datePoints = [...new Set(REPLAY_COMPLETION_ISSUES.map(issue => issue.plannedCompletionDate))].sort()
+  const startDate = q.startDate
+    ? (datePoints.find(date => date >= q.startDate) || datePoints.at(-1))
+    : datePoints[Math.max(0, datePoints.length - 3)]
+  const endDate = q.endDate
+    ? ([...datePoints].reverse().find(date => date <= q.endDate) || datePoints[0])
+    : datePoints.at(-1)
+  return { datePoints, startDate, endDate }
+}
+
+function replayCompletionDashboard(q) {
+  const { startDate, endDate } = replayCompletionRange(q)
+  const rangeRows = REPLAY_COMPLETION_ISSUES.filter(issue => issue.plannedCompletionDate >= startDate && issue.plannedCompletionDate <= endDate)
+  const groups = REPLAY_GROUPS.map(groupName => {
+    const groupRows = rangeRows.filter(issue => issue.groupName === groupName)
+    const developers = [...new Set(groupRows.map(issue => issue.matchedDeveloper))].sort().map(matchedDeveloper => ({
+      matchedDeveloper,
+      ...replayCompletionCounts(groupRows.filter(issue => issue.matchedDeveloper === matchedDeveloper)),
+    }))
+    return { groupName, ...replayCompletionCounts(groupRows), developers }
+  })
+  return {
+    effectiveStartDate: startDate,
+    effectiveEndDate: endDate,
+    today: '2026-08-27',
+    summary: replayCompletionCounts(rangeRows),
+    groups,
+  }
+}
+
+function isReplayWeeklyTask(row) {
+  return splitFilterValues(row.occurrence_rounds).some(batch => REPLAY_WEEKLY_TASK_BATCHES.includes(batch))
+}
+
+function replayWeeklyTaskConfig() {
+  return {
+    batchNames: [...REPLAY_WEEKLY_TASK_BATCHES],
+    availableBatchNames: [...REPLAY_AVAILABLE_BATCHES],
+    issueCount: REPLAY_ISSUES.filter(isReplayWeeklyTask).length,
+  }
+}
+
+function readJsonBody(req) {
+  return new Promise((resolve) => {
+    let body = ''
+    req.on('data', chunk => { body += chunk })
+    req.on('end', () => {
+      try { resolve(body ? JSON.parse(body) : {}) } catch { resolve({}) }
+    })
+  })
+}
 
 function replayFilterRows(q) {
   let rows = REPLAY_ISSUES
+  if (q.weeklyTask === 'true' || q.weeklyTask === true) rows = rows.filter(isReplayWeeklyTask)
   if (q.groupName) rows = rows.filter(r => r.domain === q.groupName)
+  if (q.issueId) rows = rows.filter(r => String(r.issue_id || '').includes(q.issueId))
   if (q.issueLevel) rows = rows.filter(r => r.issue_level === q.issueLevel)
   if (q.issueStatus) rows = rows.filter(r => r.issue_status === q.issueStatus)
   if (q.issueType) rows = rows.filter(r => r.issue_type === q.issueType)
+  if (q.serialNo) rows = rows.filter(r => String(r.serial_no || '').includes(q.serialNo))
+  if (q.globalSerialNo) rows = rows.filter(r => String(r.global_serial_no || '').includes(q.globalSerialNo))
+  if (q.defectRepairDate) rows = rows.filter(r => String(r.defect_repair_date || '') === q.defectRepairDate)
   if (q.occurrenceBatches) {
     const values = Array.isArray(q.occurrenceBatches) ? q.occurrenceBatches : [q.occurrenceBatches]
     rows = rows.filter(r => values.some(value => value === '空' ? isEmptyFilterValue(r.occurrence_rounds) : splitFilterValues(r.occurrence_rounds).includes(value)))
@@ -546,12 +701,22 @@ function replayFilterRows(q) {
     })
   }
   inFilter('transactionCodes', 'transaction_code')
+  inFilter('groupNames', 'domain')
+  inFilter('issueIds', 'issue_id')
   inFilter('issueLevels', 'issue_level')
+  inFilter('serialNos', 'serial_no')
+  inFilter('globalSerialNos', 'global_serial_no')
+  inFilter('defectRepairDates', 'defect_repair_date')
+  inFilter('plannedCompletionDates', 'planned_completion_date')
   inFilter('developers', 'matched_developer')
   inFilter('bankOwners', 'matched_bank_owner')
   inFilter('issueStatuses', 'issue_status')
   inFilter('issueTypes', 'issue_type')
   inFilter('cooperationPersons', 'cooperation_person_username')
+  if (q.sandboxes) {
+    const values = Array.isArray(q.sandboxes) ? q.sandboxes : [q.sandboxes]
+    rows = rows.filter(r => values.includes(r.is_sandbox ? '是' : '否'))
+  }
   if (q.keyword) rows = rows.filter(r => Object.values(r).some(v => String(v || '').includes(q.keyword)))
   return rows
 }
@@ -566,6 +731,25 @@ export function daoIndexMockPlugin() {
         const url = req.url || ''
         if (url.startsWith('/api/ai/parallel-replay/issues')) {
           const q = parseQuery(url)
+          if (url.endsWith('/weekly-task')) {
+            if (req.method === 'PUT') {
+              if (req.headers['x-dii-trigger-token'] !== 'secret') {
+                res.statusCode = 401
+                return res.end(JSON.stringify({ code: 401, message: '口令错误' }))
+              }
+              return readJsonBody(req).then((body) => {
+                const requested = [...new Set((body.batchNames || []).map(value => String(value).trim()).filter(Boolean))].sort()
+                const unknown = requested.filter(batch => !REPLAY_AVAILABLE_BATCHES.includes(batch))
+                if (unknown.length) {
+                  res.statusCode = 400
+                  return res.end(JSON.stringify({ code: 400, message: `出现批次不存在：${unknown.join('、')}` }))
+                }
+                REPLAY_WEEKLY_TASK_BATCHES = requested
+                return ok(res, replayWeeklyTaskConfig())
+              })
+            }
+            return ok(res, replayWeeklyTaskConfig())
+          }
           if (url.includes('/users')) {
             return ok(res, [
               { displayName: '张三', username: 'c-wangsh8', email: 'c-wangsh8@spdbdev.com' },
@@ -573,10 +757,52 @@ export function daoIndexMockPlugin() {
               { displayName: '李四', username: 'lisi', email: 'lisi@example.com' },
             ])
           }
+          if (url.endsWith('/plan-date-permissions')) {
+            return ok(res, { editableGroups: ['公共组'] })
+          }
+          if (url.endsWith('/review-permissions')) {
+            return ok(res, { reviewableGroups: [], reviewersByGroup: {}, reviewableTransactionCodes: [] })
+          }
+          if (req.method === 'PATCH' && url.includes('/planned-completion-date')) {
+            const issueId = Number(url.match(/issues\/(\d+)/)?.[1] || 0)
+            return readJsonBody(req).then((body) => {
+              const issue = REPLAY_ISSUES.find(item => item.id === issueId)
+              if (!issue) {
+                res.statusCode = 404
+                return res.end(JSON.stringify({ code: 404, message: '回放问题不存在' }))
+              }
+              issue.planned_completion_date = body.plannedCompletionDate || ''
+              return ok(res, { ...issue, plannedCompletionDate: issue.planned_completion_date || null })
+            })
+          }
           if (req.method === 'PATCH') {
             const issueId = Number(url.match(/issues\/(\d+)/)?.[1] || 1)
             return ok(res, REPLAY_ISSUES.find(item => item.id === issueId) || REPLAY_ISSUES[0])
           }
+          if (url.includes('/stats/planned-completion/date-points')) {
+            const { datePoints } = replayCompletionRange(q)
+            const counts = new Map()
+            REPLAY_COMPLETION_ISSUES.forEach(issue => counts.set(issue.plannedCompletionDate, (counts.get(issue.plannedCompletionDate) || 0) + 1))
+            return ok(res, {
+              datePoints: datePoints.map(date => ({ date, plannedCount: counts.get(date) })),
+              defaultStartDate: datePoints[Math.max(0, datePoints.length - 3)],
+              defaultEndDate: datePoints.at(-1),
+            })
+          }
+          if (url.includes('/stats/planned-completion/issues')) {
+            const { startDate, endDate } = replayCompletionRange(q)
+            const matchedDeveloper = q.matchedDeveloper || null
+            const filtered = REPLAY_COMPLETION_ISSUES.filter(issue =>
+              issue.plannedCompletionDate >= startDate && issue.plannedCompletionDate <= endDate
+              && issue.groupName === q.groupName
+              && (!matchedDeveloper || issue.matchedDeveloper === matchedDeveloper)
+              && replayCompletionCategory(issue) === q.category
+            )
+            const offset = Number(q.offset || 0)
+            const limit = Number(q.limit || 20)
+            return ok(res, { total: filtered.length, items: filtered.slice(offset, offset + limit), limit, offset, today: '2026-08-27' })
+          }
+          if (url.includes('/stats/planned-completion')) return ok(res, replayCompletionDashboard(q))
           if (url.endsWith('/stats/groups')) return ok(res, REPLAY_GROUP_SUMMARIES)
           if (url.endsWith('/stats/person-ranking')) return ok(res, REPLAY_PERSON_RANKINGS)
           if (url.includes('/mail-status')) {
@@ -604,21 +830,22 @@ export function daoIndexMockPlugin() {
             return ok(res, status)
           }
           if (url.includes('/header-filter-options')) {
-            const fieldMap = { transactionCode: 'transaction_code', issueLevel: 'issue_level', developer: 'matched_developer', bankOwner: 'matched_bank_owner', issueStatus: 'issue_status', issueType: 'issue_type', cooperationPerson: 'cooperation_person_username', occurrenceBatch: 'occurrence_rounds' }
+            const fieldMap = { groupName: 'domain', sandbox: 'is_sandbox', issueId: 'issue_id', transactionCode: 'transaction_code', issueLevel: 'issue_level', serialNo: 'serial_no', globalSerialNo: 'global_serial_no', defectRepairDate: 'defect_repair_date', developer: 'matched_developer', bankOwner: 'matched_bank_owner', issueStatus: 'issue_status', issueType: 'issue_type', cooperationPerson: 'cooperation_person_username', plannedCompletionDate: 'planned_completion_date', occurrenceBatch: 'occurrence_rounds' }
             const column = fieldMap[q.field]
             const rows = replayFilterRows(q)
-            const hasEmpty = rows.some(row => isEmptyFilterValue(row[column]))
-            const values = [...new Set(rows.flatMap(row => SPLIT_FILTER_COLUMNS.has(column) ? splitFilterValues(row[column]) : [row[column]]).filter(v => !isEmptyFilterValue(v)))].sort()
+            const candidateValue = row => q.field === 'sandbox' ? (row[column] ? '是' : '否') : row[column]
+            const hasEmpty = rows.some(row => isEmptyFilterValue(candidateValue(row)))
+            const values = [...new Set(rows.flatMap(row => SPLIT_FILTER_COLUMNS.has(column) ? splitFilterValues(candidateValue(row)) : [candidateValue(row)]).filter(v => !isEmptyFilterValue(v)))].sort()
             if (hasEmpty) values.unshift('空')
             const filtered = values.filter(v => !q.keyword || (v === '空' ? q.keyword === '空' : v.includes(q.keyword)))
             return ok(res, filtered)
           }
-          if (url.endsWith('/options')) return ok(res, { groups: REPLAY_GROUPS, issueLevels: REPLAY_LEVELS, issueTypes: REPLAY_TYPES, issueStatuses: REPLAY_STATUSES, coverageRounds: ['MOCK-20260812'] })
+          if (url.endsWith('/options')) return ok(res, { groups: REPLAY_GROUPS, issueLevels: REPLAY_LEVELS, issueTypes: REPLAY_TYPES, issueStatuses: REPLAY_STATUSES, coverageRounds: REPLAY_AVAILABLE_BATCHES })
           if (url.endsWith('/stats')) return ok(res, { total: 100, newTotal: 17, openTotal: 17, reopenedTotal: 17, deferredTotal: 17, pendingVerificationTotal: 16, fixedTotal: 16, groupCounts: {} })
           if (url.includes('/stats/')) return ok(res, [])
           const rows = replayFilterRows(q)
           const offset = Number(q.offset || 0); const limit = Number(q.limit || 50)
-          return ok(res, { total: rows.length, items: rows.slice(offset, offset + limit) })
+          return ok(res, { total: rows.length, items: rows.slice(offset, offset + limit).map(row => ({ ...row, weekly_task: isReplayWeeklyTask(row) })) })
         }
         if (!url.startsWith('/api/ai/dao-index/') &&
             url !== '/api/flowtran/env' &&

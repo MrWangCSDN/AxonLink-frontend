@@ -33,6 +33,51 @@ export function getReplayIssueStats() {
   return request(`${PREFIX}/stats`)
 }
 
+export function getReplayCompletionDatePoints() {
+  return request(`${PREFIX}/stats/planned-completion/date-points`)
+}
+
+export function getReplayCompletionDashboard(params = {}) {
+  const query = queryString(params)
+  return request(`${PREFIX}/stats/planned-completion${query ? `?${query}` : ''}`)
+}
+
+export function getReplayCompletionIssues(params = {}) {
+  const query = queryString(params)
+  return request(`${PREFIX}/stats/planned-completion/issues${query ? `?${query}` : ''}`)
+}
+
+export function getReplayIssueReviewPermissions() {
+  return request(`${PREFIX}/review-permissions`)
+}
+
+export function getReplayIssuePlanDatePermissions() {
+  return request(`${PREFIX}/plan-date-permissions`)
+}
+
+export function updateReplayIssuePlannedCompletionDate(id, plannedCompletionDate) {
+  return request(`${PREFIX}/${encodeURIComponent(id)}/planned-completion-date`, {
+    method: 'PATCH',
+    body: JSON.stringify({ plannedCompletionDate }),
+  })
+}
+
+export function approveReplayIssue(id) {
+  return request(`${PREFIX}/${encodeURIComponent(id)}/review/approve`, { method: 'POST' })
+}
+
+export function getReplayWeeklyTask() {
+  return request(`${PREFIX}/weekly-task`)
+}
+
+export function replaceReplayWeeklyTask(batchNames = [], token = '') {
+  return request(`${PREFIX}/weekly-task`, {
+    method: 'PUT',
+    headers: { 'X-DII-Trigger-Token': token || '' },
+    body: JSON.stringify({ batchNames }),
+  })
+}
+
 export function getReplayIssueGroupSummaries() {
   return request(`${PREFIX}/stats/groups`)
 }
@@ -47,6 +92,17 @@ export function getReplayImportRounds() {
 
 export function getReplayIssueRoundTracking(id) {
   return request(`${PREFIX}/${encodeURIComponent(id)}/round-tracking`)
+}
+
+/** 列出可下载的日报批次（按最近出现倒序，含是否已落盘 available 字段）。 */
+export function getReplayDailyReportBatches() {
+  return request(`${PREFIX}/daily-report/batches`)
+}
+
+/** 下载指定 batchNo 的日报 .xlsx 快照。 */
+export function downloadReplayDailyReport(batchNo) {
+  const filename = `${batchNo}批次日报.xlsx`
+  return download(`${PREFIX}/daily-report?batchNo=${encodeURIComponent(batchNo)}`, filename)
 }
 
 export function exportReplayIssues(params = {}) {
@@ -80,9 +136,10 @@ export function getReplayIssueTracking(id) {
   return request(`${PREFIX}/${encodeURIComponent(id)}/tracking?limit=200`)
 }
 
-export async function importReplayIssues(file, token) {
+export async function importReplayIssues(file, token, replayType = 'QUERY') {
   const formData = new FormData()
   formData.append('file', file)
+  formData.append('replayType', replayType || 'QUERY')
 
   const response = await fetch('/api/ai/parallel-replay/issues/import', {
     method: 'POST',
@@ -94,25 +151,6 @@ export async function importReplayIssues(file, token) {
   if (response.ok && json?.code === 200) {
     return json.data
   }
-
-  const error = new Error(json?.message || `HTTP ${response.status}`)
-  if (response.status === 401) error.code = 'TOKEN_INVALID'
-  if (response.status === 409) error.code = 'IMPORT_BUSY'
-  throw error
-}
-
-export async function fullRefreshReplayIssues(file, token) {
-  const formData = new FormData()
-  formData.append('file', file)
-  formData.append('confirm', 'FULL_REFRESH')
-
-  const response = await fetch('/api/ai/parallel-replay/issues/full-refresh', {
-    method: 'POST',
-    headers: { 'X-DII-Trigger-Token': token || '' },
-    body: formData,
-  })
-  const json = await response.json().catch(() => ({}))
-  if (response.ok && json?.code === 200) return json.data
 
   const error = new Error(json?.message || `HTTP ${response.status}`)
   if (response.status === 401) error.code = 'TOKEN_INVALID'

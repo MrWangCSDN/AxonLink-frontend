@@ -283,7 +283,7 @@
 </template>
 
 <script setup>
-import { computed, h, ref } from 'vue'
+import { computed, h, ref, watch } from 'vue'
 import { SquarePlay as PlaySquare } from 'lucide-vue-next'
 
 const props = defineProps({
@@ -304,11 +304,19 @@ const props = defineProps({
 
 defineEmits(['selectDomain', 'selectImpactMode', 'selectDiiPage', 'selectReplayPage', 'selectCodePage'])
 
-const chainOpen = ref(true)
-const impactOpen = ref(true)
-const diiOpen = ref(true)
-const replayOpen = ref(true)
-const codeOpen = ref(true)
+const chainOpen = ref(props.currentPage === 'chain')
+const impactOpen = ref(props.currentPage === 'impact')
+const diiOpen = ref((props.currentPage || '').startsWith('dii-'))
+const replayOpen = ref(props.currentPage === 'replay-issues' || props.currentPage === 'replay-transaction-persons')
+const codeOpen = ref(props.currentPage === 'code-dashboard')
+
+watch(() => props.currentPage, (currentPage) => {
+  if (currentPage === 'chain') chainOpen.value = true
+  if (currentPage === 'impact') impactOpen.value = true
+  if ((currentPage || '').startsWith('dii-')) diiOpen.value = true
+  if (currentPage === 'replay-issues' || currentPage === 'replay-transaction-persons') replayOpen.value = true
+  if (currentPage === 'code-dashboard') codeOpen.value = true
+})
 // 各分区的 accent 统一为 Sourcegraph 蓝；不再每区一个颜色
 const IMPACT_SECTION_ACCENT = '#0b70db'
 const DII_SECTION_ACCENT = '#0b70db'

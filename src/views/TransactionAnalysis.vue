@@ -6,9 +6,9 @@
                @navigate-todo="onNavigateTodo"
                @navigate-slow-todo="onNavigateSlowTodo" />
 
-    <div class="page-body">
+    <div class="page-body" :class="{ 'is-sidebar-collapsed': desktopSidebarCollapsed }">
       <ChainImpactSidebar
-        :class="{ 'is-mobile-open': mobileNavigationOpen }"
+        :class="{ 'is-mobile-open': mobileNavigationOpen, 'is-desktop-collapsed': desktopSidebarCollapsed }"
         :domains="domains"
         :active-domain-id="activeDomain?.id"
         :system-stats="systemStats"
@@ -22,6 +22,23 @@
         @select-replay-page="onSelectReplayPage"
         @select-code-page="onSelectCodePage"
       />
+      <button
+        class="desktop-sidebar-toggle"
+        data-testid="desktop-sidebar-toggle"
+        type="button"
+        :title="desktopSidebarCollapsed ? '展开左侧导航' : '收起左侧导航'"
+        :aria-label="desktopSidebarCollapsed ? '展开左侧导航' : '收起左侧导航'"
+        @click="desktopSidebarCollapsed = !desktopSidebarCollapsed"
+      >
+        <svg v-if="desktopSidebarCollapsed" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="m6 17 5-5-5-5" />
+          <path d="m13 17 5-5-5-5" />
+        </svg>
+        <svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="m18 17-5-5 5-5" />
+          <path d="m11 17-5-5 5-5" />
+        </svg>
+      </button>
       <button
         v-if="(currentPage === 'replay-issues' || currentPage === 'replay-transaction-persons') && mobileNavigationOpen"
         class="replay-mobile-backdrop"
@@ -95,6 +112,18 @@
                   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
                 </svg>
                 全量错误码下载
+              </button>
+              <button
+                class="action-btn"
+                type="button"
+                data-testid="export-domain-chains"
+                :disabled="!activeDomain?.id || chainExporting"
+                @click="openChainExportDialog"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+                </svg>
+                {{ chainExporting ? '导出中…' : '全量链路下载' }}
               </button>
             </div>
           </div>
@@ -235,6 +264,65 @@
         class="impact-main"
       />
     </div>
+
+    <div
+      v-if="chainExportTokenDialogOpen"
+      class="chain-export-dialog-mask"
+      @click.self="closeChainExportDialog"
+    >
+      <section
+        class="chain-export-dialog"
+        data-testid="chain-export-token-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="chain-export-dialog-title"
+      >
+        <div class="chain-export-dialog-icon" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="5" y="11" width="14" height="10" rx="2" />
+            <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+          </svg>
+        </div>
+        <div class="chain-export-dialog-copy">
+          <h3 id="chain-export-dialog-title">导出全量交易链路</h3>
+          <p>请输入操作口令，验证通过后导出当前领域的完整链路。</p>
+        </div>
+        <label class="chain-export-token-field">
+          <span>操作口令</span>
+          <input
+            v-model="chainExportToken"
+            data-testid="chain-export-token"
+            type="password"
+            autocomplete="off"
+            :disabled="chainExporting"
+            placeholder="请输入口令"
+            @input="chainExportDialogError = ''"
+            @keyup.enter="confirmDomainChainExport"
+          />
+        </label>
+        <p
+          v-if="chainExportDialogError"
+          class="chain-export-dialog-error"
+          data-testid="chain-export-dialog-error"
+          role="alert"
+        >{{ chainExportDialogError }}</p>
+        <div class="chain-export-dialog-actions">
+          <button
+            type="button"
+            data-testid="cancel-chain-export"
+            :disabled="chainExporting"
+            @click="closeChainExportDialog"
+          >取消</button>
+          <button
+            type="button"
+            class="is-primary"
+            data-testid="confirm-chain-export"
+            :disabled="!chainExportToken.trim() || chainExporting"
+            @click="confirmDomainChainExport"
+          >{{ chainExporting ? '导出中…' : '确认导出' }}</button>
+        </div>
+      </section>
+    </div>
   </div>
 </template>
 
@@ -267,6 +355,7 @@ import {
   getFlowtranDomains as getDomains,
   getFlowtranTransactions as getTransactions,
   getFlowtranChain as getChain,
+  exportFlowtranDomainChains,
   getFlowtranImpactStats,
   getFlowtranTableImpact,
   getSystemStats,
@@ -318,6 +407,7 @@ const currentPage = ref(
   (typeof window !== 'undefined' && window.location.hash?.slice(1)) || 'chain',
 )
 const mobileNavigationOpen = ref(false)
+const desktopSidebarCollapsed = ref(false)
 const impactMode = ref('table')
 const impactSelectedId = ref(null)
 const impactResult = ref(null)
@@ -379,6 +469,10 @@ const currentPageNum  = ref(1)   // 当前页码（1-based）
 const totalCount      = ref(0)
 const isLoading       = ref(false)
 const loadError       = ref('')
+const chainExporting  = ref(false)
+const chainExportTokenDialogOpen = ref(false)
+const chainExportToken = ref('')
+const chainExportDialogError = ref('')
 const mainRef         = ref(null)
 // 加载时序令牌：并发加载（切领域 / 搜索 / 翻页）时只让「最后一次」生效，旧响应到达后作废，
 // 根治搜索竞态（原先「isLoading 就 return」会把后发的关键词查询整个丢弃）。
@@ -944,6 +1038,39 @@ const collapseAll = () => sortedTransactions.value.forEach(tx => cardRefs[tx.id]
 async function downloadAllErrorCodes() {
   await exportAllErrorCodes(activeDomain.value?.id || undefined)
 }
+
+function openChainExportDialog() {
+  if (!activeDomain.value?.id || chainExporting.value) return
+  chainExportToken.value = ''
+  chainExportDialogError.value = ''
+  chainExportTokenDialogOpen.value = true
+}
+
+function closeChainExportDialog() {
+  if (chainExporting.value) return
+  chainExportTokenDialogOpen.value = false
+  chainExportToken.value = ''
+  chainExportDialogError.value = ''
+}
+
+async function confirmDomainChainExport() {
+  const domainKey = activeDomain.value?.id
+  const token = chainExportToken.value.trim()
+  if (!domainKey || !token || chainExporting.value) return
+  chainExportDialogError.value = ''
+  chainExporting.value = true
+  try {
+    await exportFlowtranDomainChains(domainKey, token)
+    chainExportTokenDialogOpen.value = false
+    chainExportToken.value = ''
+  } catch (error) {
+    const message = error?.message || '交易链路导出失败'
+    chainExportDialogError.value = message
+    if (message === '口令错误') chainExportToken.value = ''
+  } finally {
+    chainExporting.value = false
+  }
+}
 </script>
 
 <style scoped>
@@ -957,11 +1084,48 @@ async function downloadAllErrorCodes() {
 }
 
 .page-body {
+  --desktop-sidebar-width: 240px;
+  position: relative;
   display: flex;
   flex: 1;
   margin-top: 56px;
   height: calc(100vh - 56px);
   overflow: hidden;
+}
+
+.page-body.is-sidebar-collapsed { --desktop-sidebar-width: 0px; }
+.page-body :deep(.cis) { transition: width .22s ease, border-color .22s ease; }
+.page-body :deep(.cis.is-desktop-collapsed) { width: 0; border-right-width: 0; }
+.desktop-sidebar-toggle {
+  position: absolute;
+  z-index: 26;
+  top: 50%;
+  left: var(--desktop-sidebar-width);
+  width: 28px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--border, #d7dee8);
+  border-radius: 9px;
+  color: var(--text-secondary, #667085);
+  background: var(--bg-card, #fff);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, .1);
+  transform: translate(-50%, -50%);
+  transition: left .22s ease, transform .22s ease, color .15s ease, border-color .15s ease, background .15s ease;
+  cursor: pointer;
+}
+.desktop-sidebar-toggle:hover,
+.desktop-sidebar-toggle:focus-visible {
+  border-color: #4f7cff;
+  color: #2563eb;
+  background: #f5f8ff;
+  outline: none;
+}
+.page-body.is-sidebar-collapsed .desktop-sidebar-toggle {
+  border-left: 0;
+  border-radius: 0 9px 9px 0;
+  transform: translate(0, -50%);
 }
 
 .main-content,
@@ -1143,6 +1307,16 @@ async function downloadAllErrorCodes() {
 
 .action-btn { display: flex; align-items: center; gap: 5px; padding: 0 12px; height: 34px; background: var(--bg-action-btn); border: 1px solid var(--border); border-radius: 8px; font-size: 12px; color: var(--text-secondary); cursor: pointer; font-weight: 500; font-family: inherit; transition: all 0.15s; white-space: nowrap; }
 .action-btn:hover { background: #EEF3FF; border-color: #C5D5FF; color: #4F7CFF; }
+.action-btn:disabled { cursor: not-allowed; opacity: 0.58; }
+.chain-export-error {
+  max-width: 180px;
+  overflow: hidden;
+  color: #d9363e;
+  font-size: 12px;
+  line-height: 34px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* 统计栏 */
 .stats-bar { display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: var(--bg-stats-bar); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 12px; transition: background 0.3s; }
@@ -1259,6 +1433,113 @@ async function downloadAllErrorCodes() {
 .empty-state p { font-size: 15px; color: var(--text-primary); font-weight: 500; margin: 0; }
 .empty-state span { font-size: 13px; color: var(--text-muted); }
 
+.chain-export-dialog-mask {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(14, 23, 41, .46);
+  backdrop-filter: blur(2px);
+}
+
+.chain-export-dialog {
+  width: min(420px, 100%);
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg-card);
+  box-shadow: 0 20px 60px rgba(10, 22, 44, .24);
+}
+
+.chain-export-dialog-icon {
+  width: 42px;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 14px;
+  border-radius: 12px;
+  color: #4f7cff;
+  background: rgba(79, 124, 255, .12);
+}
+
+.chain-export-dialog-copy h3 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 17px;
+  line-height: 1.5;
+}
+
+.chain-export-dialog-copy p {
+  margin: 6px 0 18px;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.chain-export-token-field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.chain-export-token-field input {
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  outline: none;
+  color: var(--text-primary);
+  background: var(--bg-page);
+  transition: border-color .16s, box-shadow .16s;
+}
+
+.chain-export-token-field input:focus {
+  border-color: #4f7cff;
+  box-shadow: 0 0 0 3px rgba(79, 124, 255, .12);
+}
+
+.chain-export-dialog-error {
+  margin: 9px 0 0;
+  color: #e5484d;
+  font-size: 12px;
+}
+
+.chain-export-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.chain-export-dialog-actions button {
+  min-width: 82px;
+  height: 36px;
+  padding: 0 15px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  background: var(--bg-card);
+  cursor: pointer;
+}
+
+.chain-export-dialog-actions button.is-primary {
+  border-color: #4f7cff;
+  color: #fff;
+  background: #4f7cff;
+}
+
+.chain-export-dialog-actions button:disabled {
+  cursor: not-allowed;
+  opacity: .55;
+}
+
 @media (max-width: 1280px) {
   .content-header {
     align-items: flex-start;
@@ -1271,12 +1552,17 @@ async function downloadAllErrorCodes() {
 }
 
 @media (max-width: 768px) {
-  .page-body :deep(.cis) {
+  .desktop-sidebar-toggle { display: none; }
+
+  .page-body :deep(.cis),
+  .page-body :deep(.cis.is-desktop-collapsed) {
     position: fixed;
     z-index: 25;
     top: 56px;
     bottom: 0;
     left: 0;
+    width: 240px;
+    border-right: 1px solid #eaecf0;
     transform: translateX(-100%);
     transition: transform .2s ease;
   }

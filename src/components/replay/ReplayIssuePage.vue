@@ -18,9 +18,13 @@
         </div>
       </div>
       <div class="replay-toolbar-actions">
-        <button class="replay-button replay-button-danger" type="button" data-testid="open-full-refresh" @click="openFullRefresh">
-          <RefreshCw :size="16" aria-hidden="true" />
-          全量更新
+        <button class="replay-button replay-button-weekly" type="button" data-testid="open-weekly-task" @click="openWeeklyTask">
+          <Flag :size="16" aria-hidden="true" />
+          配置优先任务
+        </button>
+        <button class="replay-button replay-button-secondary" type="button" data-testid="open-daily-report" @click="openDailyReport">
+          <FileSpreadsheet :size="16" aria-hidden="true" />
+          日报
         </button>
         <button class="replay-button replay-button-primary" type="button" data-testid="open-import" @click="openImport">
           <Upload :size="16" aria-hidden="true" />
@@ -34,8 +38,8 @@
           class="replay-icon-button replay-query-toggle"
           type="button"
           data-testid="query-panel-toggle"
-          :title="queryPanelCollapsed ? '展开统计与查询' : '收起统计与查询'"
-          :aria-label="queryPanelCollapsed ? '展开统计与查询' : '收起统计与查询'"
+          :title="queryPanelCollapsed ? '展开统计' : '收起统计'"
+          :aria-label="queryPanelCollapsed ? '展开统计' : '收起统计'"
           :aria-expanded="String(!queryPanelCollapsed)"
           @click="queryPanelCollapsed = !queryPanelCollapsed"
         >
@@ -46,7 +50,7 @@
     </header>
 
     <div v-if="!queryPanelCollapsed" class="replay-query-panel">
-    <div class="replay-summary" aria-label="汇总数据">
+    <div class="replay-summary" :style="{ '--replay-summary-columns': summaryCards.length }" aria-label="汇总数据">
       <div v-for="card in summaryCards" :key="card.key" class="replay-summary-card" tabindex="0">
         <span>{{ card.label }}</span><strong>{{ summaryValue(card) }}</strong>
         <div class="replay-summary-tooltip" role="tooltip">
@@ -54,156 +58,105 @@
         </div>
       </div>
     </div>
+    </div>
 
+    <div v-if="!queryPanelCollapsed" class="replay-summary-actions-row replay-summary-actions-row-transparent" data-testid="replay-summary-actions-row">
     <div class="replay-summary-entries" aria-label="问题明细汇总">
-      <div
-        class="replay-summary-entry"
+      <button
+        class="replay-summary-entry replay-summary-entry-action"
         data-testid="group-summary-entry"
-        tabindex="0"
-        @mouseenter="openHoverSummary('group')"
-        @mouseleave="closeHoverSummary('group', $event)"
-        @focusin="openHoverSummary('group', $event)"
-        @focusout="closeHoverSummary('group', $event)"
+        type="button"
+        @click="openSummaryModal('group')"
       >
         <BarChart3 :size="16" aria-hidden="true" />
         <span>各组问题数</span>
-        <div v-if="activeHoverSummary === 'group'" class="replay-summary-panel replay-summary-panel-fixed replay-summary-panel-group" role="region" aria-label="各组问题数">
-          <header>
-            <h3>各组问题数</h3>
-            <button class="replay-button replay-button-compact" type="button" data-testid="copy-group-summary" :disabled="groupSummaryLoading || !filteredGroupSummaryRows.length" @click.stop="copySummaryTable('group')">
-              <Copy :size="13" aria-hidden="true" />复制表格
-            </button>
-          </header>
-          <p v-if="groupSummaryLoading" class="replay-summary-state">正在查询…</p>
-          <p v-else-if="groupSummaryError" class="replay-summary-state replay-error">{{ groupSummaryError }}</p>
-          <div v-else class="replay-summary-table-wrap">
-            <table class="replay-summary-table">
-              <thead><tr><th v-for="column in groupSummaryColumns" :key="column.key" scope="col">{{ column.label }}</th></tr></thead>
-              <tbody>
-                <tr v-for="row in filteredGroupSummaryRows" :key="row.groupName"><td v-for="column in groupSummaryColumns" :key="column.key">{{ row[column.key] }}</td></tr>
-                <tr v-if="!filteredGroupSummaryRows.length"><td :colspan="groupSummaryColumns.length">暂无数据</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
+      </button>
 
-      <div
-        class="replay-summary-entry replay-summary-entry-person"
+      <button
+        class="replay-summary-entry replay-summary-entry-person replay-summary-entry-action"
         data-testid="person-ranking-entry"
-        tabindex="0"
-        @mouseenter="openHoverSummary('person')"
-        @mouseleave="closeHoverSummary('person', $event)"
-        @focusin="openHoverSummary('person', $event)"
-        @focusout="closeHoverSummary('person', $event)"
+        type="button"
+        @click="openSummaryModal('person')"
       >
         <Users :size="16" aria-hidden="true" />
         <span>各组开发负责人问题排名</span>
-        <div v-if="activeHoverSummary === 'person'" class="replay-summary-panel replay-summary-panel-fixed replay-summary-panel-person" role="region" aria-label="各组开发负责人问题排名">
-          <header>
-            <h3>各组开发负责人问题排名</h3>
-            <button class="replay-button replay-button-compact" type="button" data-testid="copy-person-ranking" :disabled="personRankingLoading || !filteredPersonRankingRows.length" @click.stop="copySummaryTable('person')">
-              <Copy :size="13" aria-hidden="true" />复制表格
-            </button>
-          </header>
-          <p v-if="personRankingLoading" class="replay-summary-state">正在查询…</p>
-          <p v-else-if="personRankingError" class="replay-summary-state replay-error">{{ personRankingError }}</p>
-          <div v-else class="replay-summary-table-wrap">
-            <table class="replay-summary-table replay-person-ranking-table">
-              <thead><tr><th v-for="column in personRankingColumns" :key="column.key" scope="col">{{ column.label }}</th></tr></thead>
-              <tbody>
-                <tr v-for="row in filteredPersonRankingRows" :key="`${row.groupName}-${row.rank}-${row.developer}`"><td v-for="column in personRankingColumns" :key="column.key">{{ row[column.key] }}</td></tr>
-                <tr v-if="!filteredPersonRankingRows.length"><td :colspan="personRankingColumns.length">暂无数据</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
+      </button>
+
+      <button
+        class="replay-summary-entry replay-summary-entry-action"
+        data-testid="planned-completion-entry"
+        type="button"
+        @click="plannedCompletionOpen = true"
+      >
+        <CalendarRange :size="16" aria-hidden="true" />
+        <span>计划完成情况</span>
+      </button>
     </div>
 
-    <form class="replay-filters" @submit.prevent="query">
-      <label>
-        <span>领域</span>
-        <select v-model="filters.groupName" data-testid="group-filter">
-          <option value="">全部</option>
-          <option v-for="group in options.groups" :key="group" :value="group">{{ group }}</option>
-        </select>
+    <div class="replay-summary-right-actions" data-testid="replay-summary-right-actions">
+      <label class="replay-weekly-task-filter">
+        <span class="replay-checkbox-line"><input v-model="filters.weeklyTask" data-testid="weekly-task-only" type="checkbox" :disabled="loading" @change="toggleWeeklyTask" />仅看优先任务</span>
       </label>
-      <label>
-        <span>是否沙箱</span>
-        <select v-model="filters.sandbox" data-testid="sandbox-filter">
-          <option value="">全部</option>
-          <option value="true">是</option>
-          <option value="false">否</option>
-        </select>
-      </label>
-      <label>
-        <span>问题级别</span>
-        <select v-model="filters.issueLevel" data-testid="issue-level-filter">
-          <option value="">全部</option>
-          <option v-for="level in options.issueLevels" :key="level" :value="level">{{ level }}</option>
-        </select>
-      </label>
-      <label>
-        <span>问题类型</span>
-        <select v-model="filters.issueType" data-testid="issue-type-filter">
-          <option value="">全部</option>
-          <option v-for="type in options.issueTypes" :key="type" :value="type">{{ type }}</option>
-        </select>
-      </label>
-      <label>
-        <span>问题状态</span>
-        <select v-model="filters.issueStatus" data-testid="issue-status-filter">
-          <option value="">全部</option>
-          <option v-for="status in options.issueStatuses" :key="status" :value="status">{{ status }}</option>
-        </select>
-      </label>
-      <label>
-        <span>开发负责人</span>
-        <input v-model.trim="filters.developer" data-testid="developer-filter" type="search" placeholder="模糊查询" />
-      </label>
-      <label>
-        <span>科技负责人</span>
-        <input v-model.trim="filters.bankOwner" data-testid="bank-owner-filter" type="search" placeholder="模糊查询" />
-      </label>
-      <label>
-        <span>需协同人</span>
-        <input v-model.trim="filters.cooperationPerson" data-testid="cooperation-person-filter" type="search" placeholder="姓名或账号" />
-      </label>
-      <label>
-        <span>流水号</span>
-        <input v-model.trim="filters.serialNo" data-testid="serial-no-filter" type="search" placeholder="模糊查询" />
-      </label>
-      <label>
-        <span>全局流水号</span>
-        <input v-model.trim="filters.globalSerialNo" data-testid="global-serial-no-filter" type="search" placeholder="模糊查询" />
-      </label>
-      <label>
-        <span>缺陷修复日期</span>
-        <input v-model="filters.defectRepairDate" data-testid="defect-repair-date-filter" type="date" />
-      </label>
-      <label>
-        <span>出现批次</span>
-        <select v-model="filters.coverageRound" data-testid="coverage-round-filter">
-          <option value="">全部</option>
-          <option v-for="round in options.coverageRounds" :key="round" :value="round">{{ round }}</option>
-        </select>
-      </label>
-      <label class="replay-keyword-field">
-        <span>关键词</span>
-        <input v-model.trim="filters.keyword" data-testid="keyword-filter" type="search" placeholder="交易码、名称或问题描述" />
-      </label>
-      <button class="replay-button replay-button-primary" type="button" data-testid="query-button" :disabled="loading" @click="query">
-        <Search :size="16" aria-hidden="true" />
-        查询
-      </button>
-      <button class="replay-icon-button" type="button" title="重置筛选" aria-label="重置筛选" @click="resetFilters">
+      <button class="replay-icon-button" type="button" data-testid="reset-filters" title="重置筛选" aria-label="重置筛选" :disabled="loading" @click="resetFilters">
         <RotateCcw :size="16" aria-hidden="true" />
       </button>
-    </form>
+    </div>
     </div>
 
-    <div class="replay-table-viewport" data-testid="table-viewport">
+    <div v-if="activeSummaryModal" class="replay-summary-modal-mask" data-testid="summary-modal-mask">
+      <section
+        class="replay-summary-modal"
+        :class="activeSummaryModal === 'person' ? 'replay-summary-modal-person' : 'replay-summary-modal-group'"
+        role="dialog"
+        aria-modal="true"
+        :aria-label="activeSummaryTitle"
+        data-testid="summary-modal"
+      >
+        <header>
+          <h3>{{ activeSummaryTitle }}</h3>
+          <div class="replay-summary-modal-actions">
+            <button
+              class="replay-button replay-button-compact"
+              type="button"
+              :data-testid="activeSummaryModal === 'group' ? 'copy-group-summary' : 'copy-person-ranking'"
+              :disabled="activeSummaryLoading || !activeSummaryRows.length"
+              @click="copySummaryTable(activeSummaryModal)"
+            >
+              <Copy :size="13" aria-hidden="true" />复制表格
+            </button>
+            <button class="replay-icon-button" type="button" data-testid="close-summary-modal" title="关闭" aria-label="关闭" @click="closeSummaryModal">
+              <X :size="18" aria-hidden="true" />
+            </button>
+          </div>
+        </header>
+        <div v-if="activeSummaryModal === 'person'" class="replay-person-ranking-tabs" role="tablist" aria-label="开发负责人排名分组">
+          <button
+            v-for="groupName in personRankingGroups"
+            :key="groupName"
+            type="button"
+            role="tab"
+            data-testid="person-ranking-group-tab"
+            :data-active="activePersonRankingGroup === groupName"
+            :aria-selected="activePersonRankingGroup === groupName"
+            :class="{ 'is-active': activePersonRankingGroup === groupName }"
+            @click="activePersonRankingGroup = groupName"
+          >{{ groupName }}</button>
+        </div>
+        <p v-if="activeSummaryLoading" class="replay-summary-state">正在查询…</p>
+        <p v-else-if="activeSummaryError" class="replay-summary-state replay-error">{{ activeSummaryError }}</p>
+        <div v-else class="replay-summary-table-wrap">
+          <table class="replay-summary-table" :class="{ 'replay-person-ranking-table': activeSummaryModal === 'person' }">
+            <thead><tr><th v-for="column in activeSummaryColumns" :key="column.key" scope="col" :class="summaryColumnClass(column)">{{ column.label }}</th></tr></thead>
+            <tbody>
+              <tr v-for="(row, index) in activeSummaryRows" :key="summaryRowKey(row, index)"><td v-for="column in activeSummaryColumns" :key="column.key" :class="summaryColumnClass(column)">{{ row[column.key] }}</td></tr>
+              <tr v-if="!activeSummaryRows.length"><td :colspan="activeSummaryColumns.length">暂无数据</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <div class="replay-table-viewport replay-table-viewport-aligned" data-testid="table-viewport">
       <table class="replay-table">
         <colgroup><col v-for="column in columns" :key="column.key" :style="{ width: column.width }" /></colgroup>
         <thead>
@@ -216,7 +169,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="row in items" :key="row.id" data-testid="replay-row">
+          <tr v-for="row in items" :key="row.id" data-testid="replay-row" :class="{ 'replay-weekly-task-row': isWeeklyTask(row) }">
             <td
               v-for="column in columns"
               :key="column.key"
@@ -225,10 +178,40 @@
               @click="copyableColumnKeys.has(column.key) && copyCell(column, row)"
             >
               <div v-if="column.key === 'operation'" class="replay-operation-buttons">
-                <button class="replay-button replay-button-compact" type="button" :data-testid="`edit-${row.id}`" :disabled="row.issue_status === '已修复'" :title="row.issue_status === '已修复' ? '已修复问题不可编辑' : '编辑'" @click="openEdit(row)"><Pencil :size="13" aria-hidden="true" />编辑</button>
+                <button class="replay-button replay-button-compact" type="button" :data-testid="`edit-${row.id}`" :disabled="!canEditIssue(row)" :title="editIssueTitle(row)" @click="openEdit(row)"><Pencil :size="13" aria-hidden="true" />编辑</button>
                 <button class="replay-button replay-button-compact" type="button" :data-testid="`tracking-${row.id}`" @click="openTracking(row)"><HistoryIcon :size="13" aria-hidden="true" />问题跟踪</button>
               </div>
+              <span v-else-if="column.key === 'weekly_task'" v-show="isWeeklyTask(row)" class="replay-weekly-task-badge" data-testid="weekly-task-badge"><Flag :size="12" aria-hidden="true" />优先任务</span>
+              <button v-else-if="column.key === 'review_status' && row.review_status === '待审核'" type="button" class="replay-review-badge is-pending" :data-testid="`review-${row.id}`" :title="reviewActionTitle(row)" @click="approveReview(row)">待审核</button>
+              <span v-else-if="column.key === 'review_status' && row.review_status === '已审核'" class="replay-review-badge is-approved" :data-testid="`review-${row.id}`" :title="row.reviewer_real_name ? `审核人：${row.reviewer_real_name}` : '已审核'">已审核</span>
+              <span v-else-if="column.key === 'review_status'">-</span>
+              <div
+                v-else-if="column.key === 'planned_completion_date'"
+                class="replay-plan-date-cell replay-plan-date-emphasis"
+                :class="{ 'is-repair-date-locked': hasDefectRepairDate(row) }"
+                :data-testid="`plan-date-display-${row.id}`"
+                :title="hasDefectRepairDate(row) ? '已有缺陷修复日期，计划验证日期不可修改' : undefined"
+              >
+                <input
+                  v-if="editingPlanDateId === row.id"
+                  v-model="planDateDraft"
+                  :data-testid="`plan-date-input-${row.id}`"
+                  type="text"
+                  inputmode="numeric"
+                  maxlength="10"
+                  placeholder="2026-08-26"
+                  :disabled="planDateSavingId === row.id"
+                  @blur="savePlanDate(row)"
+                  @keydown.enter.prevent="savePlanDate(row)"
+                  @keydown.esc.prevent="cancelPlanDateEdit"
+                />
+                <button v-else-if="canEditPlanDate(row)" type="button" class="replay-plan-date-edit" :data-testid="`plan-date-edit-${row.id}`" title="点击编辑计划验证日期" @click.stop="startPlanDateEdit(row)">
+                  <span>{{ display(row.planned_completion_date) }}</span><Pencil :size="12" aria-hidden="true" />
+                </button>
+                <span v-else>{{ display(row.planned_completion_date) }}</span>
+              </div>
               <span v-else-if="manualDisplayKeys.has(column.key)" class="replay-manual-value">{{ displayColumn(column.key, row[column.key], row) }}</span>
+              <span v-else-if="detailDisplayKeys.has(column.key)" class="replay-detail-value">{{ displayColumn(column.key, row[column.key], row) }}</span>
               <template v-else>{{ displayColumn(column.key, row[column.key], row) }}</template>
             </td>
           </tr>
@@ -249,6 +232,7 @@
     </div>
 
     <p v-if="copyMessage" class="replay-copy-toast" role="status" aria-live="polite">{{ copyMessage }}</p>
+    <p v-if="planDateError" class="replay-copy-toast replay-plan-date-toast" role="alert" data-testid="plan-date-error">{{ planDateError }}</p>
 
     <footer class="replay-pager">
       <span>共 {{ total }} 条，第 {{ page + 1 }} / {{ pageCount }} 页</span>
@@ -271,6 +255,34 @@
       </div>
     </footer>
 
+    <div v-if="weeklyTaskOpen" class="replay-modal-mask" @click.self="closeWeeklyTask">
+      <section class="replay-weekly-task-modal" role="dialog" aria-modal="true" aria-labelledby="weekly-task-title" data-testid="weekly-task-modal">
+        <header>
+          <div><h3 id="weekly-task-title">配置优先任务</h3><p>按出现批次标记问题；多批次取并集，不会重复计数。</p></div>
+          <button class="replay-icon-button" type="button" title="关闭" aria-label="关闭" @click="closeWeeklyTask"><X :size="16" /></button>
+        </header>
+        <div class="replay-weekly-task-body">
+          <label class="replay-weekly-task-search"><span>查找批次</span><div><Search :size="14" /><input v-model.trim="weeklyTaskSearch" type="search" placeholder="输入批次名称" /></div></label>
+          <div class="replay-weekly-task-meta"><span>已选 {{ weeklyTaskDraft.length }} 个批次</span><strong>当前匹配 {{ weeklyTaskConfig.issueCount || 0 }} 个问题</strong></div>
+          <div class="replay-weekly-task-options">
+            <label v-for="batch in filteredWeeklyTaskBatches" :key="batch">
+              <input v-model="weeklyTaskDraft" type="checkbox" :value="batch" data-testid="weekly-task-batch-option" />
+              <span>{{ batch }}</span>
+            </label>
+            <p v-if="!filteredWeeklyTaskBatches.length">没有匹配的出现批次</p>
+          </div>
+          <label><span>操作口令</span><input v-model="weeklyTaskToken" data-testid="weekly-task-token" type="password" autocomplete="off" placeholder="X-DII-Trigger-Token" /></label>
+          <p v-if="weeklyTaskError" class="replay-edit-error">{{ weeklyTaskError }}</p>
+        </div>
+        <footer>
+          <button class="replay-button replay-button-danger" type="button" :disabled="weeklyTaskSaving" @click="clearWeeklyTask">清空配置</button>
+          <span class="replay-modal-spacer"></span>
+          <button class="replay-button" type="button" :disabled="weeklyTaskSaving" @click="closeWeeklyTask">取消</button>
+          <button class="replay-button replay-button-primary" type="button" data-testid="save-weekly-task" :disabled="weeklyTaskSaving || !weeklyTaskToken.trim()" @click="saveWeeklyTask">{{ weeklyTaskSaving ? '保存中…' : '保存配置' }}</button>
+        </footer>
+      </section>
+    </div>
+
     <div v-if="importOpen" class="replay-modal-mask" @click.self="!importing && closeImport()">
       <section class="replay-import-modal" role="dialog" aria-modal="true" aria-labelledby="replay-import-title">
         <header>
@@ -280,6 +292,17 @@
           </div>
           <button class="replay-icon-button" type="button" title="关闭导入窗口" aria-label="关闭导入窗口" :disabled="importing" @click="closeImport"><X :size="16" aria-hidden="true" /></button>
         </header>
+        <fieldset class="replay-import-type" :disabled="importing">
+          <legend>回放类型</legend>
+          <label>
+            <input v-model="importReplayType" data-testid="import-type-query" type="radio" value="QUERY" />
+            <span>查询</span>
+          </label>
+          <label>
+            <input v-model="importReplayType" data-testid="import-type-dz" type="radio" value="DZ" />
+            <span>动账</span>
+          </label>
+        </fieldset>
         <label class="replay-file-field">
           <span>Excel 文件</span>
           <input data-testid="import-file" type="file" accept=".xlsx,.xls" :disabled="importing" @change="selectImportFile" />
@@ -300,34 +323,36 @@
       </section>
     </div>
 
-    <div v-if="fullRefreshOpen" class="replay-modal-mask" @click.self="!fullRefreshing && closeFullRefresh()">
-      <section class="replay-import-modal replay-full-refresh-modal" role="dialog" aria-modal="true" aria-labelledby="replay-full-refresh-title" data-testid="full-refresh-modal">
+    <div v-if="dailyReportOpen" class="replay-modal-mask" @click.self="!dailyReportLoading && closeDailyReport()">
+      <section class="replay-import-modal replay-daily-report-modal" role="dialog" aria-modal="true" aria-labelledby="replay-daily-report-title" data-testid="daily-report-modal">
         <header>
           <div>
-            <h3 id="replay-full-refresh-title">全量更新基础数据</h3>
-            <p class="replay-danger-copy">仅处理 Excel 第一个 Sheet，按 issue_key 覆盖匹配数据；未匹配数据新增，其他已有数据和历史记录保留。</p>
+            <h3 id="replay-daily-report-title">下载日报</h3>
+            <p>日报是导入时的快照，下载后状态修改不影响数据。</p>
           </div>
-          <button class="replay-icon-button" type="button" title="关闭全量更新窗口" aria-label="关闭全量更新窗口" :disabled="fullRefreshing" @click="closeFullRefresh"><X :size="16" aria-hidden="true" /></button>
+          <button class="replay-icon-button" type="button" title="关闭日报窗口" aria-label="关闭日报窗口" :disabled="dailyReportLoading" @click="closeDailyReport"><X :size="16" aria-hidden="true" /></button>
         </header>
-        <label class="replay-file-field">
-          <span>Excel 文件</span>
-          <input data-testid="full-refresh-file" type="file" accept=".xlsx,.xls" :disabled="fullRefreshing" @change="selectFullRefreshFile" />
-          <small>{{ fullRefreshFile?.name || '请选择要处理的 Excel 文件，仅导入第一个 Sheet' }}</small>
-        </label>
-        <label>
-          <span>导入口令</span>
-          <input v-model="fullRefreshToken" data-testid="full-refresh-token" type="password" autocomplete="off" :disabled="fullRefreshing" placeholder="X-DII-Trigger-Token" />
-        </label>
-        <label class="replay-destructive-confirm">
-          <input v-model="fullRefreshConfirmed" data-testid="full-refresh-confirm" type="checkbox" :disabled="fullRefreshing" />
-          <span>我确认按 issue_key 覆盖或新增首个 Sheet 数据</span>
-        </label>
-        <p v-if="fullRefreshMessage" class="replay-import-message" :class="{ 'is-error': fullRefreshError }">{{ fullRefreshMessage }}</p>
+        <p v-if="dailyReportLoading" class="replay-loading-status">正在加载批次列表…</p>
+        <template v-else-if="dailyReportBatches.length === 0">
+          <p class="replay-empty-tip">暂无已落盘的日报，请先导入一次 Excel。</p>
+        </template>
+        <template v-else>
+          <label class="replay-daily-report-picker">
+            <span>选择批次</span>
+            <select v-model="dailyReportSelectedBatch" data-testid="daily-report-batch">
+              <option v-for="entry in dailyReportBatches" :key="entry.batchNo" :value="entry.batchNo" :disabled="!entry.available">
+                {{ entry.batchNo }}{{ entry.available ? '' : '（尚未生成）' }}
+              </option>
+            </select>
+          </label>
+          <small v-if="dailyReportError" class="replay-daily-report-error">{{ dailyReportError }}</small>
+        </template>
         <footer>
-          <button class="replay-button" type="button" :disabled="fullRefreshing" @click="closeFullRefresh">取消</button>
-          <button class="replay-button replay-button-danger" type="button" data-testid="submit-full-refresh" :disabled="!fullRefreshFile || !fullRefreshToken.trim() || !fullRefreshConfirmed || fullRefreshing || fullRefreshComplete" @click="submitFullRefresh">
-            <RefreshCw :size="16" aria-hidden="true" />
-            {{ fullRefreshing ? '更新中…' : (fullRefreshComplete ? '已更新' : '确认全量更新') }}
+          <button class="replay-button" type="button" :disabled="dailyReportLoading || dailyReportBatches.length === 0" @click="closeDailyReport">取消</button>
+          <button class="replay-button replay-button-primary" type="button" data-testid="download-daily-report"
+                  :disabled="dailyReportLoading || !dailyReportSelectedBatch || dailyReportDownloading" @click="downloadSelectedDailyReport">
+            <Download :size="15" aria-hidden="true" />
+            {{ dailyReportDownloading ? '下载中…' : '下载 Excel' }}
           </button>
         </footer>
       </section>
@@ -344,14 +369,14 @@
         <div class="replay-edit-grid">
           <label>
             <span>问题状态</span>
-            <select v-model="editDraft.issueStatus" data-testid="edit-status">
+            <select v-model="editDraft.issueStatus" data-testid="edit-status" @change="onEditStatusChange">
               <option value="" disabled>{{ editIssue && !manualStatuses.includes(editIssue.issue_status) ? `当前：${display(editIssue.issue_status)}，请选择` : '请选择状态' }}</option>
               <option v-for="status in manualStatuses" :key="status" :value="status">{{ status }}</option>
             </select>
           </label>
           <label>
             <span>问题类型 <em class="replay-required-mark">*</em></span>
-            <select v-model="editDraft.issueType" data-testid="edit-type" :class="{ 'replay-invalid': editError && !editDraft.issueType }">
+            <select v-model="editDraft.issueType" data-testid="edit-type" :disabled="issueTypeLocked" :class="{ 'replay-invalid': editError && !editDraft.issueType }">
               <option value="">请选择问题类型</option>
               <option v-for="type in issueTypes" :key="type" :value="type">{{ type }}</option>
             </select>
@@ -508,89 +533,122 @@
         </ol>
       </aside>
     </div>
+    <ReplayPlannedCompletionModal :open="plannedCompletionOpen" @close="plannedCompletionOpen = false" />
   </section>
 </template>
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { BarChart3, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, Download, HelpCircle, History as HistoryIcon, Menu, Pencil, RefreshCw, RotateCcw, Save, Search, Upload, Users, X } from 'lucide-vue-next'
-import { exportReplayIssues, fullRefreshReplayIssues, getReplayImportRounds, getReplayIssueGroupSummaries, getReplayIssueHeaderFilterOptions, getReplayIssueMailStatus, getReplayIssueOptions, getReplayIssuePersonRankings, getReplayIssueRoundTracking, getReplayIssueStats, importReplayIssues, listReplayIssues, searchReplayIssueUsers, sendReplayIssueMail, updateReplayIssue } from '../../api/replayIssues.js'
+import { BarChart3, CalendarRange, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, Download, FileSpreadsheet, Flag, HelpCircle, History as HistoryIcon, Menu, Pencil, RotateCcw, Save, Search, Upload, Users, X } from 'lucide-vue-next'
+import { approveReplayIssue, exportReplayIssues, getReplayImportRounds, getReplayIssueGroupSummaries, getReplayIssueHeaderFilterOptions, getReplayIssueMailStatus, getReplayIssueOptions, getReplayIssuePersonRankings, getReplayIssueReviewPermissions, getReplayIssuePlanDatePermissions, getReplayIssueRoundTracking, getReplayIssueStats, getReplayWeeklyTask, replaceReplayWeeklyTask, getReplayDailyReportBatches, downloadReplayDailyReport, importReplayIssues, listReplayIssues, searchReplayIssueUsers, sendReplayIssueMail, updateReplayIssue, updateReplayIssuePlannedCompletionDate } from '../../api/replayIssues.js'
+import ReplayPlannedCompletionModal from './ReplayPlannedCompletionModal.vue'
 
 defineEmits(['toggleNavigation'])
 
 const columns = [
-  ['domain', '领域', 'calc(4em + 20px)'], ['issue_id', 'issue_id', '112px'], ['is_sandbox', '是否沙箱', 'calc(4em + 20px)'],
-  ['transaction_code', '交易码', 'calc(4em + 20px)'], ['transaction_name', '交易名称', '180px'], ['issue_level', '问题级别', '100px'],
+  ['weekly_task', '任务标记', '110px'],
+  ['domain', '领域', 'calc(4em + 20px)'], ['issue_id', 'issue_id', '80px'], ['is_sandbox', '是否沙箱', '100px'],
+  ['transaction_code', '交易码', '100px'], ['transaction_name', '交易名称', '180px'], ['issue_level', '问题级别', '100px'],
   ['field_name', '字段名', '120px'], ['serial_no', '流水号', '160px'], ['global_serial_no', '全局流水号', '180px'], ['issue_description', '问题描述', '220px'],
-  ['matched_developer', '开发负责人', '10em'], ['matched_bank_owner', '科技负责人', '10em'], ['operation', '操作', '176px'], ['issue_status', '问题状态', '132px'], ['issue_type', '问题类型', '132px'], ['initial_analysis', '初步问题分析', '220px'],
-  ['final_solution', '最终处理方案', '220px'], ['cooperation_person_username', '需协同人', '180px'], ['remark', '备注', '160px'], ['batch_no', '批次', '220px'],
-  ['import_date', '导入时间', '108px'], ['registered_date', '登记时间', '108px'], ['defect_repair_date', '缺陷修复日期', '120px'],
+  ['planned_completion_date', '计划验证日期', '132px'], ['defect_repair_date', '缺陷修复日期', '120px'],
+  ['matched_developer', '开发负责人', '10em'], ['matched_bank_owner', '科技负责人', '10em'], ['operation', '操作', '176px'], ['issue_status', '问题状态', '132px'], ['review_status', '审核状态', '112px'], ['issue_type', '问题类型', '132px'], ['cooperation_person_username', '需协同人', '180px'],
+  ['initial_analysis', '初步问题分析', '220px'], ['final_solution', '最终处理方案', '220px'], ['remark', '备注', '160px'],
   ['affected_transaction_count', '该问题出现在的交易笔数', '176px'],
-  ['issue_key', 'issue_key', '180px'], ['historical_occurrence_count', '历史出现次数', '128px'],
+  ['issue_key', 'issue_key', '180px'],
   ['first_occurrence_date', '首次出现日期', '180px'], ['last_occurrence_date', '上次出现日期', '180px'],
   ['occurrence_rounds', '出现批次', '220px'],
 ].map(([key, label, width]) => ({ key, label, width }))
 
 const headerFilterConfig = {
+  domain: ['groupName', 'groupNames'], is_sandbox: ['sandbox', 'sandboxes'],
+  issue_id: ['issueId', 'issueIds'],
   transaction_code: ['transactionCode', 'transactionCodes'], issue_level: ['issueLevel', 'issueLevels'],
+  serial_no: ['serialNo', 'serialNos'], global_serial_no: ['globalSerialNo', 'globalSerialNos'],
+  defect_repair_date: ['defectRepairDate', 'defectRepairDates'],
   matched_developer: ['developer', 'developers'], matched_bank_owner: ['bankOwner', 'bankOwners'],
   issue_status: ['issueStatus', 'issueStatuses'], issue_type: ['issueType', 'issueTypes'],
+  review_status: ['reviewStatus', 'reviewStatuses'],
   cooperation_person_username: ['cooperationPerson', 'cooperationPersons'],
+  planned_completion_date: ['plannedCompletionDate', 'plannedCompletionDates'],
   occurrence_rounds: ['occurrenceBatch', 'occurrenceBatches'],
 }
 const headerFilters = reactive({})
 const headerFilterOpen = ref(false)
 const activeHeaderColumn = ref(null)
 const headerFilterPanelStyle = reactive({ top: '96px', left: '12px' })
+let headerFilterAnchor = null
 const headerFilterSearch = ref('')
 const headerFilterOptions = ref([])
 const headerFilterDraft = ref([])
 
-const copyableColumnKeys = new Set(['batch_no', 'transaction_name', 'field_name', 'issue_description', 'initial_analysis', 'final_solution', 'remark', 'serial_no', 'global_serial_no', 'issue_key'])
-const manualStatuses = ['打开', '延后修复', '修复待验证']
-const issueTypes = ['迁移问题', '防腐问题', '代码问题', '新核心下线', '参数问题', '平台问题', '规则差异问题', '合理差异', '其他问题']
-const manualDisplayKeys = new Set(['issue_status', 'issue_type', 'initial_analysis', 'final_solution', 'cooperation_person_username', 'remark'])
-const filters = reactive({ groupName: '', issueLevel: '', issueType: '', issueStatus: '', sandbox: '', developer: '', bankOwner: '', cooperationPerson: '', serialNo: '', globalSerialNo: '', defectRepairDate: '', coverageRound: '', keyword: '' })
-const allStatuses = ['新建', '打开', '延后修复', '修复待验证', '重新打开', '已修复']
-const options = reactive({ groups: [], issueLevels: [], issueTypes, issueStatuses: allStatuses, coverageRounds: [] })
-const stats = reactive({ total: 0, openTotal: 0, processingTotal: 0, pendingVerificationTotal: 0, fixedTotal: 0, groupCounts: {}, importedAt: '' })
+const copyableColumnKeys = new Set(['transaction_name', 'field_name', 'issue_description', 'initial_analysis', 'final_solution', 'remark', 'serial_no', 'global_serial_no', 'issue_key'])
+const manualStatuses = ['打开', '无需处理', '延后修复', '修复待验证']
+const issueTypes = ['迁移问题', '防腐问题', '代码问题', '新核心下线', '参数问题', '平台问题', '规则差异问题', '合理差异', '外围问题', '其他问题']
+const manualDisplayKeys = new Set(['issue_status', 'issue_type', 'cooperation_person_username'])
+const detailDisplayKeys = new Set(['initial_analysis', 'final_solution', 'remark'])
+const filters = reactive({ groupName: '', issueId: '', issueLevel: '', issueType: '', issueStatus: '', reviewStatus: '', sandbox: '', developer: '', bankOwner: '', cooperationPerson: '', serialNo: '', globalSerialNo: '', defectRepairDate: '', coverageRound: '', keyword: '', weeklyTask: false })
+const allStatuses = ['新建', '打开', '无需处理', '延后修复', '修复待验证', '重新打开', '已修复']
+const options = reactive({ groups: [], issueLevels: [], issueTypes, issueStatuses: allStatuses, reviewStatuses: ['待审核', '已审核'], coverageRounds: [] })
+const stats = reactive({ total: 0, openTotal: 0, noActionTotal: 0, processingTotal: 0, pendingVerificationTotal: 0, fixedTotal: 0, groupCounts: {}, importedAt: '' })
+const reviewPermissions = reactive({ reviewableGroups: [], reviewersByGroup: {}, reviewableTransactionCodes: [] })
+const planDatePermissions = reactive({ editableGroups: [] })
+const editingPlanDateId = ref(null)
+const planDateDraft = ref('')
+const planDateOriginal = ref('')
+const planDateSavingId = ref(null)
+const planDateError = ref('')
 const queryPanelCollapsed = ref(false)
 watch(queryPanelCollapsed, async () => {
   await nextTick()
   const viewport = document.querySelector('[data-testid="table-viewport"]')
   if (viewport) viewport.scrollTop = 0
+  positionHeaderFilter()
 })
 const summaryGroups = ['公共组', '存款组', '贷款组', '结算组']
-const filteredGroupSummaryRows = computed(() => groupSummaryRows.value)
-const filteredPersonRankingRows = computed(() => personRankingRows.value)
+const personRankingGroups = ['存款组', '贷款组', '公共组', '结算组']
+const activePersonRankingGroup = ref('存款组')
+const filteredGroupSummaryRows = computed(() => {
+  const rowsByGroup = new Map(groupSummaryRows.value.map((row) => [row.groupName, row]))
+  return summaryGroups.map((groupName) => rowsByGroup.get(groupName)).filter(Boolean)
+})
+const filteredPersonRankingRows = computed(() => personRankingRows.value
+  .filter(row => row.groupName === activePersonRankingGroup.value)
+  .map((row, index) => ({ ...row, rank: index + 1 })))
 const summaryCards = [
   { key: 'total', label: '问题总数（全部状态）', valueKey: 'total' },
   { key: 'new', label: '问题新建总数', valueKey: 'newTotal' },
   { key: 'open', label: '问题打开总数', valueKey: 'openTotal' },
   { key: 'reopened', label: '问题重新打开总数', valueKey: 'reopenedTotal' },
   { key: 'deferred', label: '问题延后修复总数', valueKey: 'deferredTotal' },
+  { key: 'noAction', label: '问题无需处理总数', valueKey: 'noActionTotal' },
   { key: 'pendingVerification', label: '问题待验证总数', valueKey: 'pendingVerificationTotal' },
   { key: 'fixed', label: '问题已修复总数', valueKey: 'fixedTotal' },
 ]
 const groupSummaryColumns = [
   { key: 'groupName', label: '分组' },
-  { key: 'newCount', label: '新建' },
-  { key: 'openCount', label: '打开' },
-  { key: 'deferredCount', label: '延后修复' },
-  { key: 'reopenedCount', label: '重新打开' },
-  { key: 'pendingVerificationCount', label: '修复待验证' },
-  { key: 'totalCount', label: '总数' },
+  { key: 'newCount', label: '新建', segment: 'pending' },
+  { key: 'openCount', label: '打开', segment: 'pending' },
+  { key: 'reopenedCount', label: '重新打开', segment: 'pending' },
+  { key: 'deferredCount', label: '延后修复', segment: 'pending' },
+  { key: 'pendingVerificationCount', label: '修复待验证', segment: 'pending' },
+  { key: 'pendingTotalCount', label: '未修复总数', segment: 'pending', total: true },
+  { key: 'noActionCount', label: '无需处理', segment: 'fixed' },
+  { key: 'fixedCount', label: '已修复', segment: 'fixed' },
+  { key: 'fixedTotalCount', label: '已修复总数', segment: 'fixed', total: true },
 ]
 const personRankingColumns = [
   { key: 'rank', label: '排名' },
   { key: 'groupName', label: '分组' },
   { key: 'developer', label: '开发负责人' },
-  { key: 'newCount', label: '新建' },
-  { key: 'openCount', label: '打开' },
-  { key: 'deferredCount', label: '延后修复' },
-  { key: 'reopenedCount', label: '重新打开' },
-  { key: 'pendingVerificationCount', label: '修复待验证' },
-  { key: 'totalCount', label: '总数' },
+  { key: 'newCount', label: '新建', segment: 'pending' },
+  { key: 'openCount', label: '打开', segment: 'pending' },
+  { key: 'reopenedCount', label: '重新打开', segment: 'pending' },
+  { key: 'deferredCount', label: '延后修复', segment: 'pending' },
+  { key: 'pendingVerificationCount', label: '修复待验证', segment: 'pending' },
+  { key: 'pendingTotalCount', label: '未修复总数', segment: 'pending', total: true },
+  { key: 'noActionCount', label: '无需处理', segment: 'fixed' },
+  { key: 'fixedCount', label: '已修复', segment: 'fixed' },
+  { key: 'fixedTotalCount', label: '已修复总数', segment: 'fixed', total: true },
 ]
 const items = ref([])
 const total = ref(0)
@@ -600,34 +658,55 @@ const loading = ref(false)
 const error = ref('')
 const copyMessage = ref('')
 let copyMessageTimer = null
-const activeHoverSummary = ref('')
+const activeSummaryModal = ref('')
+const plannedCompletionOpen = ref(false)
 const groupSummaryRows = ref([])
 const personRankingRows = ref([])
 const groupSummaryLoading = ref(false)
 const personRankingLoading = ref(false)
 const groupSummaryError = ref('')
 const personRankingError = ref('')
+const activeSummaryTitle = computed(() => activeSummaryModal.value === 'person' ? '各组开发负责人问题排名' : '各组问题数')
+const activeSummaryColumns = computed(() => activeSummaryModal.value === 'person' ? personRankingColumns : groupSummaryColumns)
+const activeSummaryRows = computed(() => activeSummaryModal.value === 'person' ? filteredPersonRankingRows.value : filteredGroupSummaryRows.value)
+const activeSummaryLoading = computed(() => activeSummaryModal.value === 'person' ? personRankingLoading.value : groupSummaryLoading.value)
+const activeSummaryError = computed(() => activeSummaryModal.value === 'person' ? personRankingError.value : groupSummaryError.value)
 
 const importOpen = ref(false)
 const importFile = ref(null)
 const importToken = ref('')
+const importReplayType = ref('QUERY')
 const importing = ref(false)
 const exporting = ref(false)
 const importComplete = ref(false)
 const importMessage = ref('')
 const importError = ref(false)
-const fullRefreshOpen = ref(false)
-const fullRefreshFile = ref(null)
-const fullRefreshToken = ref('')
-const fullRefreshConfirmed = ref(false)
-const fullRefreshing = ref(false)
-const fullRefreshComplete = ref(false)
-const fullRefreshMessage = ref('')
-const fullRefreshError = ref(false)
+const weeklyTaskOpen = ref(false)
+const weeklyTaskSaving = ref(false)
+const weeklyTaskSearch = ref('')
+const weeklyTaskToken = ref('')
+const weeklyTaskError = ref('')
+const weeklyTaskDraft = ref([])
+const weeklyTaskConfig = reactive({ batchNames: [], availableBatchNames: [], issueCount: 0 })
+const filteredWeeklyTaskBatches = computed(() => {
+  const keyword = weeklyTaskSearch.value.trim()
+  return (weeklyTaskConfig.availableBatchNames || []).filter((batch) => !keyword || batch.includes(keyword))
+})
+const dailyReportOpen = ref(false)
+const dailyReportBatches = ref([])
+const dailyReportSelectedBatch = ref('')
+const dailyReportLoading = ref(false)
+const dailyReportDownloading = ref(false)
+const dailyReportError = ref('')
 const savingId = ref(null)
 const editOpen = ref(false)
 const editIssue = ref(null)
 const editDraft = reactive({ issueStatus: '', issueType: '', initialAnalysis: '', finalSolution: '', cooperationPersonUsername: '', cooperationPersonDisplay: '', remark: '' })
+const issueTypeLocked = computed(() => ['无需处理', '延后修复'].includes(editDraft.issueStatus))
+function onEditStatusChange() {
+  if (editDraft.issueStatus === '无需处理') editDraft.issueType = '合理差异'
+  if (editDraft.issueStatus === '延后修复') editDraft.issueType = '迁移问题'
+}
 const editUserOptions = ref([])
 const editError = ref('')
 const editMailStatus = reactive({ status: 'UNSENT', sentAt: '', recipientEmail: '', failureMessage: '' })
@@ -680,6 +759,7 @@ function display(value) {
 
 function displayColumn(key, value, row) {
   if (key === 'is_sandbox') return value === true || value === 1 || value === 'true' || value === '1' ? '是' : '否'
+  if (key === 'first_occurrence_date' || key === 'last_occurrence_date') return dateOnlyDisplay(value)
   if (key === 'cooperation_person_username') {
     const realName = row?.cooperation_person_real_name
     if (realName && value) return `${realName}(${value})`
@@ -688,22 +768,32 @@ function displayColumn(key, value, row) {
   return display(value)
 }
 
+function dateOnlyDisplay(value) {
+  const text = value === undefined || value === null ? '' : String(value).trim()
+  const match = text.match(/^(\d{4}-\d{2}-\d{2})/)
+  return match ? match[1] : display(value)
+}
+
+function isWeeklyTask(row) {
+  return row?.weekly_task === true || row?.weekly_task === 1 || row?.weekly_task === '1' || row?.weekly_task === 'true'
+}
+
 function summaryValue(card) {
   if (!Object.keys(stats.groupCounts || {}).length) return stats[card.valueKey] ?? (card.key === 'deferred' ? stats.processingTotal : 0)
   if (card.key === 'total') return Object.values(stats.groupCounts).reduce((sum, group) => sum + Number(group?.total || 0), 0)
-  const key = card.key === 'new' ? 'new' : card.key === 'open' ? 'open' : card.key === 'reopened' ? 'reopened' : card.key === 'deferred' ? 'deferred' : card.key === 'pendingVerification' ? 'pendingVerification' : 'fixed'
+  const key = card.key === 'new' ? 'new' : card.key === 'open' ? 'open' : card.key === 'noAction' ? 'noAction' : card.key === 'reopened' ? 'reopened' : card.key === 'deferred' ? 'deferred' : card.key === 'pendingVerification' ? 'pendingVerification' : 'fixed'
   return Object.values(stats.groupCounts).reduce((sum, group) => sum + Number(group?.[key] || 0), 0)
 }
 
 function groupSummary(card, group) {
   if (card.key === 'total') return stats.groupCounts?.[group]?.total ?? 0
-  const key = card.key === 'new' ? 'new' : card.key === 'open' ? 'open' : card.key === 'reopened' ? 'reopened' : card.key === 'deferred' ? 'deferred' : card.key === 'pendingVerification' ? 'pendingVerification' : 'fixed'
+  const key = card.key === 'new' ? 'new' : card.key === 'open' ? 'open' : card.key === 'noAction' ? 'noAction' : card.key === 'reopened' ? 'reopened' : card.key === 'deferred' ? 'deferred' : card.key === 'pendingVerification' ? 'pendingVerification' : 'fixed'
   return stats.groupCounts?.[group]?.[key] ?? 0
 }
 
-async function openHoverSummary(type, event) {
-  if (event?.type === 'focusin' && activeHoverSummary.value === type) return
-  activeHoverSummary.value = type
+async function openSummaryModal(type) {
+  if (type === 'person') activePersonRankingGroup.value = '存款组'
+  activeSummaryModal.value = type
   const loadingRef = type === 'group' ? groupSummaryLoading : personRankingLoading
   if (loadingRef.value) return
   const rowsRef = type === 'group' ? groupSummaryRows : personRankingRows
@@ -721,9 +811,22 @@ async function openHoverSummary(type, event) {
   }
 }
 
-function closeHoverSummary(type, event) {
-  if (event?.type === 'focusout' && event.currentTarget?.contains(event.relatedTarget)) return
-  if (activeHoverSummary.value === type) activeHoverSummary.value = ''
+function closeSummaryModal() {
+  activeSummaryModal.value = ''
+}
+
+function summaryRowKey(row, index) {
+  return activeSummaryModal.value === 'person'
+    ? `${row.groupName}-${row.rank}-${row.developer}`
+    : row.groupName || index
+}
+
+function summaryColumnClass(column) {
+  return {
+    'is-pending-segment': column.segment === 'pending',
+    'is-fixed-segment': column.segment === 'fixed',
+    'is-segment-total': column.total === true,
+  }
 }
 
 async function copySummaryTable(type) {
@@ -801,7 +904,9 @@ function filterParams() {
     issueLevel: filters.issueLevel || undefined,
     issueType: filters.issueType || undefined,
     ...(filters.issueStatus ? { issueStatus: filters.issueStatus } : {}),
+    ...(filters.reviewStatus ? { reviewStatus: filters.reviewStatus } : {}),
     sandbox: filters.sandbox === '' ? undefined : filters.sandbox === 'true',
+    ...(filters.issueId ? { issueId: filters.issueId } : {}),
     ...(filters.developer ? { developer: filters.developer } : {}),
     ...(filters.bankOwner ? { bankOwner: filters.bankOwner } : {}),
     ...(filters.cooperationPerson ? { cooperationPerson: filters.cooperationPerson } : {}),
@@ -809,6 +914,7 @@ function filterParams() {
     ...(filters.globalSerialNo ? { globalSerialNo: filters.globalSerialNo } : {}),
     ...(filters.defectRepairDate ? { defectRepairDate: filters.defectRepairDate } : {}),
     ...(filters.coverageRound ? { coverageRound: filters.coverageRound } : {}),
+    ...(filters.weeklyTask ? { weeklyTask: true } : {}),
     keyword: filters.keyword || undefined,
   }
   Object.entries(headerFilterConfig).forEach(([key, [, requestKey]]) => {
@@ -821,7 +927,14 @@ async function openHeaderFilter(column, event) {
   activeHeaderColumn.value = column
   headerFilterSearch.value = ''
   headerFilterDraft.value = [...(headerFilters[column.key] || [])]
-  const rect = event?.currentTarget?.getBoundingClientRect?.()
+  headerFilterAnchor = event?.currentTarget || null
+  positionHeaderFilter()
+  headerFilterOpen.value = true
+  await loadHeaderFilterOptions()
+}
+
+function positionHeaderFilter() {
+  const rect = headerFilterAnchor?.getBoundingClientRect?.()
   if (rect) {
     const width = Math.min(300, window.innerWidth - 24)
     const left = Math.max(12, Math.min(rect.left, window.innerWidth - width - 12))
@@ -833,8 +946,6 @@ async function openHeaderFilter(column, event) {
     headerFilterPanelStyle.left = `${left}px`
     headerFilterPanelStyle.top = `${top}px`
   }
-  headerFilterOpen.value = true
-  await loadHeaderFilterOptions()
 }
 
 async function loadHeaderFilterOptions() {
@@ -844,7 +955,7 @@ async function loadHeaderFilterOptions() {
 }
 
 function baseFilterParams() {
-  return { groupName: filters.groupName || undefined, sandbox: filters.sandbox === '' ? undefined : filters.sandbox === 'true', issueLevel: filters.issueLevel || undefined, issueType: filters.issueType || undefined, issueStatus: filters.issueStatus || undefined, developer: filters.developer || undefined, bankOwner: filters.bankOwner || undefined, cooperationPerson: filters.cooperationPerson || undefined, coverageRound: filters.coverageRound || undefined }
+  return { groupName: filters.groupName || undefined, sandbox: filters.sandbox === '' ? undefined : filters.sandbox === 'true', issueId: filters.issueId || undefined, issueLevel: filters.issueLevel || undefined, issueType: filters.issueType || undefined, issueStatus: filters.issueStatus || undefined, reviewStatus: filters.reviewStatus || undefined, developer: filters.developer || undefined, bankOwner: filters.bankOwner || undefined, cooperationPerson: filters.cooperationPerson || undefined, serialNo: filters.serialNo || undefined, globalSerialNo: filters.globalSerialNo || undefined, defectRepairDate: filters.defectRepairDate || undefined, coverageRound: filters.coverageRound || undefined, weeklyTask: filters.weeklyTask || undefined }
 }
 function headerFilterParams(excludeKey) {
   const params = { ...baseFilterParams() }
@@ -859,12 +970,134 @@ function invertHeaderOptions() {
   const selected = new Set(headerFilterDraft.value)
   headerFilterDraft.value = headerFilterOptions.value.filter(option => !selected.has(option))
 }
-function closeHeaderFilter() { headerFilterOpen.value = false }
+function closeHeaderFilter() {
+  headerFilterOpen.value = false
+  headerFilterAnchor = null
+}
 async function applyHeaderFilter() { headerFilters[activeHeaderColumn.value.key] = [...headerFilterDraft.value]; page.value = 0; closeHeaderFilter(); await loadList() }
 async function clearHeaderFilter() { delete headerFilters[activeHeaderColumn.value.key]; page.value = 0; closeHeaderFilter(); await loadList() }
 
+function canReviewGroup(row) {
+  return (reviewPermissions.reviewableGroups || []).includes(row?.group_name)
+}
+
+function canEditPlanDate(row) {
+  if (hasDefectRepairDate(row)) return false
+  return (planDatePermissions.editableGroups || []).includes(row?.group_name)
+}
+
+function hasDefectRepairDate(row) {
+  return String(row?.defect_repair_date || '').trim() !== ''
+}
+
+async function startPlanDateEdit(row) {
+  if (!canEditPlanDate(row) || planDateSavingId.value != null) return
+  editingPlanDateId.value = row.id
+  planDateOriginal.value = String(row.planned_completion_date || '').trim()
+  planDateDraft.value = planDateOriginal.value
+  planDateError.value = ''
+  await nextTick()
+  document.querySelector(`[data-testid="plan-date-input-${row.id}"]`)?.focus()
+}
+
+function cancelPlanDateEdit() {
+  editingPlanDateId.value = null
+  planDateDraft.value = ''
+  planDateOriginal.value = ''
+  planDateError.value = ''
+}
+
+function validPlanDate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+  const [year, month, day] = value.split('-').map(Number)
+  const date = new Date(Date.UTC(year, month - 1, day))
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+}
+
+async function savePlanDate(row) {
+  if (editingPlanDateId.value !== row.id || planDateSavingId.value === row.id) return
+  if (hasDefectRepairDate(row)) {
+    cancelPlanDateEdit()
+    return
+  }
+  const draft = planDateDraft.value.trim()
+  const normalized = draft || null
+  const original = planDateOriginal.value || null
+  if (normalized === original) {
+    cancelPlanDateEdit()
+    return
+  }
+  if (normalized && !validPlanDate(normalized)) {
+    planDateError.value = '填写日期格式不合法，请按 2026-08-26 格式填写'
+    return
+  }
+  planDateSavingId.value = row.id
+  planDateError.value = ''
+  try {
+    const updated = await updateReplayIssuePlannedCompletionDate(row.id, normalized)
+    row.planned_completion_date = updated?.plannedCompletionDate ?? updated?.planned_completion_date ?? normalized ?? ''
+    cancelPlanDateEdit()
+  } catch (cause) {
+    planDateError.value = cause?.message || '计划验证日期保存失败'
+  } finally {
+    planDateSavingId.value = null
+  }
+}
+
+function canReviewIssue(row) {
+  if (canReviewGroup(row)) return true
+  const transactionCode = String(row?.transaction_code || '').trim()
+  return transactionCode !== '' && (reviewPermissions.reviewableTransactionCodes || [])
+    .some(code => String(code || '').trim() === transactionCode)
+}
+
+function canEditIssue(row) {
+  if (!row || row.issue_status === '已修复') return false
+  if (row.issue_status === '无需处理' && row.review_status === '已审核' && !canReviewIssue(row)) return false
+  return true
+}
+
+function editIssueTitle(row) {
+  if (row?.issue_status === '已修复') return '已修复问题不可编辑'
+  if (!canEditIssue(row)) return '仅限该问题科技负责人或对应组负责人编辑'
+  return '编辑'
+}
+
+function reviewActionTitle(row) {
+  if (canReviewIssue(row)) return '点击审核'
+  const names = reviewerContactNames(row)
+  return names.length ? `没有权限，请联系${names.join('、')}进行审核` : '没有审核权限'
+}
+
+function reviewerContactNames(row) {
+  const names = []
+  String(row?.matched_bank_owner || '').split('、').forEach((item) => {
+    const name = item.replace(/[（(][^）)]*[）)]/g, '').trim()
+    if (name && !names.includes(name)) names.push(name)
+  })
+  ;(reviewPermissions.reviewersByGroup?.[row?.group_name] || []).forEach((item) => {
+    const name = String(item || '').trim()
+    if (name && !names.includes(name)) names.push(name)
+  })
+  return names
+}
+
+async function approveReview(row) {
+  if (!canReviewIssue(row)) {
+    if (typeof window.alert === 'function') window.alert(reviewActionTitle(row))
+    return
+  }
+  if (typeof window.confirm === 'function' && !window.confirm(`确认将 issue_id ${row.issue_id || '-'} 审核为“已审核”？`)) return
+  try {
+    await approveReplayIssue(row.id)
+    await Promise.all([loadList({ preserveOnError: true }), loadMetadata()])
+  } catch (cause) {
+    error.value = `审核失败：${cause?.message || cause}`
+  }
+}
+
 async function openEdit(row) {
-  if (row.issue_status === '已修复') return
+  if (!canEditIssue(row)) return
   editIssue.value = row
   Object.assign(editDraft, {
     issueStatus: manualStatuses.includes(row.issue_status) ? row.issue_status : '',
@@ -947,7 +1180,8 @@ async function saveEdit() {
       cooperationPersonUsername: editDraft.cooperationPersonUsername || null,
       remark: editDraft.remark,
     })
-    if (saved?.issue_status !== '修复待验证' && editDraft.issueStatus !== '修复待验证') {
+    if (!['修复待验证', '无需处理'].includes(saved?.issue_status)
+        && !['修复待验证', '无需处理'].includes(editDraft.issueStatus)) {
       const mail = await getReplayIssueMailStatus(editIssue.value.id) || {}
       editMailRecipients.value = Array.isArray(mail.recipients) ? mail.recipients : []
       const collaborator = editMailRecipients.value.find(recipient => recipient.role === '协同人')
@@ -1062,11 +1296,14 @@ async function loadList({ preserveOnError = false } = {}) {
 
 async function loadMetadata() {
   try {
-    const [nextOptions, nextStats, rounds] = await Promise.all([getReplayIssueOptions(), getReplayIssueStats(), getReplayImportRounds()])
+    const [nextOptions, nextStats, rounds, permissions, nextPlanDatePermissions] = await Promise.all([getReplayIssueOptions(), getReplayIssueStats(), getReplayImportRounds(), getReplayIssueReviewPermissions(), getReplayIssuePlanDatePermissions()])
     Object.assign(options, nextOptions || {})
     options.coverageRounds = (nextOptions?.coverageRounds || (rounds || []).map((round) => round.roundCode)).filter(Boolean)
     options.issueStatuses = allStatuses
+    options.reviewStatuses = nextOptions?.reviewStatuses || ['待审核', '已审核']
     Object.assign(stats, nextStats || {})
+    Object.assign(reviewPermissions, permissions || { reviewableGroups: [], reviewersByGroup: {}, reviewableTransactionCodes: [] })
+    Object.assign(planDatePermissions, nextPlanDatePermissions || { editableGroups: [] })
   } catch (cause) {
     error.value = `加载筛选项失败：${cause?.message || cause}`
   }
@@ -1080,6 +1317,11 @@ function query() {
 
 function clearHeaderFilters() {
   Object.keys(headerFilters).forEach((key) => delete headerFilters[key])
+}
+
+function toggleWeeklyTask() {
+  page.value = 0
+  return loadList()
 }
 
 async function exportExcel() {
@@ -1096,14 +1338,49 @@ async function exportExcel() {
 }
 
 function resetFilters() {
-  Object.assign(filters, { groupName: '', issueLevel: '', issueType: '', issueStatus: '', sandbox: '', developer: '', bankOwner: '', cooperationPerson: '', serialNo: '', globalSerialNo: '', defectRepairDate: '', coverageRound: '', keyword: '' })
+  Object.assign(filters, { groupName: '', issueId: '', issueLevel: '', issueType: '', issueStatus: '', reviewStatus: '', sandbox: '', developer: '', bankOwner: '', cooperationPerson: '', serialNo: '', globalSerialNo: '', defectRepairDate: '', coverageRound: '', keyword: '', weeklyTask: false })
   return query()
 }
 
-watch(filters, () => {
-  clearHeaderFilters()
-  if (headerFilterOpen.value) closeHeaderFilter()
-}, { deep: true })
+async function openWeeklyTask() {
+  weeklyTaskOpen.value = true
+  weeklyTaskSearch.value = ''
+  weeklyTaskToken.value = ''
+  weeklyTaskError.value = ''
+  try {
+    Object.assign(weeklyTaskConfig, await getReplayWeeklyTask() || {})
+    weeklyTaskDraft.value = [...(weeklyTaskConfig.batchNames || [])]
+  } catch (cause) {
+    weeklyTaskError.value = `加载失败：${cause?.message || cause}`
+  }
+}
+
+function closeWeeklyTask() {
+  if (!weeklyTaskSaving.value) weeklyTaskOpen.value = false
+}
+
+async function saveWeeklyTask() {
+  if (weeklyTaskSaving.value || !weeklyTaskToken.value.trim()) return
+  weeklyTaskSaving.value = true
+  weeklyTaskError.value = ''
+  try {
+    const result = await replaceReplayWeeklyTask([...weeklyTaskDraft.value].sort(), weeklyTaskToken.value)
+    Object.assign(weeklyTaskConfig, result || {})
+    weeklyTaskDraft.value = [...(weeklyTaskConfig.batchNames || [])]
+    weeklyTaskOpen.value = false
+    page.value = 0
+    await loadList()
+  } catch (cause) {
+    weeklyTaskError.value = `保存失败：${cause?.message || cause}`
+  } finally {
+    weeklyTaskSaving.value = false
+  }
+}
+
+function clearWeeklyTask() {
+  weeklyTaskDraft.value = []
+  return saveWeeklyTask()
+}
 
 function goPrevious() {
   if (page.value === 0 || loading.value) return
@@ -1127,6 +1404,7 @@ function openImport() {
   importOpen.value = true
   importFile.value = null
   importToken.value = ''
+  importReplayType.value = 'QUERY'
   importComplete.value = false
   importMessage.value = ''
   importError.value = false
@@ -1149,7 +1427,7 @@ async function submitImport() {
   importMessage.value = ''
   importError.value = false
   try {
-    const result = await importReplayIssues(importFile.value, importToken.value)
+    const result = await importReplayIssues(importFile.value, importToken.value, importReplayType.value)
     importComplete.value = true
     importMessage.value = `导入完成：${result.inputRows ?? result.totalRows ?? 0} 条；新增 ${result.createdRows ?? 0} 条；更新 ${result.updatedRows ?? 0} 条；忽略 ${result.ignoredRows ?? 0} 条${result.coverageRound ? `；覆盖批次 ${result.coverageRound}` : ''}`
     page.value = 0
@@ -1162,44 +1440,40 @@ async function submitImport() {
   }
 }
 
-function openFullRefresh() {
-  fullRefreshOpen.value = true
-  fullRefreshFile.value = null
-  fullRefreshToken.value = ''
-  fullRefreshConfirmed.value = false
-  fullRefreshComplete.value = false
-  fullRefreshMessage.value = ''
-  fullRefreshError.value = false
-}
-
-function closeFullRefresh() {
-  if (!fullRefreshing.value) fullRefreshOpen.value = false
-}
-
-function selectFullRefreshFile(event) {
-  fullRefreshFile.value = event.target.files?.[0] || null
-  fullRefreshComplete.value = false
-  fullRefreshMessage.value = ''
-  fullRefreshError.value = false
-}
-
-async function submitFullRefresh() {
-  if (!fullRefreshFile.value || !fullRefreshToken.value.trim() || !fullRefreshConfirmed.value
-    || fullRefreshing.value || fullRefreshComplete.value) return
-  fullRefreshing.value = true
-  fullRefreshMessage.value = ''
-  fullRefreshError.value = false
+async function openDailyReport() {
+  dailyReportOpen.value = true
+  dailyReportSelectedBatch.value = ''
+  dailyReportError.value = ''
+  dailyReportLoading.value = true
   try {
-    const result = await fullRefreshReplayIssues(fullRefreshFile.value, fullRefreshToken.value)
-    fullRefreshComplete.value = true
-    fullRefreshMessage.value = `全量更新完成：${result.totalRows ?? 0} 条；自动生成标识 ${result.generatedIdentityRows ?? 0} 条${result.coverageRound ? `；覆盖批次 ${result.coverageRound}` : ''}`
-    page.value = 0
-    await Promise.all([loadList(), loadMetadata()])
+    const list = await getReplayDailyReportBatches() || []
+    dailyReportBatches.value = Array.isArray(list) ? list : []
+    const firstAvailable = dailyReportBatches.value.find((entry) => entry.available)
+    if (firstAvailable) dailyReportSelectedBatch.value = firstAvailable.batchNo
   } catch (cause) {
-    fullRefreshError.value = true
-    fullRefreshMessage.value = `全量更新失败：${cause?.message || cause}`
+    dailyReportBatches.value = []
+    dailyReportError.value = `加载日报列表失败：${cause?.message || cause}`
   } finally {
-    fullRefreshing.value = false
+    dailyReportLoading.value = false
+  }
+}
+
+function closeDailyReport() {
+  if (dailyReportDownloading.value) return
+  dailyReportOpen.value = false
+}
+
+async function downloadSelectedDailyReport() {
+  if (!dailyReportSelectedBatch.value || dailyReportDownloading.value) return
+  dailyReportDownloading.value = true
+  dailyReportError.value = ''
+  try {
+    await downloadReplayDailyReport(dailyReportSelectedBatch.value)
+    closeDailyReport()
+  } catch (cause) {
+    dailyReportError.value = `下载失败：${cause?.message || cause}`
+  } finally {
+    dailyReportDownloading.value = false
   }
 }
 
@@ -1217,6 +1491,7 @@ onBeforeUnmount(() => {
 .replay-page {
   --replay-teal: #0d6672;
   --replay-row-alt: #eef7fb;
+  --replay-content-gutter: 20px;
   min-height: 0;
   height: 100%;
   display: flex;
@@ -1226,7 +1501,7 @@ onBeforeUnmount(() => {
   background: var(--bg-page, #f0f2f7);
 }
 
-.replay-toolbar, .replay-filters, .replay-pager { flex: 0 0 auto; }
+.replay-toolbar, .replay-summary-actions-row, .replay-pager { flex: 0 0 auto; }
 
 .replay-toolbar {
   min-height: 68px;
@@ -1251,9 +1526,9 @@ onBeforeUnmount(() => {
 .replay-summary {
   flex: 0 0 auto;
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-columns: repeat(var(--replay-summary-columns), minmax(0, 1fr));
   gap: 10px;
-  padding: 12px 20px 0;
+  padding: 12px var(--replay-content-gutter) 0;
 }
 
 .replay-summary-card {
@@ -1275,19 +1550,36 @@ onBeforeUnmount(() => {
 .replay-summary-card:hover .replay-summary-tooltip, .replay-summary-card:focus-visible .replay-summary-tooltip { display: grid; gap: 5px; }
 .replay-summary-tooltip div { display: flex; justify-content: space-between; gap: 18px; font-size: 12px; line-height: 16px; }
 .replay-summary-tooltip b { color: var(--text-primary, #1f2937); font-variant-numeric: tabular-nums; }
-.replay-summary-entries { position: relative; z-index: 10; flex: 0 0 auto; display: flex; align-items: center; gap: 10px; padding: 10px 20px 12px; }
+.replay-summary-actions-row { position: relative; z-index: 10; min-height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px var(--replay-content-gutter); border-bottom: 1px solid var(--border, #e8edf5); }
+.replay-summary-actions-row-transparent { background: transparent; }
+.replay-summary-entries { position: relative; min-width: 0; display: flex; align-items: center; gap: 10px; }
+.replay-summary-right-actions { margin-left: auto; display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
 .replay-summary-entry { position: relative; min-height: 32px; display: inline-flex; align-items: center; gap: 7px; padding: 0 11px; border: 1px solid var(--border, #d7dee8); border-radius: 4px; color: var(--text-secondary, #374151); background: var(--bg-card, #fff); cursor: default; outline: none; font-size: 12px; }
 .replay-summary-entry:hover, .replay-summary-entry:focus-visible, .replay-summary-entry:focus-within { border-color: var(--text-active, #3b5adb); color: var(--text-active, #3b5adb); }
-.replay-summary-panel { z-index: 1000; display: flex; flex-direction: column; padding: 14px; border: 1px solid var(--border, #d7dee8); border-radius: 6px; color: var(--text-primary, #1f2937); background: var(--bg-card, #fff); box-shadow: 0 18px 48px rgba(13, 20, 36, .28); }
-.replay-summary-panel-fixed { position: fixed; top: 50%; left: 50%; height: min(70vh, 640px); max-height: calc(100vh - 48px); transform: translate(-50%, -50%); }
-.replay-summary-panel-group { width: min(80vw, 1200px); }
-.replay-summary-panel-person { width: min(90vw, 1500px); }
-.replay-summary-panel > header { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 0 9px; }
-.replay-summary-panel h3 { margin: 0; font-size: 14px; line-height: 20px; }
+.replay-summary-entry-action { font: inherit; cursor: pointer; }
+.replay-summary-modal-mask { position: fixed; z-index: 1000; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(13, 20, 36, .42); }
+.replay-summary-modal { display: flex; flex-direction: column; max-height: calc(100vh - 48px); overflow: hidden; border: 1px solid var(--border, #d7dee8); border-radius: 12px; color: var(--text-primary, #1f2937); background: var(--bg-card, #fff); box-shadow: 0 24px 80px rgba(13, 20, 36, .3); }
+.replay-summary-modal-group { width: min(80vw, 1200px); height: auto; }
+.replay-summary-modal-person { width: min(90vw, 1500px); height: min(70vh, 640px); }
+.replay-summary-modal > header { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--border, #d7dee8); }
+.replay-summary-modal h3 { margin: 0; font-size: 16px; line-height: 22px; }
+.replay-summary-modal-actions { display: flex; align-items: center; gap: 8px; }
+.replay-person-ranking-tabs { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--border, #d7dee8); overflow-x: auto; }
+.replay-person-ranking-tabs button { min-width: 82px; min-height: 32px; padding: 0 14px; border: 1px solid var(--border, #d7dee8); border-radius: 5px; color: var(--text-secondary, #374151); background: var(--bg-card, #fff); cursor: pointer; font: inherit; white-space: nowrap; }
+.replay-person-ranking-tabs button:hover, .replay-person-ranking-tabs button:focus-visible { border-color: var(--text-active, #3b5adb); color: var(--text-active, #3b5adb); outline: none; }
+.replay-person-ranking-tabs button.is-active { border-color: var(--text-active, #3b5adb); color: var(--text-active, #3b5adb); background: color-mix(in srgb, var(--text-active, #3b5adb) 8%, var(--bg-card, #fff)); font-weight: 600; }
 .replay-summary-table-wrap { min-height: 0; overflow: auto; }
 .replay-summary-table { width: 100%; border-collapse: collapse; color: var(--text-primary, #1f2937); background: var(--bg-card, #fff); font-size: 12px; font-variant-numeric: tabular-nums; }
 .replay-summary-table th, .replay-summary-table td { min-width: 88px; padding: 7px 9px; border: 1px solid var(--border, #d7dee8); text-align: right; white-space: nowrap; }
 .replay-summary-table th { position: sticky; top: 0; z-index: 1; color: #fff; background: var(--replay-teal); }
+.replay-summary-table th.is-pending-segment { background: #b86f18; }
+.replay-summary-table th.is-fixed-segment { background: #2f855a; }
+.replay-summary-table th.is-pending-segment.is-segment-total { background: #92540f; }
+.replay-summary-table th.is-fixed-segment.is-segment-total { background: #216b45; }
+.replay-summary-table td.is-pending-segment { background: #fff8eb; }
+.replay-summary-table td.is-fixed-segment { background: #eefaf2; }
+.replay-summary-table td.is-pending-segment.is-segment-total { color: #7a430a; background: #ffefcf; font-weight: 700; }
+.replay-summary-table td.is-fixed-segment.is-segment-total { color: #175c39; background: #dff5e8; font-weight: 700; }
 .replay-summary-table th:first-child, .replay-summary-table td:first-child { text-align: left; }
 .replay-person-ranking-table th:nth-child(3), .replay-person-ranking-table td:nth-child(3) { min-width: 250px; text-align: left; white-space: normal; overflow-wrap: anywhere; }
 .replay-summary-state { margin: 0; padding: 18px; color: var(--text-muted, #6b7280); text-align: center; }
@@ -1298,20 +1590,8 @@ onBeforeUnmount(() => {
 .replay-field-help-tooltip { position: absolute; z-index: 30; left: 0; top: calc(100% + 7px); display: none; width: min(520px, calc(100vw - 64px)); max-height: 260px; overflow: auto; padding: 10px 12px; border: 1px solid var(--border, #d7dee8); border-radius: 5px; background: var(--bg-card, #fff); color: var(--text-primary, #1f2937); box-shadow: 0 10px 24px rgba(13, 20, 36, .2); font-size: 12px; font-weight: 400; line-height: 1.65; white-space: normal; }
 .replay-field-help-trigger:hover + .replay-field-help-tooltip, .replay-field-help-trigger:focus-visible + .replay-field-help-tooltip { display: block; }
 
-.replay-filters {
-  display: flex;
-  align-items: end;
-  gap: 10px;
-  flex-wrap: wrap;
-  padding: 12px 20px;
-  background: var(--bg-card, #fff);
-  border-bottom: 1px solid var(--border, #e8edf5);
-}
-
-.replay-filters label, .replay-import-modal label { display: grid; gap: 4px; color: var(--text-secondary, #374151); font-size: 12px; line-height: 16px; }
-.replay-filters select { width: 126px; }
-.replay-keyword-field input { width: min(250px, 35vw); }
-.replay-filters select, .replay-filters input, .replay-import-modal input {
+.replay-import-modal label { display: grid; gap: 4px; color: var(--text-secondary, #374151); font-size: 12px; line-height: 16px; }
+.replay-import-modal input {
   height: 32px;
   border: 1px solid var(--border, #e8edf5);
   border-radius: 4px;
@@ -1335,6 +1615,19 @@ onBeforeUnmount(() => {
 .replay-icon-button { width: 32px; min-width: 32px; display: inline-grid; place-items: center; padding: 0; }
 .replay-button-primary { border-color: var(--text-active, #3b5adb); color: var(--btn-primary-text, #fff); background: var(--text-active, #3b5adb); }
 .replay-button-danger { border-color: #b42318; color: #fff; background: #b42318; }
+.replay-button-weekly { border-color: #d69e2e; color: #744210; background: #fffaf0; }
+.replay-button-weekly:hover { border-color: #b7791f; background: #fef3c7; }
+.replay-weekly-task-filter { display: inline-flex; align-items: center; min-width: 126px; color: var(--text-secondary, #374151); }
+.replay-checkbox-line { min-height: 30px; display: flex; align-items: center; gap: 7px; font-size: 13px; white-space: nowrap; }
+.replay-summary-right-actions .replay-checkbox-line input { width: 15px; height: 15px; margin: 0; accent-color: #b7791f; }
+.replay-button-secondary { border-color: var(--text-active, #3b5adb); color: var(--text-active, #3b5adb); background: var(--bg-card, #fff); }
+.replay-button-secondary:hover, .replay-button-secondary:focus-visible { color: var(--btn-primary-text, #fff); background: var(--text-active, #3b5adb); }
+.replay-loading-status { margin: 8px 0; color: var(--text-muted, #6b7280); font-size: 12px; }
+.replay-empty-tip { margin: 12px 0; padding: 14px; border: 1px dashed var(--border, #d7dee8); border-radius: 4px; color: var(--text-muted, #6b7280); font-size: 12px; line-height: 18px; text-align: center; }
+.replay-daily-report-picker { display: grid; gap: 6px; margin: 8px 0; color: var(--text-secondary, #374151); font-size: 12px; }
+.replay-daily-report-picker select { min-height: 32px; border: 1px solid var(--border, #e8edf5); border-radius: 4px; padding: 0 9px; background: var(--bg-input, #fff); font: inherit; }
+.replay-daily-report-error { color: #b42318; font-size: 12px; }
+.replay-daily-report-modal { max-width: 480px; }
 .replay-button:disabled, .replay-icon-button:disabled { cursor: not-allowed; opacity: .48; }
 
 .replay-table-viewport {
@@ -1346,9 +1639,9 @@ onBeforeUnmount(() => {
   overflow-x: auto;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 0 20px;
-  scrollbar-gutter: stable both-edges;
+  padding: 0 var(--replay-content-gutter);
 }
+.replay-table-viewport-aligned { scrollbar-gutter: stable; }
 .replay-table { min-width: 3000px; table-layout: fixed; border-collapse: separate; border-spacing: 0; width: max(100%, 3000px); margin: 0; font-size: 12px; }
 .replay-table th > span, .replay-table th > svg { vertical-align: middle; }
 .replay-table th > svg { margin-left: 4px; opacity: .82; }
@@ -1386,11 +1679,31 @@ onBeforeUnmount(() => {
 .replay-table th:first-child, .replay-table td:first-child { border-left: 1px solid var(--border, #e8edf5); }
 .replay-table tbody tr:nth-child(even) td { background: var(--replay-row-alt); }
 .replay-table tbody tr:nth-child(odd) td { background: var(--bg-card, #fff); }
+.replay-table tbody tr.replay-weekly-task-row td { background: #fff8df; }
+.replay-table tbody tr.replay-weekly-task-row:hover td { background: #ffefb3; }
+.replay-table tbody tr.replay-weekly-task-row td:first-child { box-shadow: inset 4px 0 0 #d69e2e; }
+.replay-weekly-task-badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 7px; border: 1px solid #e7bd55; border-radius: 999px; color: #744210; background: #fff3c4; font-size: 12px; font-weight: 650; }
+.replay-review-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 58px; padding: 3px 8px; border: 1px solid transparent; border-radius: 999px; font: inherit; font-size: 12px; font-weight: 650; white-space: nowrap; }
+button.replay-review-badge { cursor: pointer; }
+.replay-review-badge.is-pending { color: #8a4b08; border-color: #f0bd67; background: #fff4d6; }
+.replay-review-badge.is-pending:hover { border-color: #d68a1f; background: #ffe7ad; }
+.replay-review-badge.is-approved { color: #166534; border-color: #86d3a0; background: #e8f8ed; }
+.replay-plan-date-cell { min-width: 0; display: flex; align-items: center; font-variant-numeric: tabular-nums; }
+.replay-plan-date-emphasis { color: #cf1124; }
+.replay-plan-date-emphasis.is-repair-date-locked { color: var(--text-muted, #8c94a6); cursor: not-allowed; }
+.replay-plan-date-edit { width: 100%; min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 5px; padding: 2px 3px; border: 0; border-radius: 3px; color: inherit; background: transparent; font: inherit; cursor: text; }
+.replay-plan-date-edit span { overflow: hidden; text-overflow: ellipsis; }
+.replay-plan-date-edit svg { flex: 0 0 auto; color: var(--text-muted, #6b7280); opacity: 0; transition: opacity .14s ease; }
+.replay-plan-date-edit:hover, .replay-plan-date-edit:focus-visible { background: var(--bg-domain-hover, #f5f7fa); outline: 1px solid var(--border, #d7dee8); }
+.replay-plan-date-edit:hover svg, .replay-plan-date-edit:focus-visible svg { opacity: 1; }
+.replay-plan-date-cell input { height: 26px; padding: 3px 5px; font-variant-numeric: tabular-nums; }
+.replay-plan-date-toast { color: #fff; background: #b42318; }
 .replay-copyable-cell { cursor: copy; }
 .replay-copyable-cell:hover { background: var(--bg-domain-hover, #f5f7fa) !important; }
 .replay-state { text-align: center !important; color: var(--text-muted, #6b7280); }
 .replay-error { color: var(--c-error-code-text, #cf1124); }
 .replay-manual-value { color: #cf1124; white-space: pre-wrap; overflow-wrap: anywhere; }
+.replay-detail-value { color: #2563b8; white-space: pre-wrap; overflow-wrap: anywhere; }
 .replay-operation-buttons { display: flex; align-items: center; gap: 5px; }
 .replay-table td select, .replay-table td input, .replay-table td textarea { width: 100%; min-width: 0; border: 1px solid var(--border, #e8edf5); border-radius: 3px; padding: 4px 5px; color: inherit; background: var(--bg-input, #fff); font: inherit; }
 .replay-table td textarea { min-height: 42px; resize: vertical; line-height: 16px; }
@@ -1462,6 +1775,25 @@ onBeforeUnmount(() => {
 .replay-page-actions { display: flex; gap: 6px; }
 
 .replay-modal-mask { position: fixed; z-index: 30; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(13, 20, 36, .42); }
+.replay-weekly-task-modal { width: min(620px, 100%); max-height: min(720px, calc(100vh - 40px)); display: flex; flex-direction: column; border: 1px solid var(--border, #e8edf5); border-radius: 10px; color: var(--text-primary, #1f2937); background: var(--bg-card, #fff); box-shadow: 0 20px 55px rgba(13, 20, 36, .28); overflow: hidden; }
+.replay-weekly-task-modal > header, .replay-weekly-task-modal > footer { display: flex; align-items: center; gap: 12px; padding: 16px 18px; }
+.replay-weekly-task-modal > header { justify-content: space-between; border-bottom: 1px solid var(--border, #e8edf5); }
+.replay-weekly-task-modal > header h3 { margin: 0; font-size: 18px; }
+.replay-weekly-task-modal > header p { margin: 3px 0 0; color: var(--text-muted, #6b7280); font-size: 12px; }
+.replay-weekly-task-modal > footer { border-top: 1px solid var(--border, #e8edf5); }
+.replay-modal-spacer { flex: 1; }
+.replay-weekly-task-body { min-height: 0; display: grid; gap: 12px; padding: 16px 18px; overflow: auto; }
+.replay-weekly-task-body > label { display: grid; gap: 5px; color: var(--text-secondary, #374151); font-size: 12px; }
+.replay-weekly-task-body input[type='password'] { min-height: 34px; padding: 6px 9px; border: 1px solid var(--border, #d7dee8); border-radius: 5px; }
+.replay-weekly-task-search > div { display: flex; align-items: center; gap: 7px; padding: 0 9px; border: 1px solid var(--border, #d7dee8); border-radius: 5px; background: var(--bg-input, #fff); }
+.replay-weekly-task-search input { width: 100%; min-height: 34px; border: 0; outline: 0; background: transparent; }
+.replay-weekly-task-meta { display: flex; justify-content: space-between; gap: 12px; color: var(--text-muted, #6b7280); font-size: 12px; }
+.replay-weekly-task-meta strong { color: #8a5b08; }
+.replay-weekly-task-options { max-height: 300px; display: grid; gap: 2px; padding: 6px; border: 1px solid var(--border, #d7dee8); border-radius: 6px; overflow: auto; }
+.replay-weekly-task-options label { display: flex; align-items: center; gap: 9px; min-height: 34px; padding: 5px 8px; border-radius: 4px; cursor: pointer; }
+.replay-weekly-task-options label:hover { background: #fff8df; }
+.replay-weekly-task-options input { width: 15px; height: 15px; accent-color: #b7791f; }
+.replay-weekly-task-options p { margin: 14px; text-align: center; color: var(--text-muted, #6b7280); }
 .replay-import-modal { width: min(460px, 100%); display: grid; gap: 16px; padding: 20px; border: 1px solid var(--border, #e8edf5); border-radius: 6px; color: var(--text-primary, #1f2937); background: var(--bg-card, #fff); box-shadow: 0 16px 42px rgba(13, 20, 36, .24); }
 .replay-edit-modal { width: min(680px, 100%); display: grid; gap: 16px; padding: 20px; border: 1px solid var(--border, #e8edf5); border-radius: 6px; color: var(--text-primary, #1f2937); background: var(--bg-card, #fff); box-shadow: 0 16px 42px rgba(13, 20, 36, .24); }
 .replay-edit-modal header, .replay-edit-modal footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -1478,32 +1810,33 @@ onBeforeUnmount(() => {
 .replay-edit-error { margin: 0; color: var(--c-error-code-text, #cf1124); font-size: 12px; }
 .replay-import-modal header, .replay-import-modal footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .replay-import-modal footer { justify-content: flex-end; }
+.replay-import-type { display: flex; align-items: center; gap: 18px; margin: 0; padding: 10px 12px; border: 1px solid var(--border, #e8edf5); border-radius: 4px; }
+.replay-import-type legend { padding: 0 4px; color: var(--text-secondary, #374151); font-size: 12px; }
+.replay-import-type label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.replay-import-type input { width: 15px !important; height: 15px !important; margin: 0; padding: 0; accent-color: var(--replay-teal, #0f6b78); }
 .replay-file-field small { color: var(--text-muted, #6b7280); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .replay-import-message { margin: 0 !important; padding: 8px 10px; border: 1px solid var(--border, #e8edf5); border-radius: 4px; background: var(--bg-badge, #f0f2f5); color: var(--text-secondary, #374151) !important; }
 .replay-import-message.is-error { color: var(--c-error-code-text, #cf1124) !important; }
-.replay-danger-copy { color: #b42318 !important; }
-.replay-destructive-confirm { display: flex !important; align-items: center; gap: 8px !important; }
-.replay-destructive-confirm input { width: 16px !important; height: 16px !important; margin: 0; padding: 0; }
 
 [data-theme="dark"] .replay-page { --replay-teal: #145c67; --replay-row-alt: rgba(126, 184, 255, .07); }
 
 @media (max-width: 768px) {
-  .replay-toolbar, .replay-filters, .replay-pager { padding-left: 12px; padding-right: 12px; }
+  .replay-page { --replay-content-gutter: 12px; }
+  .replay-toolbar, .replay-pager { padding-left: 12px; padding-right: 12px; }
   .replay-toolbar { min-height: auto; align-items: flex-start; flex-wrap: wrap; }
   .replay-toolbar-actions { width: 100%; justify-content: flex-end; }
   .replay-toolbar-title { width: 100%; }
   .replay-icon-button.replay-mobile-navigation { flex: 0 0 auto; display: inline-grid; }
-  .replay-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); padding-left: 12px; padding-right: 12px; }
+  .replay-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .replay-summary-card { padding-left: 8px; padding-right: 8px; }
-  .replay-summary-entries { padding-left: 12px; padding-right: 12px; flex-wrap: wrap; }
-  .replay-summary-panel-fixed, .replay-summary-panel-group, .replay-summary-panel-person { top: 50%; right: auto; left: 50%; width: calc(100vw - 24px); height: min(70vh, 640px); max-height: calc(100vh - 24px); transform: translate(-50%, -50%); }
+  .replay-summary-actions-row, .replay-summary-entries, .replay-summary-right-actions { flex-wrap: wrap; }
+  .replay-summary-modal-mask { padding: 12px; }
+  .replay-summary-modal, .replay-summary-modal-group, .replay-summary-modal-person { width: calc(100vw - 24px); max-height: calc(100vh - 24px); }
+  .replay-summary-modal-group { height: auto; }
+  .replay-summary-modal-person { height: min(70vh, 640px); }
   .replay-header-filter-panel { max-height: calc(100vh - 116px); }
-  .replay-filters label { flex: 1 1 126px; }
-  .replay-filters select { width: 100%; }
-  .replay-keyword-field, .replay-keyword-field input { width: 100% !important; }
   .replay-edit-grid { grid-template-columns: 1fr; }
   .replay-edit-wide { grid-column: auto; }
-  .replay-table-viewport { padding-left: 12px; padding-right: 12px; }
   .replay-pager { justify-content: space-between; gap: 8px; flex-wrap: wrap; }
   .replay-tracking-drawer { width: 100%; }
 }

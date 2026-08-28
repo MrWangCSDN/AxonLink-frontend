@@ -39,9 +39,13 @@ function redirectToLogin() {
 
 // 导出供其他 api/ 子模块复用（如 api/daoIndex.js）
 export async function request(url, options = {}) {
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(options.headers || {}),
+  }
   const res = await fetch(BASE + url, {
-    headers: { 'Content-Type': 'application/json' },
     ...options,
+    headers,
   })
 
   // HTTP 层 401：未登录 → 跳 /login（但仍抛异常给调用方）
@@ -88,8 +92,8 @@ export async function request(url, options = {}) {
 }
 
 // 导出供其他 api/ 子模块复用
-export async function download(url, fallbackFileName) {
-  const res = await fetch(BASE + url)
+export async function download(url, fallbackFileName, options = {}) {
+  const res = await fetch(BASE + url, options)
   if (!res.ok) {
     const message = await res.text().catch(() => '')
     throw new Error(message || `HTTP ${res.status}: ${url}`)
@@ -160,6 +164,19 @@ export function getFlowtranTransactions(domainKey, page = 1, size = 20, keyword 
  */
 export function getFlowtranChain(txId) {
   return request(`/flowtran/transactions/${encodeURIComponent(txId)}/chain`)
+}
+
+/**
+ * 导出指定领域的全部交易链路（交易、服务、构件、数据库表四个 Sheet）。
+ * @param {string} domainKey 领域标识，如 public / deposit
+ * @param {string} token 共享操作口令
+ */
+export function exportFlowtranDomainChains(domainKey, token) {
+  return download(
+    `/flowtran/domains/${encodeURIComponent(domainKey)}/chains/export`,
+    `${domainKey}-全量交易链路.xlsx`,
+    { headers: { 'X-DII-Trigger-Token': token || '' } },
+  )
 }
 
 /**

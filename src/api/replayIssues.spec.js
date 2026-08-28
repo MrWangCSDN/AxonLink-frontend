@@ -6,7 +6,15 @@ import {
   getReplayIssueGroupSummaries,
   getReplayIssuePersonRankings,
   getReplayIssueStats,
-  fullRefreshReplayIssues,
+  getReplayCompletionDatePoints,
+  getReplayCompletionDashboard,
+  getReplayCompletionIssues,
+  getReplayIssueReviewPermissions,
+  getReplayIssuePlanDatePermissions,
+  updateReplayIssuePlannedCompletionDate,
+  approveReplayIssue,
+  getReplayWeeklyTask,
+  replaceReplayWeeklyTask,
   importReplayIssues,
   listReplayIssues,
   updateReplayIssue,
@@ -27,12 +35,15 @@ describe('replay issues API', () => {
   it('encodes list filters and paging', async () => {
     global.fetch = vi.fn().mockResolvedValue(jsonResponse({ code: 200, data: { total: 0, items: [] } }))
 
-    await listReplayIssues({ limit: 50, offset: 100, groupName: '贷款组', sandbox: false, keyword: 'CCBS 响应' })
+    await listReplayIssues({ limit: 50, offset: 100, groupName: '贷款组', sandbox: false, issueId: 'ISSUE 001', groupNames: ['公共组', '贷款组'], sandboxes: ['是', '否'], keyword: 'CCBS 响应' })
 
     expect(fetch.mock.calls[0][0]).toContain('limit=50')
     expect(fetch.mock.calls[0][0]).toContain('offset=100')
     expect(fetch.mock.calls[0][0]).toContain('groupName=%E8%B4%B7%E6%AC%BE%E7%BB%84')
     expect(fetch.mock.calls[0][0]).toContain('sandbox=false')
+    expect(fetch.mock.calls[0][0]).toContain('issueId=ISSUE%20001')
+    expect(fetch.mock.calls[0][0]).toContain('groupNames=%E5%85%AC%E5%85%B1%E7%BB%84&groupNames=%E8%B4%B7%E6%AC%BE%E7%BB%84')
+    expect(fetch.mock.calls[0][0]).toContain('sandboxes=%E6%98%AF&sandboxes=%E5%90%A6')
     expect(fetch.mock.calls[0][0]).toContain('keyword=CCBS%20%E5%93%8D%E5%BA%94')
   })
 
@@ -73,6 +84,84 @@ describe('replay issues API', () => {
     expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues/stats')
   })
 
+  it('gets planned completion date points and dashboard through the dedicated statistics paths', async () => {
+    global.fetch = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ code: 200, data: { points: [] } }))
+      .mockResolvedValueOnce(jsonResponse({ code: 200, data: { groups: [] } }))
+
+    await getReplayCompletionDatePoints()
+    await getReplayCompletionDashboard({ startDate: '2026-08-20', endDate: '2026-08-27' })
+
+    expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues/stats/planned-completion/date-points')
+    expect(fetch.mock.calls[1][0]).toBe('/api/ai/parallel-replay/issues/stats/planned-completion?startDate=2026-08-20&endDate=2026-08-27')
+  })
+
+  it('encodes the exact group developer category and paging filters for completion drill-down', async () => {
+    global.fetch = vi.fn().mockResolvedValue(jsonResponse({ code: 200, data: { total: 0, items: [] } }))
+
+    await getReplayCompletionIssues({
+      startDate: '2026-08-20',
+      endDate: '2026-08-27',
+      groupName: '贷款组',
+      matchedDeveloper: '张三、李四',
+      category: 'OVERDUE_UNFINISHED',
+      limit: 20,
+      offset: 40,
+    })
+
+    expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues/stats/planned-completion/issues?startDate=2026-08-20&endDate=2026-08-27&groupName=%E8%B4%B7%E6%AC%BE%E7%BB%84&matchedDeveloper=%E5%BC%A0%E4%B8%89%E3%80%81%E6%9D%8E%E5%9B%9B&category=OVERDUE_UNFINISHED&limit=20&offset=40')
+  })
+
+  it('gets review permissions and approves through the documented endpoint', async () => {
+    global.fetch = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ code: 200, data: { reviewableGroups: [] } }))
+      .mockResolvedValueOnce(jsonResponse({ code: 200, data: { review_status: '已审核' } }))
+
+    await getReplayIssueReviewPermissions()
+    await approveReplayIssue(42)
+
+    expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues/review-permissions')
+    expect(fetch.mock.calls[1][0]).toBe('/api/ai/parallel-replay/issues/42/review/approve')
+    expect(fetch.mock.calls[1][1]).toMatchObject({ method: 'POST' })
+  })
+
+  it('gets planned completion date permissions and saves or clears a date', async () => {
+    global.fetch = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ code: 200, data: { editableGroups: ['公共组'] } }))
+      .mockResolvedValueOnce(jsonResponse({ code: 200, data: { plannedCompletionDate: '2026-08-26' } }))
+      .mockResolvedValueOnce(jsonResponse({ code: 200, data: { plannedCompletionDate: null } }))
+
+    await getReplayIssuePlanDatePermissions()
+    await updateReplayIssuePlannedCompletionDate(42, '2026-08-26')
+    await updateReplayIssuePlannedCompletionDate(42, null)
+
+    expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues/plan-date-permissions')
+    expect(fetch.mock.calls[1][0]).toBe('/api/ai/parallel-replay/issues/42/planned-completion-date')
+    expect(fetch.mock.calls[1][1]).toMatchObject({ method: 'PATCH' })
+    expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ plannedCompletionDate: '2026-08-26' })
+    expect(JSON.parse(fetch.mock.calls[2][1].body)).toEqual({ plannedCompletionDate: null })
+  })
+
+  it('reads and replaces the weekly task batch set with the shared token header', async () => {
+    global.fetch = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ code: 200, data: { batchNames: [], availableBatchNames: [], issueCount: 0 } }))
+      .mockResolvedValueOnce(jsonResponse({ code: 200, data: { batchNames: ['BATCH-2'], availableBatchNames: ['BATCH-2'], issueCount: 30 } }))
+
+    await getReplayWeeklyTask()
+    await replaceReplayWeeklyTask(['BATCH-2'], 'secret')
+
+    expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues/weekly-task')
+    expect(fetch.mock.calls[1][0]).toBe('/api/ai/parallel-replay/issues/weekly-task')
+    expect(fetch.mock.calls[1][1]).toMatchObject({
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-DII-Trigger-Token': 'secret',
+      },
+    })
+    expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ batchNames: ['BATCH-2'] })
+  })
+
   it('gets hover summary tables from their dedicated endpoints', async () => {
     global.fetch = vi.fn()
       .mockResolvedValueOnce(jsonResponse({ code: 200, data: [] }))
@@ -111,8 +200,17 @@ describe('replay issues API', () => {
 
     const options = fetch.mock.calls[0][1]
     expect(options.body).toBeInstanceOf(FormData)
+    expect(options.body.get('replayType')).toBe('QUERY')
     expect(options.headers['X-DII-Trigger-Token']).toBe('secret')
     expect(options.headers).not.toHaveProperty('Content-Type')
+  })
+
+  it('sends the selected replay type with a formal import', async () => {
+    global.fetch = vi.fn().mockResolvedValue(jsonResponse({ code: 200, data: { totalRows: 8 } }))
+
+    await importReplayIssues(new File(['x'], 'issues.xlsx'), 'secret', 'DZ')
+
+    expect(fetch.mock.calls[0][1].body.get('replayType')).toBe('DZ')
   })
 
   it('preserves the backend token error message with a stable code', async () => {
@@ -139,29 +237,4 @@ describe('replay issues API', () => {
     await expect(importReplayIssues(new File(['x'], 'issues.xlsx'), 'secret')).rejects.toThrow('文件为空')
   })
 
-  it('sends the full refresh file token and explicit confirmation', async () => {
-    global.fetch = vi.fn().mockResolvedValue(jsonResponse({ code: 200, data: { totalRows: 2 } }))
-    const file = new File(['x'], 'full-refresh.xlsx')
-
-    await fullRefreshReplayIssues(file, 'secret')
-
-    expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues/full-refresh')
-    const options = fetch.mock.calls[0][1]
-    expect(options.headers['X-DII-Trigger-Token']).toBe('secret')
-    expect(options.headers).not.toHaveProperty('Content-Type')
-    expect(options.body.get('file')).toBe(file)
-    expect(options.body.get('confirm')).toBe('FULL_REFRESH')
-  })
-
-  it.each([
-    [401, 'TOKEN_INVALID'],
-    [409, 'IMPORT_BUSY'],
-  ])('maps full refresh status %i to %s while preserving the message', async (status, code) => {
-    global.fetch = vi.fn().mockResolvedValue(jsonResponse({ code: status, message: '后端原始提示' }, status))
-
-    await expect(fullRefreshReplayIssues(new File(['x'], 'issues.xlsx'), 'secret')).rejects.toMatchObject({
-      code,
-      message: '后端原始提示',
-    })
-  })
 })

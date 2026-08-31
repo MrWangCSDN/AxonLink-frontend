@@ -195,7 +195,7 @@
             <td
               v-for="column in columns"
               :key="column.key"
-              :class="{ 'replay-copyable-cell': copyableColumnKeys.has(column.key), 'replay-person-cell': column.key === 'matched_developer' || column.key === 'matched_bank_owner', 'replay-issue-domain-table-cell': column.key === 'issue_domain' }"
+              :class="{ 'replay-copyable-cell': copyableColumnKeys.has(column.key), 'replay-person-cell': column.key === 'matched_developer' || column.key === 'matched_bank_owner', 'replay-issue-domain-table-cell': column.key === 'issue_domain', 'replay-plan-date-table-cell': column.key === 'planned_completion_date' }"
               :title="cellTitle(column, row)"
               @click="copyableColumnKeys.has(column.key) && copyCell(column, row)"
             >
@@ -264,9 +264,27 @@
                   @keydown.esc.prevent="cancelPlanDateEdit"
                 />
                 <button v-else-if="canEditPlanDate(row)" type="button" class="replay-plan-date-edit" :data-testid="`plan-date-edit-${row.id}`" title="点击编辑计划验证日期" @click.stop="startPlanDateEdit(row)">
-                  <span>{{ display(row.planned_completion_date) }}</span><Pencil :size="12" aria-hidden="true" />
+                  <span :data-testid="`plan-date-value-${row.id}`">{{ display(row.planned_completion_date) }}</span><Pencil :size="12" aria-hidden="true" />
                 </button>
-                <span v-else>{{ display(row.planned_completion_date) }}</span>
+                <span v-else :data-testid="`plan-date-value-${row.id}`">{{ display(row.planned_completion_date) }}</span>
+                <span
+                  v-if="planDateChangeCount(row) > 0"
+                  class="replay-issue-domain-history replay-plan-date-history"
+                  :data-testid="`plan-date-change-count-${row.id}`"
+                  tabindex="0"
+                  @mouseenter="loadPlanDateChanges(row)"
+                  @focus="loadPlanDateChanges(row)"
+                >
+                  <HistoryIcon :size="12" aria-hidden="true" /><b>{{ planDateChangeCount(row) }}</b>
+                  <span class="replay-issue-domain-tooltip" :data-testid="`plan-date-change-history-${row.id}`" role="tooltip">
+                    <span v-if="planDateHistoryLoading[row.id]">正在加载…</span>
+                    <span v-else-if="planDateHistoryErrors[row.id]">{{ planDateHistoryErrors[row.id] }}</span>
+                    <span v-else v-for="entry in planDateHistories[row.id] || []" :key="`${entry.changedAt}-${entry.plannedCompletionDate ?? 'empty'}`">
+                      <strong>计划时间：{{ entry.plannedCompletionDate || '-' }}</strong>
+                      <em>{{ planDateOperator(entry) }}　{{ entry.changedAt }}</em>
+                    </span>
+                  </span>
+                </span>
               </div>
               <span v-else-if="manualDisplayKeys.has(column.key)" class="replay-manual-value">{{ displayColumn(column.key, row[column.key], row) }}</span>
               <span v-else-if="detailDisplayKeys.has(column.key)" class="replay-detail-value">{{ displayColumn(column.key, row[column.key], row) }}</span>
@@ -605,7 +623,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ArrowDownWideNarrow, ArrowUpNarrowWide, BarChart3, CalendarRange, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, Download, FileSpreadsheet, Flag, HelpCircle, History as HistoryIcon, Menu, Pencil, RotateCcw, Save, Search, Upload, Users, X } from 'lucide-vue-next'
-import { approveReplayIssue, exportReplayIssues, getReplayImportRounds, getReplayIssueDomainPermissions, getReplayIssueDomainTransfers, getReplayIssueGroupSummaries, getReplayIssueHeaderFilterOptionCounts, getReplayIssueMailStatus, getReplayIssueOptions, getReplayIssuePersonRankings, getReplayIssueReviewPermissions, getReplayIssuePlanDatePermissions, getReplayIssueRoundTracking, getReplayIssueStats, getReplayWeeklyTask, replaceReplayWeeklyTask, getReplayDailyReportBatches, downloadReplayDailyReport, importReplayIssues, listReplayIssues, searchReplayIssueUsers, sendReplayIssueMail, updateReplayIssue, updateReplayIssueDomain, updateReplayIssuePlannedCompletionDate } from '../../api/replayIssues.js'
+import { approveReplayIssue, exportReplayIssues, getReplayImportRounds, getReplayIssueDomainPermissions, getReplayIssueDomainTransfers, getReplayIssueGroupSummaries, getReplayIssueHeaderFilterOptionCounts, getReplayIssueMailStatus, getReplayIssueOptions, getReplayIssuePersonRankings, getReplayIssueReviewPermissions, getReplayIssuePlanDatePermissions, getReplayIssuePlanDateChanges, getReplayIssueRoundTracking, getReplayIssueStats, getReplayWeeklyTask, replaceReplayWeeklyTask, getReplayDailyReportBatches, downloadReplayDailyReport, importReplayIssues, listReplayIssues, searchReplayIssueUsers, sendReplayIssueMail, updateReplayIssue, updateReplayIssueDomain, updateReplayIssuePlannedCompletionDate } from '../../api/replayIssues.js'
 import ReplayPlannedCompletionModal from './ReplayPlannedCompletionModal.vue'
 
 defineEmits(['toggleNavigation'])
@@ -679,7 +697,10 @@ const allStatuses = ['新建', '打开', '无需处理', '延后修复', '修复
 const options = reactive({ groups: [], issueLevels: [], issueTypes, issueStatuses: allStatuses, reviewStatuses: ['待审核', '已审核'], coverageRounds: [] })
 const stats = reactive({ total: 0, openTotal: 0, noActionTotal: 0, processingTotal: 0, pendingVerificationTotal: 0, fixedTotal: 0, groupCounts: {}, importedAt: '' })
 const reviewPermissions = reactive({ reviewableGroups: [], reviewersByGroup: {}, reviewableTransactionCodes: [] })
-const planDatePermissions = reactive({ editableGroups: [] })
+const planDatePermissions = reactive({ editableGroups: [], editableTransactionCodes: [] })
+const planDateHistories = reactive({})
+const planDateHistoryLoading = reactive({})
+const planDateHistoryErrors = reactive({})
 const issueDomainOptions = ['存款组', '贷款组', '公共组', '结算组', '迁移组', '平台组']
 const issueDomainPermissions = reactive({ editableDomains: [] })
 const issueDomainDrafts = reactive({})
@@ -1187,7 +1208,36 @@ function canReviewGroup(row) {
 
 function canEditPlanDate(row) {
   if (hasDefectRepairDate(row)) return false
+  const transactionCode = String(row?.transaction_code || '').trim()
   return (planDatePermissions.editableGroups || []).includes(row?.group_name)
+    || (transactionCode !== '' && (planDatePermissions.editableTransactionCodes || [])
+      .some(code => String(code || '').trim() === transactionCode))
+}
+
+function planDateChangeCount(row) {
+  return Number(row?.planned_completion_date_change_count) || 0
+}
+
+async function loadPlanDateChanges(row) {
+  if (!row || planDateChangeCount(row) <= 0 || Object.prototype.hasOwnProperty.call(planDateHistories, row.id) || planDateHistoryLoading[row.id]) return
+  planDateHistoryLoading[row.id] = true
+  planDateHistoryErrors[row.id] = ''
+  try {
+    const result = await getReplayIssuePlanDateChanges(row.id)
+    row.planned_completion_date_change_count = result?.changeCount ?? result?.change_count ?? planDateChangeCount(row)
+    planDateHistories[row.id] = result?.items || []
+  } catch (cause) {
+    planDateHistoryErrors[row.id] = cause?.message || '计划验证日期修改记录加载失败'
+  } finally {
+    planDateHistoryLoading[row.id] = false
+  }
+}
+
+function planDateOperator(entry) {
+  const realName = String(entry?.operatorRealName || '').trim()
+  const username = String(entry?.operatorUsername || '').trim()
+  if (realName && username) return `${realName}（${username}）`
+  return realName || username || '系统'
 }
 
 function issueDomainTransferCount(row) {
@@ -1339,6 +1389,9 @@ async function savePlanDate(row) {
   try {
     const updated = await updateReplayIssuePlannedCompletionDate(row.id, normalized)
     row.planned_completion_date = updated?.plannedCompletionDate ?? updated?.planned_completion_date ?? normalized ?? ''
+    row.planned_completion_date_change_count = updated?.changeCount ?? updated?.change_count ?? planDateChangeCount(row)
+    delete planDateHistories[row.id]
+    delete planDateHistoryErrors[row.id]
     cancelPlanDateEdit()
   } catch (cause) {
     planDateError.value = cause?.message || '计划验证日期保存失败'
@@ -1606,7 +1659,7 @@ async function loadMetadata() {
     options.reviewStatuses = nextOptions?.reviewStatuses || ['待审核', '已审核']
     Object.assign(stats, nextStats || {})
     Object.assign(reviewPermissions, permissions || { reviewableGroups: [], reviewersByGroup: {}, reviewableTransactionCodes: [] })
-    Object.assign(planDatePermissions, nextPlanDatePermissions || { editableGroups: [] })
+    Object.assign(planDatePermissions, nextPlanDatePermissions || { editableGroups: [], editableTransactionCodes: [] })
     Object.assign(issueDomainPermissions, nextIssueDomainPermissions || { editableDomains: [] })
   } catch (cause) {
     error.value = `加载筛选项失败：${cause?.message || cause}`
@@ -2016,6 +2069,7 @@ button.replay-review-badge { cursor: pointer; }
 .replay-review-badge.is-pending:hover { border-color: #d68a1f; background: #ffe7ad; }
 .replay-review-badge.is-approved { color: #166534; border-color: #86d3a0; background: #e8f8ed; }
 .replay-plan-date-cell { min-width: 0; display: flex; align-items: center; font-variant-numeric: tabular-nums; }
+.replay-plan-date-cell { gap: 5px; overflow: visible; }
 .replay-plan-date-emphasis { color: #cf1124; }
 .replay-plan-date-emphasis.is-repair-date-locked { color: var(--text-muted, #8c94a6); cursor: not-allowed; }
 .replay-plan-date-edit { width: 100%; min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 5px; padding: 2px 3px; border: 0; border-radius: 3px; color: inherit; background: transparent; font: inherit; cursor: text; }
@@ -2031,6 +2085,7 @@ button.replay-review-badge { cursor: pointer; }
 .replay-issue-domain-history { position: relative; flex: 0 0 auto; display: inline-flex; align-items: center; gap: 2px; min-width: 27px; color: #2563eb; cursor: help; }
 .replay-issue-domain-history b { font-size: 12px; font-variant-numeric: tabular-nums; }
 .replay-table td.replay-issue-domain-table-cell { position: relative; overflow: visible; }
+.replay-table td.replay-plan-date-table-cell { position: relative; overflow: visible; }
 .replay-issue-domain-tooltip { position: absolute; z-index: 80; right: 0; top: calc(100% + 5px); display: none; width: max-content; max-width: 520px; max-height: 240px; overflow: auto; margin: 0; padding: 9px 11px; border: 1px solid var(--border, #d7dee8); border-radius: 5px; color: var(--text-primary, #1f2937); background: var(--bg-card, #fff); box-shadow: 0 10px 26px rgba(13, 20, 36, .2); white-space: normal; }
 .replay-issue-domain-history:hover .replay-issue-domain-tooltip, .replay-issue-domain-history:focus .replay-issue-domain-tooltip { display: grid; gap: 6px; }
 .replay-issue-domain-tooltip > span { display: grid; gap: 2px; }

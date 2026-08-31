@@ -61,6 +61,10 @@ export function getReplayIssuePlanDatePermissions() {
   return request(`${PREFIX}/plan-date-permissions`)
 }
 
+export function getReplayIssuePlanDateChanges(id) {
+  return request(`${PREFIX}/${encodeURIComponent(id)}/planned-completion-date-changes`)
+}
+
 export function getReplayIssueDomainPermissions() {
   return request(`${PREFIX}/issue-domain-permissions`)
 }

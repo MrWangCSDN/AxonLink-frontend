@@ -12,6 +12,7 @@ import {
   getReplayCompletionIssues,
   getReplayIssueReviewPermissions,
   getReplayIssuePlanDatePermissions,
+  getReplayIssuePlanDateChanges,
   getReplayIssueDomainPermissions,
   getReplayIssueDomainTransfers,
   updateReplayIssuePlannedCompletionDate,
@@ -157,6 +158,17 @@ describe('replay issues API', () => {
     expect(fetch.mock.calls[1][1]).toMatchObject({ method: 'PATCH' })
     expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ plannedCompletionDate: '2026-08-26' })
     expect(JSON.parse(fetch.mock.calls[2][1].body)).toEqual({ plannedCompletionDate: null })
+  })
+
+  it('loads plan validation date change history', async () => {
+    global.fetch = vi.fn().mockResolvedValue(jsonResponse({
+      code: 200,
+      data: { changeCount: 1, items: [{ plannedCompletionDate: '2026-08-26' }] },
+    }))
+
+    await getReplayIssuePlanDateChanges(42)
+
+    expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues/42/planned-completion-date-changes')
   })
 
   it('gets issue domain permissions, updates the domain, and loads transfer history', async () => {

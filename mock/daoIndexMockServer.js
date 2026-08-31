@@ -644,6 +644,26 @@ const REPLAY_ISSUE_DOMAIN_TRANSFERS = new Map(REPLAY_ISSUES.map((issue) => {
   })
   return [issue.id, items]
 }))
+const REPLAY_PLAN_DATE_CHANGES = new Map([
+  [2, [
+    { plannedCompletionDate: '2026-08-18', operatorUsername: 'c-mock-current', operatorRealName: '当前Mock用户', changedAt: '2026-08-31 17:09:09' },
+    { plannedCompletionDate: null, operatorUsername: 'c-lisi', operatorRealName: '李四', changedAt: '2026-08-30 14:09:09' },
+    { plannedCompletionDate: '2026-08-17', operatorUsername: 'c-zhangs', operatorRealName: '张三', changedAt: '2026-08-29 10:08:09' },
+  ]],
+  [4, [
+    { plannedCompletionDate: '2026-08-19', operatorUsername: 'c-wangw', operatorRealName: '王五', changedAt: '2026-08-28 09:08:09' },
+  ]],
+])
+REPLAY_PLAN_DATE_CHANGES.forEach((items, issueId) => {
+  const issue = REPLAY_ISSUES.find(item => item.id === issueId)
+  if (!issue) return
+  issue.planned_completion_date = items[0]?.plannedCompletionDate || ''
+  issue.planned_completion_date_change_count = items.length
+})
+REPLAY_ISSUES.forEach((issue) => {
+  if (issue.planned_completion_date_change_count == null) issue.planned_completion_date_change_count = 0
+})
+let replayPlanDateChangeSequence = 0
 const REPLAY_MAIL_STATUS = new Map()
 let REPLAY_WEEKLY_TASK_BATCHES = ['MOCK-20260819']
 const REPLAY_AVAILABLE_BATCHES = ['MOCK-20260808', 'MOCK-20260812', 'MOCK-20260815', 'MOCK-20260819']
@@ -927,7 +947,7 @@ export function daoIndexMockPlugin() {
             ])
           }
           if (url.endsWith('/plan-date-permissions')) {
-            return ok(res, { editableGroups: ['公共组'] })
+            return ok(res, { editableGroups: ['公共组'], editableTransactionCodes: ['E811'] })
           }
           if (url.endsWith('/issue-domain-permissions')) {
             return ok(res, { editableDomains: REPLAY_ISSUE_DOMAINS })
@@ -944,6 +964,16 @@ export function daoIndexMockPlugin() {
             }
             const items = REPLAY_ISSUE_DOMAIN_TRANSFERS.get(issueId) || []
             return ok(res, { transferCount: items.length, items })
+          }
+          if (req.method === 'GET' && url.includes('/planned-completion-date-changes')) {
+            const issueId = Number(url.match(/issues\/(\d+)/)?.[1] || 0)
+            const issue = REPLAY_ISSUES.find(item => item.id === issueId)
+            if (!issue) {
+              res.statusCode = 404
+              return res.end(JSON.stringify({ code: 404, message: '回放问题不存在' }))
+            }
+            const items = REPLAY_PLAN_DATE_CHANGES.get(issueId) || []
+            return ok(res, { changeCount: items.length, items })
           }
           if (req.method === 'PATCH' && /\/issues\/\d+\/issue-domain(?:\?|$)/.test(url)) {
             const issueId = Number(url.match(/issues\/(\d+)/)?.[1] || 0)
@@ -994,6 +1024,10 @@ export function daoIndexMockPlugin() {
                 res.statusCode = 400
                 return res.end(JSON.stringify({ code: 400, message: '问题已有缺陷修复日期，计划验证日期不可修改' }))
               }
+              if (issue.group_name !== '公共组' && issue.transaction_code !== 'E811') {
+                res.statusCode = 403
+                return res.end(JSON.stringify({ code: 403, message: '没有计划验证日期编辑权限' }))
+              }
               if (value && !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
                 res.statusCode = 400
                 return res.end(JSON.stringify({ code: 400, message: '填写日期格式不合法，请按 2026-08-26 格式填写' }))
@@ -1011,8 +1045,25 @@ export function daoIndexMockPlugin() {
                   return res.end(JSON.stringify({ code: 400, message: '计划验证日期不能超过首次出现日期后 7 个自然日' }))
                 }
               }
-              issue.planned_completion_date = value
-              return ok(res, { ...issue, plannedCompletionDate: issue.planned_completion_date || null })
+              const normalizedBefore = String(issue.planned_completion_date || '').trim()
+              if (normalizedBefore !== value) {
+                const items = REPLAY_PLAN_DATE_CHANGES.get(issueId) || []
+                replayPlanDateChangeSequence += 1
+                items.unshift({
+                  plannedCompletionDate: value || null,
+                  operatorUsername: 'c-mock-current',
+                  operatorRealName: '当前Mock用户',
+                  changedAt: `2026-08-31 20:${String(replayPlanDateChangeSequence).padStart(2, '0')}:00`,
+                })
+                REPLAY_PLAN_DATE_CHANGES.set(issueId, items)
+                issue.planned_completion_date = value
+                issue.planned_completion_date_change_count = items.length
+              }
+              return ok(res, {
+                id: issue.id,
+                plannedCompletionDate: issue.planned_completion_date || null,
+                changeCount: issue.planned_completion_date_change_count || 0,
+              })
             })
           }
           if (req.method === 'PATCH') {

@@ -16,6 +16,7 @@ import {
   getReplayCompletionIssues,
   getReplayIssueReviewPermissions,
   getReplayIssuePlanDatePermissions,
+  getReplayIssuePlanDateChanges,
   getReplayIssueDomainPermissions,
   getReplayIssueDomainTransfers,
   approveReplayIssue,
@@ -45,6 +46,7 @@ vi.mock('../../api/replayIssues.js', () => ({
   getReplayCompletionIssues: vi.fn(),
   getReplayIssueReviewPermissions: vi.fn(),
   getReplayIssuePlanDatePermissions: vi.fn(),
+  getReplayIssuePlanDateChanges: vi.fn(),
   getReplayIssueDomainPermissions: vi.fn(),
   getReplayIssueDomainTransfers: vi.fn(),
   approveReplayIssue: vi.fn(),
@@ -66,7 +68,7 @@ const fixtureRow = {
   registered_date: '20260803', field_name: '响应码', issue_description: 'CCBS响应不一致',
   transaction_owner: '张济华', matched_developer: '张三(c-zhangs3)、李四(c-lisi)', matched_bank_owner: '刘六(c-liul6)', matched_bank_owner_emp_nos: '200001', issue_status: '延后修复', issue_type: '代码问题', initial_analysis: '核对返回值',
   final_solution: '修正映射', cooperation_person_username: 'sunhy1', cooperation_person_real_name: '孙海英',
-  serial_no: '001012213710102', planned_completion_date: '', defect_repair_date: '', remark: '历史备注', import_date: '2026-08-04',
+  serial_no: '001012213710102', planned_completion_date: '', planned_completion_date_change_count: 0, defect_repair_date: '', remark: '历史备注', import_date: '2026-08-04',
   affected_transaction_count: '58', issue_id: '000845', issue_key: 'TRAN|6208|响应码',
   historical_occurrence_count: '4', first_occurrence_date: '2026-07-28 00:00:00.0',
   last_occurrence_date: '2026-07-31 00:00:00.0', imported_at: '2026-08-04T10:00:00',
@@ -101,11 +103,12 @@ function arrangeApi({ total = 4607, items = [fixtureRow] } = {}) {
   })
   getReplayIssueHeaderFilterOptionCounts.mockResolvedValue(countedOptions(['张三(c-zhangs3)', '李四(c-lisi)', '赵六(c-zhaol6)']))
   getReplayIssueReviewPermissions.mockResolvedValue({ reviewableGroups: ['贷款组'], reviewersByGroup: { 贷款组: ['审核甲', '审核乙'] }, reviewableTransactionCodes: [] })
-  getReplayIssuePlanDatePermissions.mockResolvedValue({ editableGroups: ['公共组'] })
+  getReplayIssuePlanDatePermissions.mockResolvedValue({ editableGroups: ['公共组'], editableTransactionCodes: [] })
+  getReplayIssuePlanDateChanges.mockResolvedValue({ changeCount: 0, items: [] })
   getReplayIssueDomainPermissions.mockResolvedValue({ editableDomains: ['贷款组'] })
   getReplayIssueDomainTransfers.mockResolvedValue({ transferCount: 0, items: [] })
   updateReplayIssueDomain.mockImplementation((id, issueDomain) => Promise.resolve({ id, issueDomain, transferCount: 1 }))
-  updateReplayIssuePlannedCompletionDate.mockImplementation((id, value) => Promise.resolve({ id, plannedCompletionDate: value }))
+  updateReplayIssuePlannedCompletionDate.mockImplementation((id, value) => Promise.resolve({ id, plannedCompletionDate: value, changeCount: 1 }))
   approveReplayIssue.mockResolvedValue({ ...fixtureRow, issue_status: '无需处理', review_status: '已审核', reviewer_real_name: '审核甲' })
   getReplayWeeklyTask.mockResolvedValue({ batchNames: ['20260808-001'], availableBatchNames: ['20260807-001', '20260808-001'], issueCount: 30 })
   replaceReplayWeeklyTask.mockResolvedValue({ batchNames: ['20260807-001'], availableBatchNames: ['20260807-001', '20260808-001'], issueCount: 18 })
@@ -275,11 +278,11 @@ describe('ReplayIssuePage', () => {
     await flushPromises()
 
     expect(wrapper.findAll('thead th').map((header) => header.text())).toEqual(visibleColumnLabels)
-    expect(wrapper.get('[data-testid="plan-date-display-1"]').text()).toBe('2026-08-26')
+    expect(wrapper.get('[data-testid="plan-date-value-1"]').text()).toBe('2026-08-26')
     expect(wrapper.get('[data-testid="plan-date-edit-1"]').exists()).toBe(true)
-    expect(wrapper.get('[data-testid="plan-date-display-2"]').text()).toBe('2026-09-10')
+    expect(wrapper.get('[data-testid="plan-date-value-2"]').text()).toBe('2026-09-10')
     expect(wrapper.find('[data-testid="plan-date-edit-2"]').exists()).toBe(false)
-    expect(wrapper.get('[data-testid="plan-date-display-3"]').text()).toBe('2026-08-25')
+    expect(wrapper.get('[data-testid="plan-date-value-3"]').text()).toBe('2026-08-25')
     expect(wrapper.find('[data-testid="plan-date-edit-3"]').exists()).toBe(false)
     expect(wrapper.get('[data-testid="plan-date-display-3"]').classes()).toContain('is-repair-date-locked')
     expect(wrapper.get('[data-testid="plan-date-display-3"]').attributes('title')).toBe('已有缺陷修复日期，计划验证日期不可修改')
@@ -424,7 +427,7 @@ describe('ReplayIssuePage', () => {
     const wrapper = mount(ReplayIssuePage)
     await flushPromises()
 
-    expect(wrapper.get('[data-testid="plan-date-display-1"]').text()).toBe('-')
+    expect(wrapper.get('[data-testid="plan-date-value-1"]').text()).toBe('-')
     const header = wrapper.findAll('thead th').at(visibleColumnLabels.indexOf('计划验证日期'))
     expect(header.find('.replay-header-filter-button').exists()).toBe(true)
 
@@ -705,12 +708,54 @@ describe('ReplayIssuePage', () => {
     await wrapper.get('[data-testid="plan-date-input-1"]').trigger('blur')
     await flushPromises()
     expect(updateReplayIssuePlannedCompletionDate).toHaveBeenCalledWith(1, '2026-08-26')
-    expect(wrapper.get('[data-testid="plan-date-display-1"]').text()).toBe('2026-08-26')
+    expect(wrapper.get('[data-testid="plan-date-value-1"]').text()).toBe('2026-08-26')
+    expect(wrapper.get('[data-testid="plan-date-change-count-1"]').text()).toContain('1')
 
     await wrapper.get('[data-testid="plan-date-edit-1"]').trigger('click')
     await wrapper.get('[data-testid="plan-date-input-1"]').trigger('blur')
     await flushPromises()
     expect(updateReplayIssuePlannedCompletionDate).toHaveBeenCalledTimes(1)
+  })
+
+  it('allows transaction-owned editing and lazily shows newest plan date changes including clears', async () => {
+    arrangeApi({ items: [{
+      ...fixtureRow,
+      planned_completion_date: '2026-08-07',
+      planned_completion_date_change_count: 3,
+    }] })
+    getReplayIssuePlanDatePermissions.mockResolvedValue({
+      editableGroups: [],
+      editableTransactionCodes: ['6208'],
+    })
+    getReplayIssuePlanDateChanges.mockResolvedValue({
+      changeCount: 3,
+      items: [
+        { plannedCompletionDate: '2026-08-07', operatorRealName: '张三', operatorUsername: 'c-zhangs', changedAt: '2026-08-07 17:09:09' },
+        { plannedCompletionDate: null, operatorRealName: '李四', operatorUsername: 'c-lisi', changedAt: '2026-08-06 14:09:09' },
+        { plannedCompletionDate: '2026-08-05', operatorRealName: '王五', operatorUsername: 'c-wangw', changedAt: '2026-08-04 14:09:09' },
+      ],
+    })
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="plan-date-edit-1"]').exists()).toBe(true)
+    const badge = wrapper.get('[data-testid="plan-date-change-count-1"]')
+    expect(badge.text()).toContain('3')
+    await badge.trigger('mouseenter')
+    await flushPromises()
+
+    expect(getReplayIssuePlanDateChanges).toHaveBeenCalledTimes(1)
+    expect(getReplayIssuePlanDateChanges).toHaveBeenCalledWith(1)
+    const tooltip = wrapper.get('[data-testid="plan-date-change-history-1"]')
+    const text = tooltip.text()
+    expect(text).toContain('计划时间：2026-08-07')
+    expect(text).toContain('张三（c-zhangs）')
+    expect(text).toContain('计划时间：-')
+    expect(text.indexOf('2026-08-07')).toBeLessThan(text.indexOf('2026-08-05'))
+
+    await badge.trigger('mouseenter')
+    await flushPromises()
+    expect(getReplayIssuePlanDateChanges).toHaveBeenCalledTimes(1)
   })
 
   it('clears an existing plan date and cancels changes with Escape', async () => {
@@ -725,14 +770,14 @@ describe('ReplayIssuePage', () => {
     await wrapper.get('[data-testid="plan-date-input-1"]').trigger('keydown', { key: 'Escape' })
     await flushPromises()
     expect(updateReplayIssuePlannedCompletionDate).not.toHaveBeenCalled()
-    expect(wrapper.get('[data-testid="plan-date-display-1"]').text()).toBe('2026-08-26')
+    expect(wrapper.get('[data-testid="plan-date-value-1"]').text()).toBe('2026-08-26')
 
     await wrapper.get('[data-testid="plan-date-edit-1"]').trigger('click')
     await wrapper.get('[data-testid="plan-date-input-1"]').setValue('')
     await wrapper.get('[data-testid="plan-date-input-1"]').trigger('keydown', { key: 'Enter' })
     await flushPromises()
     expect(updateReplayIssuePlannedCompletionDate).toHaveBeenCalledWith(1, null)
-    expect(wrapper.get('[data-testid="plan-date-display-1"]').text()).toBe('-')
+    expect(wrapper.get('[data-testid="plan-date-value-1"]').text()).toBe('-')
   })
   it('shows review status after issue status and lets the configured group reviewer approve it', async () => {
     arrangeApi({ items: [{ ...fixtureRow, issue_status: '无需处理', issue_type: '合理差异', review_status: '待审核' }] })

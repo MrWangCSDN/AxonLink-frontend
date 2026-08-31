@@ -152,6 +152,31 @@ describe('ReplayPlannedCompletionModal', () => {
     expect(wrapper.get('[data-testid="completion-developer-row"]').text()).toContain('结算负责人')
   })
 
+  it('replaces the latest-three hint with the synchronized grouping switch and shows six issue-domain tabs', async () => {
+    getReplayCompletionDashboard.mockResolvedValueOnce({
+      ...dashboard,
+      groups: [...dashboard.groups, createGroup('迁移组', '迁移负责人'), createGroup('平台组', '平台负责人')],
+    })
+    const wrapper = mount(ReplayPlannedCompletionModal, {
+      props: { open: true, groupBy: 'issueDomain' },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('默认显示最新 3 个计划日期')
+    expect(wrapper.get('[data-testid="completion-grouping-switch"]').text()).toBe('领域问题所属领域')
+    expect(wrapper.get('[data-testid="completion-grouping-issue-domain"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.findAll('[data-testid="completion-group-tab"]').map(tab => tab.text())).toEqual([
+      '存款组/开发负责人', '贷款组/开发负责人', '公共组/开发负责人',
+      '结算组/开发负责人', '迁移组/开发负责人', '平台组/开发负责人',
+    ])
+    expect(getReplayCompletionDashboard).toHaveBeenCalledWith({
+      startDate: '2026-08-25', endDate: '2026-08-29', groupBy: 'issueDomain',
+    })
+
+    await wrapper.get('[data-testid="completion-grouping-domain"]').trigger('click')
+    expect(wrapper.emitted('update:groupBy')).toEqual([['domain']])
+  })
+
   it('renders every developer without pagination and sorts planned totals descending with a stable name tie-break', async () => {
     const wrapper = mount(ReplayPlannedCompletionModal, { props: { open: true } })
     await flushPromises()
@@ -203,6 +228,7 @@ describe('ReplayPlannedCompletionModal', () => {
         '计划完成情况-存款组-2026-08-25至2026-08-29.png',
       )
       expect(wrapper.get('[data-testid="completion-snapshot-message"]').text()).toBe('快照已经复制')
+      expect(wrapper.find('[data-testid="completion-snapshot-preview"]').exists()).toBe(false)
     } finally {
       vi.useRealTimers()
     }
@@ -251,6 +277,12 @@ describe('ReplayPlannedCompletionModal', () => {
     expect(replayPlannedCompletionModalSource).toContain('.replay-completion-snapshot-shutter')
   })
 
+  it('uses a compact timeline so the summary remains visible in the default upper pane', () => {
+    expect(replayPlannedCompletionModalSource).toContain('height:120px')
+    expect(replayPlannedCompletionModalSource).toContain('grid-template-rows:90px 10px 20px')
+    expect(replayPlannedCompletionModalSource).toContain('* 70))')
+  })
+
   it('anchors camera feedback to the actual visible table viewport', async () => {
     vi.useFakeTimers()
     try {
@@ -268,19 +300,54 @@ describe('ReplayPlannedCompletionModal', () => {
     }
   })
 
-  it('keeps the saved result and reports when browser image copying is unavailable', async () => {
+  it('opens the downloaded image preview when browser image copying is unavailable and closes only from X', async () => {
     vi.useFakeTimers()
     try {
-      downloadAndCopyCompletionSnapshot.mockResolvedValueOnce({ copied: false })
+      const revokeObjectURL = vi.spyOn(URL, 'revokeObjectURL')
+      downloadAndCopyCompletionSnapshot.mockResolvedValueOnce({ copied: false, previewUrl: 'blob:http-preview' })
       const wrapper = mount(ReplayPlannedCompletionModal, { props: { open: true } })
       await flushPromises()
 
       await wrapper.get('[data-testid="completion-snapshot"]').trigger('click')
       await finishCameraEffect()
 
-      expect(wrapper.get('[data-testid="completion-snapshot-message"]').text()).toBe('快照已保存，但图片复制失败')
+      expect(wrapper.get('[data-testid="completion-snapshot-message"]').text()).toBe('快照已保存，请右键复制图片')
       expect(wrapper.text()).not.toContain('快照已经复制')
       expect(wrapper.get('[data-testid="completion-snapshot-message"]').classes()).toContain('is-warning')
+      const preview = wrapper.get('[data-testid="completion-snapshot-preview"]')
+      expect(preview.get('h3').text()).toBe('快照预览')
+      expect(preview.text()).toContain('请在图片上点击右键，选择“复制图片”')
+      expect(preview.get('img').attributes('src')).toBe('blob:http-preview')
+
+      await preview.trigger('click')
+      expect(wrapper.find('[data-testid="completion-snapshot-preview"]').exists()).toBe(true)
+      expect(revokeObjectURL).not.toHaveBeenCalled()
+
+      await wrapper.get('[data-testid="completion-snapshot-preview-close"]').trigger('click')
+      expect(wrapper.find('[data-testid="completion-snapshot-preview"]').exists()).toBe(false)
+      expect(revokeObjectURL).toHaveBeenCalledOnce()
+      expect(revokeObjectURL).toHaveBeenCalledWith('blob:http-preview')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('releases an open snapshot preview when the parent modal closes', async () => {
+    vi.useFakeTimers()
+    try {
+      const revokeObjectURL = vi.spyOn(URL, 'revokeObjectURL')
+      downloadAndCopyCompletionSnapshot.mockResolvedValueOnce({ copied: false, previewUrl: 'blob:parent-close' })
+      const wrapper = mount(ReplayPlannedCompletionModal, { props: { open: true } })
+      await flushPromises()
+
+      await wrapper.get('[data-testid="completion-snapshot"]').trigger('click')
+      await finishCameraEffect()
+      expect(wrapper.find('[data-testid="completion-snapshot-preview"]').exists()).toBe(true)
+
+      await wrapper.setProps({ open: false })
+      await flushPromises()
+
+      expect(revokeObjectURL).toHaveBeenCalledWith('blob:parent-close')
     } finally {
       vi.useRealTimers()
     }
@@ -326,13 +393,14 @@ describe('ReplayPlannedCompletionModal', () => {
     expect(wrapper.get('[data-testid="completion-group-row"]').text()).toContain('存款组')
   })
 
-  it('loads the latest three real date points and lets sparse uniformly blue bars fill the viewport', async () => {
+  it('loads the server-provided default range and lets sparse uniformly blue bars fill the viewport', async () => {
     const wrapper = mount(ReplayPlannedCompletionModal, { props: { open: true } })
     await flushPromises()
 
     expect(getReplayCompletionDashboard).toHaveBeenCalledWith({
       startDate: '2026-08-25',
       endDate: '2026-08-29',
+      groupBy: 'domain',
     })
     const columns = wrapper.findAll('[data-testid="timeline-column"]')
     expect(columns).toHaveLength(5)
@@ -345,6 +413,68 @@ describe('ReplayPlannedCompletionModal', () => {
     expect(wrapper.findAll('[data-testid="timeline-date"]').map(node => node.text())).toEqual(datePoints.map(point => point.date))
     expect(wrapper.findAll('[data-testid="timeline-column"].is-selected')).toHaveLength(3)
     expect(wrapper.findAll('[data-testid="timeline-column"].is-outside')).toHaveLength(2)
+  })
+
+  it('queries server today without adding a zero-count timeline point when today has no data', async () => {
+    getReplayCompletionDatePoints.mockResolvedValueOnce({
+      datePoints,
+      defaultStartDate: '2026-08-31',
+      defaultEndDate: '2026-08-31',
+    })
+    getReplayCompletionDashboard.mockResolvedValueOnce({
+      effectiveStartDate: '2026-08-31',
+      effectiveEndDate: '2026-08-31',
+      today: '2026-08-31',
+      summary: {
+        plannedTotal: 0, onTimeFixedCount: 0, lateFixedCount: 0,
+        unfinishedCount: 0, overdueUnfinishedCount: 0, completionRate: null,
+      },
+      groups: [],
+    })
+
+    const wrapper = mount(ReplayPlannedCompletionModal, { props: { open: true } })
+    await flushPromises()
+
+    expect(getReplayCompletionDashboard).toHaveBeenCalledWith({
+      startDate: '2026-08-31',
+      endDate: '2026-08-31',
+      groupBy: 'domain',
+    })
+    expect(wrapper.get('[data-testid="completion-start-date"]').element.value).toBe('2026-08-31')
+    expect(wrapper.get('[data-testid="completion-end-date"]').element.value).toBe('2026-08-31')
+    expect(wrapper.get('[data-testid="completion-start-date"]').findAll('option').map(option => option.text()))
+      .toEqual([...datePoints.map(point => point.date), '2026-08-31'])
+    expect(wrapper.findAll('[data-testid="timeline-column"]')).toHaveLength(datePoints.length)
+    expect(wrapper.findAll('[data-testid="timeline-column"].is-selected')).toHaveLength(0)
+    expect(wrapper.text()).toContain('计划问题数0')
+  })
+
+  it('loads the server-today empty dashboard even when there are no real date points', async () => {
+    getReplayCompletionDatePoints.mockResolvedValueOnce({
+      datePoints: [],
+      defaultStartDate: '2026-08-31',
+      defaultEndDate: '2026-08-31',
+    })
+    getReplayCompletionDashboard.mockResolvedValueOnce({
+      effectiveStartDate: '2026-08-31',
+      effectiveEndDate: '2026-08-31',
+      today: '2026-08-31',
+      summary: {
+        plannedTotal: 0, onTimeFixedCount: 0, lateFixedCount: 0,
+        unfinishedCount: 0, overdueUnfinishedCount: 0, completionRate: null,
+      },
+      groups: [],
+    })
+
+    const wrapper = mount(ReplayPlannedCompletionModal, { props: { open: true } })
+    await flushPromises()
+
+    expect(getReplayCompletionDashboard).toHaveBeenCalledWith({
+      startDate: '2026-08-31',
+      endDate: '2026-08-31',
+      groupBy: 'domain',
+    })
+    expect(wrapper.text()).toContain('暂无已填写计划验证日期的问题')
   })
 
   it('keeps every planned count directly above its own bar instead of in a fixed top row', async () => {
@@ -374,6 +504,7 @@ describe('ReplayPlannedCompletionModal', () => {
     expect(getReplayCompletionDashboard).toHaveBeenLastCalledWith({
       startDate: '2026-08-27',
       endDate: '2026-08-29',
+      groupBy: 'domain',
     })
 
     getReplayCompletionDashboard.mockResolvedValueOnce({
@@ -385,6 +516,126 @@ describe('ReplayPlannedCompletionModal', () => {
     await wrapper.get('[data-testid="apply-completion-range"]').trigger('click')
     await flushPromises()
     expect(wrapper.get('[data-testid="completion-start-date"]').element.value).toBe('2026-08-22')
+  })
+
+  it('queries one date immediately when its timeline column is clicked or activated by keyboard', async () => {
+    const wrapper = mount(ReplayPlannedCompletionModal, { props: { open: true } })
+    await flushPromises()
+
+    const columns = wrapper.findAll('[data-testid="timeline-column"]')
+    await columns[1].trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="completion-start-date"]').element.value).toBe('2026-08-22')
+    expect(wrapper.get('[data-testid="completion-end-date"]').element.value).toBe('2026-08-22')
+    expect(getReplayCompletionDashboard).toHaveBeenLastCalledWith({
+      startDate: '2026-08-22', endDate: '2026-08-22', groupBy: 'domain',
+    })
+
+    await columns[3].trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="completion-start-date"]').element.value).toBe('2026-08-27')
+    expect(wrapper.get('[data-testid="completion-end-date"]').element.value).toBe('2026-08-27')
+    expect(getReplayCompletionDashboard).toHaveBeenLastCalledWith({
+      startDate: '2026-08-27', endDate: '2026-08-27', groupBy: 'domain',
+    })
+  })
+
+  it('smoothly centers a directly selected date without moving the timeline for dropdown queries', async () => {
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView
+    const scrollIntoView = vi.fn()
+    HTMLElement.prototype.scrollIntoView = scrollIntoView
+    const wrapper = mount(ReplayPlannedCompletionModal, { props: { open: true } })
+    try {
+      await flushPromises()
+      scrollIntoView.mockClear()
+
+      await wrapper.findAll('[data-testid="timeline-column"]').at(-1).trigger('click')
+      await flushPromises()
+
+      expect(wrapper.findAll('[data-testid="timeline-center-gutter"]')).toHaveLength(2)
+      expect(scrollIntoView).toHaveBeenLastCalledWith({
+        behavior: 'smooth',
+        block: 'nearest',
+        inline: 'center',
+      })
+
+      scrollIntoView.mockClear()
+      await wrapper.get('[data-testid="apply-completion-range"]').trigger('click')
+      await flushPromises()
+      expect(scrollIntoView).not.toHaveBeenCalled()
+    } finally {
+      wrapper.unmount()
+      if (originalScrollIntoView) HTMLElement.prototype.scrollIntoView = originalScrollIntoView
+      else delete HTMLElement.prototype.scrollIntoView
+    }
+  })
+
+  it('drags an overlapped date point left to move only the start date and queries on release', async () => {
+    getReplayCompletionDatePoints.mockResolvedValueOnce({
+      datePoints,
+      defaultStartDate: '2026-08-25',
+      defaultEndDate: '2026-08-25',
+    })
+    const wrapper = mount(ReplayPlannedCompletionModal, { props: { open: true } })
+    await flushPromises()
+
+    const shell = wrapper.get('.replay-completion-slider-shell')
+    shell.element.getBoundingClientRect = () => ({ left: 100, width: 400 })
+    const handle = wrapper.get('[data-testid="timeline-overlap-handle"]')
+    await handle.trigger('pointerdown', { pointerId: 71, clientX: 300 })
+    window.dispatchEvent(new PointerEvent('pointermove', { pointerId: 71, clientX: 200 }))
+    window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 71, clientX: 200 }))
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="completion-start-date"]').element.value).toBe('2026-08-22')
+    expect(wrapper.get('[data-testid="completion-end-date"]').element.value).toBe('2026-08-25')
+    expect(getReplayCompletionDashboard).toHaveBeenCalledTimes(2)
+    expect(getReplayCompletionDashboard).toHaveBeenLastCalledWith({
+      startDate: '2026-08-22', endDate: '2026-08-25', groupBy: 'domain',
+    })
+  })
+
+  it('drags an overlapped date point right to move only the end date', async () => {
+    getReplayCompletionDatePoints.mockResolvedValueOnce({
+      datePoints,
+      defaultStartDate: '2026-08-25',
+      defaultEndDate: '2026-08-25',
+    })
+    const wrapper = mount(ReplayPlannedCompletionModal, { props: { open: true } })
+    await flushPromises()
+
+    const shell = wrapper.get('.replay-completion-slider-shell')
+    shell.element.getBoundingClientRect = () => ({ left: 100, width: 400 })
+    const handle = wrapper.get('[data-testid="timeline-overlap-handle"]')
+    await handle.trigger('pointerdown', { pointerId: 72, clientX: 300 })
+    window.dispatchEvent(new PointerEvent('pointermove', { pointerId: 72, clientX: 400 }))
+    window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 72, clientX: 400 }))
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="completion-start-date"]').element.value).toBe('2026-08-25')
+    expect(wrapper.get('[data-testid="completion-end-date"]').element.value).toBe('2026-08-27')
+    expect(getReplayCompletionDashboard).toHaveBeenLastCalledWith({
+      startDate: '2026-08-25', endDate: '2026-08-27', groupBy: 'domain',
+    })
+  })
+
+  it('does not query again when an overlapped handle is pressed and released without moving', async () => {
+    getReplayCompletionDatePoints.mockResolvedValueOnce({
+      datePoints,
+      defaultStartDate: '2026-08-25',
+      defaultEndDate: '2026-08-25',
+    })
+    const wrapper = mount(ReplayPlannedCompletionModal, { props: { open: true } })
+    await flushPromises()
+
+    const handle = wrapper.get('[data-testid="timeline-overlap-handle"]')
+    await handle.trigger('pointerdown', { pointerId: 73, clientX: 300 })
+    window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 73, clientX: 300 }))
+    await flushPromises()
+
+    expect(getReplayCompletionDashboard).toHaveBeenCalledTimes(1)
   })
 
   it('offers only real dates and blocks an inverted range without changing results or the selected group', async () => {
@@ -411,7 +662,7 @@ describe('ReplayPlannedCompletionModal', () => {
     expect(wrapper.get('[data-testid="completion-group-row"]').text()).toBe(resultBeforeQuery)
   })
 
-  it('brings the latest selected date into view after the default range loads', async () => {
+  it('brings the selected end date into view after the default range loads', async () => {
     const originalScrollIntoView = HTMLElement.prototype.scrollIntoView
     const scrollIntoView = vi.fn()
     HTMLElement.prototype.scrollIntoView = scrollIntoView
@@ -440,6 +691,7 @@ describe('ReplayPlannedCompletionModal', () => {
     expect(getReplayCompletionIssues).toHaveBeenCalledWith({
       startDate: '2026-08-25',
       endDate: '2026-08-29',
+      groupBy: 'domain',
       groupName: '贷款组',
       matchedDeveloper: '张三、李四',
       category: 'OVERDUE_UNFINISHED',
@@ -499,5 +751,72 @@ describe('ReplayPlannedCompletionModal', () => {
     await flushPromises()
 
     expect(wrapper.get('.replay-completion-issue-card h4 [data-testid="completion-overdue-days"]').text()).toBe('逾期 4 天')
+  })
+
+  it('renders a fixed-header two-pane layout', async () => {
+    const wrapper = mount(ReplayPlannedCompletionModal, { props: { open: true } })
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="completion-upper-pane"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="completion-splitter"]').attributes('role')).toBe('separator')
+    expect(wrapper.get('[data-testid="completion-splitter"]').attributes('aria-orientation')).toBe('horizontal')
+    expect(wrapper.get('[data-testid="completion-lower-pane"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="completion-split-layout"]').attributes('style'))
+      .toContain('--completion-top-height:')
+  })
+
+  it('collapses to a summary and restores the previous height', async () => {
+    const wrapper = mount(ReplayPlannedCompletionModal, { props: { open: true } })
+    await flushPromises()
+    const before = wrapper.get('[data-testid="completion-split-layout"]').attributes('style')
+
+    await wrapper.get('[data-testid="completion-collapse-upper"]').trigger('click')
+
+    expect(wrapper.find('[data-testid="completion-upper-pane"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="completion-collapsed-summary"]').text()).toContain('2026-08-25 至 2026-08-29')
+    expect(wrapper.get('[data-testid="completion-collapsed-summary"]').text()).toContain('计划问题数 21')
+
+    await wrapper.get('[data-testid="completion-collapse-upper"]').trigger('click')
+
+    expect(wrapper.get('[data-testid="completion-upper-pane"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="completion-split-layout"]').attributes('style')).toBe(before)
+  })
+
+  it('clamps a dragged separator to both pane minimums', async () => {
+    globalThis.PointerEvent ||= MouseEvent
+    const wrapper = mount(ReplayPlannedCompletionModal, { props: { open: true } })
+    await flushPromises()
+    const layout = wrapper.get('[data-testid="completion-split-layout"]')
+    layout.element.getBoundingClientRect = () => ({ top: 100, height: 800 })
+
+    await wrapper.get('.replay-completion-splitter-grip').trigger('pointerdown', { pointerId: 1, clientY: 120 })
+    window.dispatchEvent(new PointerEvent('pointermove', { pointerId: 1, clientY: 890 }))
+    window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1 }))
+    await wrapper.vm.$nextTick()
+
+    expect(layout.attributes('style')).toContain('--completion-top-height: 540px')
+  })
+
+  it('keeps the split through queries and resets it only after reopen', async () => {
+    globalThis.PointerEvent ||= MouseEvent
+    const wrapper = mount(ReplayPlannedCompletionModal, { props: { open: true } })
+    await flushPromises()
+    const layout = wrapper.get('[data-testid="completion-split-layout"]')
+    layout.element.getBoundingClientRect = () => ({ top: 100, height: 800 })
+    await wrapper.get('.replay-completion-splitter-grip').trigger('pointerdown', { pointerId: 2, clientY: 500 })
+    window.dispatchEvent(new PointerEvent('pointermove', { pointerId: 2, clientY: 500 }))
+    window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 2 }))
+    await wrapper.vm.$nextTick()
+    const draggedStyle = layout.attributes('style')
+
+    await wrapper.get('[data-testid="apply-completion-range"]').trigger('click')
+    await flushPromises()
+    expect(layout.attributes('style')).toBe(draggedStyle)
+
+    await wrapper.setProps({ open: false })
+    await wrapper.setProps({ open: true })
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="completion-split-layout"]').attributes('style')).not.toBe(draggedStyle)
   })
 })

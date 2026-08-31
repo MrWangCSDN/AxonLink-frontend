@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   getReplayIssueOptions,
+  getReplayIssueHeaderFilterOptionCounts,
   getReplayImportRounds,
   getReplayIssueRoundTracking,
   getReplayIssueGroupSummaries,
@@ -11,7 +12,10 @@ import {
   getReplayCompletionIssues,
   getReplayIssueReviewPermissions,
   getReplayIssuePlanDatePermissions,
+  getReplayIssueDomainPermissions,
+  getReplayIssueDomainTransfers,
   updateReplayIssuePlannedCompletionDate,
+  updateReplayIssueDomain,
   approveReplayIssue,
   getReplayWeeklyTask,
   replaceReplayWeeklyTask,
@@ -76,12 +80,24 @@ describe('replay issues API', () => {
     expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues/options')
   })
 
-  it('gets replay issue stats', async () => {
+  it('gets counted header filter options with repeated filters', async () => {
+    const payload = { candidateCount: 1, truncated: false, items: [{ value: '账户查询', count: 2 }] }
+    global.fetch = vi.fn().mockResolvedValue(jsonResponse({ code: 200, data: payload }))
+
+    const result = await getReplayIssueHeaderFilterOptionCounts({
+      field: 'transactionName', keyword: '账户', groupNames: ['公共组', '贷款组'],
+    })
+
+    expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues/header-filter-option-counts?field=transactionName&keyword=%E8%B4%A6%E6%88%B7&groupNames=%E5%85%AC%E5%85%B1%E7%BB%84&groupNames=%E8%B4%B7%E6%AC%BE%E7%BB%84')
+    expect(result).toEqual(payload)
+  })
+
+  it('gets replay issue stats for the selected grouping dimension', async () => {
     global.fetch = vi.fn().mockResolvedValue(jsonResponse({ code: 200, data: { total: 0 } }))
 
-    await getReplayIssueStats()
+    await getReplayIssueStats({ groupBy: 'issueDomain' })
 
-    expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues/stats')
+    expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues/stats?groupBy=issueDomain')
   })
 
   it('gets planned completion date points and dashboard through the dedicated statistics paths', async () => {
@@ -90,10 +106,10 @@ describe('replay issues API', () => {
       .mockResolvedValueOnce(jsonResponse({ code: 200, data: { groups: [] } }))
 
     await getReplayCompletionDatePoints()
-    await getReplayCompletionDashboard({ startDate: '2026-08-20', endDate: '2026-08-27' })
+    await getReplayCompletionDashboard({ startDate: '2026-08-20', endDate: '2026-08-27', groupBy: 'issueDomain' })
 
     expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues/stats/planned-completion/date-points')
-    expect(fetch.mock.calls[1][0]).toBe('/api/ai/parallel-replay/issues/stats/planned-completion?startDate=2026-08-20&endDate=2026-08-27')
+    expect(fetch.mock.calls[1][0]).toBe('/api/ai/parallel-replay/issues/stats/planned-completion?startDate=2026-08-20&endDate=2026-08-27&groupBy=issueDomain')
   })
 
   it('encodes the exact group developer category and paging filters for completion drill-down', async () => {
@@ -102,6 +118,7 @@ describe('replay issues API', () => {
     await getReplayCompletionIssues({
       startDate: '2026-08-20',
       endDate: '2026-08-27',
+      groupBy: 'issueDomain',
       groupName: '贷款组',
       matchedDeveloper: '张三、李四',
       category: 'OVERDUE_UNFINISHED',
@@ -109,7 +126,7 @@ describe('replay issues API', () => {
       offset: 40,
     })
 
-    expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues/stats/planned-completion/issues?startDate=2026-08-20&endDate=2026-08-27&groupName=%E8%B4%B7%E6%AC%BE%E7%BB%84&matchedDeveloper=%E5%BC%A0%E4%B8%89%E3%80%81%E6%9D%8E%E5%9B%9B&category=OVERDUE_UNFINISHED&limit=20&offset=40')
+    expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues/stats/planned-completion/issues?startDate=2026-08-20&endDate=2026-08-27&groupBy=issueDomain&groupName=%E8%B4%B7%E6%AC%BE%E7%BB%84&matchedDeveloper=%E5%BC%A0%E4%B8%89%E3%80%81%E6%9D%8E%E5%9B%9B&category=OVERDUE_UNFINISHED&limit=20&offset=40')
   })
 
   it('gets review permissions and approves through the documented endpoint', async () => {
@@ -142,6 +159,23 @@ describe('replay issues API', () => {
     expect(JSON.parse(fetch.mock.calls[2][1].body)).toEqual({ plannedCompletionDate: null })
   })
 
+  it('gets issue domain permissions, updates the domain, and loads transfer history', async () => {
+    global.fetch = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ code: 200, data: { editableDomains: ['公共组'] } }))
+      .mockResolvedValueOnce(jsonResponse({ code: 200, data: { id: 42, issueDomain: '平台组', transferCount: 1 } }))
+      .mockResolvedValueOnce(jsonResponse({ code: 200, data: { transferCount: 1, items: [] } }))
+
+    await getReplayIssueDomainPermissions()
+    await updateReplayIssueDomain(42, '平台组')
+    await getReplayIssueDomainTransfers(42)
+
+    expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues/issue-domain-permissions')
+    expect(fetch.mock.calls[1][0]).toBe('/api/ai/parallel-replay/issues/42/issue-domain')
+    expect(fetch.mock.calls[1][1]).toMatchObject({ method: 'PATCH' })
+    expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ issueDomain: '平台组' })
+    expect(fetch.mock.calls[2][0]).toBe('/api/ai/parallel-replay/issues/42/issue-domain-transfers')
+  })
+
   it('reads and replaces the weekly task batch set with the shared token header', async () => {
     global.fetch = vi.fn()
       .mockResolvedValueOnce(jsonResponse({ code: 200, data: { batchNames: [], availableBatchNames: [], issueCount: 0 } }))
@@ -162,16 +196,16 @@ describe('replay issues API', () => {
     expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ batchNames: ['BATCH-2'] })
   })
 
-  it('gets hover summary tables from their dedicated endpoints', async () => {
+  it('gets summary tables for the selected grouping dimension', async () => {
     global.fetch = vi.fn()
       .mockResolvedValueOnce(jsonResponse({ code: 200, data: [] }))
       .mockResolvedValueOnce(jsonResponse({ code: 200, data: [] }))
 
-    await getReplayIssueGroupSummaries()
-    await getReplayIssuePersonRankings()
+    await getReplayIssueGroupSummaries({ groupBy: 'issueDomain' })
+    await getReplayIssuePersonRankings({ groupBy: 'issueDomain' })
 
-    expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues/stats/groups')
-    expect(fetch.mock.calls[1][0]).toBe('/api/ai/parallel-replay/issues/stats/person-ranking')
+    expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues/stats/groups?groupBy=issueDomain')
+    expect(fetch.mock.calls[1][0]).toBe('/api/ai/parallel-replay/issues/stats/person-ranking?groupBy=issueDomain')
   })
 
   it('gets formal import rounds and grouped issue tracking', async () => {

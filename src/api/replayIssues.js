@@ -29,8 +29,14 @@ export function getReplayIssueHeaderFilterOptions(params = {}) {
   return request(`${PREFIX}/header-filter-options${query ? `?${query}` : ''}`)
 }
 
-export function getReplayIssueStats() {
-  return request(`${PREFIX}/stats`)
+export function getReplayIssueHeaderFilterOptionCounts(params = {}) {
+  const query = queryString(params)
+  return request(`${PREFIX}/header-filter-option-counts${query ? `?${query}` : ''}`)
+}
+
+export function getReplayIssueStats(params = {}) {
+  const query = queryString(params)
+  return request(`${PREFIX}/stats${query ? `?${query}` : ''}`)
 }
 
 export function getReplayCompletionDatePoints() {
@@ -53,6 +59,21 @@ export function getReplayIssueReviewPermissions() {
 
 export function getReplayIssuePlanDatePermissions() {
   return request(`${PREFIX}/plan-date-permissions`)
+}
+
+export function getReplayIssueDomainPermissions() {
+  return request(`${PREFIX}/issue-domain-permissions`)
+}
+
+export function updateReplayIssueDomain(id, issueDomain) {
+  return request(`${PREFIX}/${encodeURIComponent(id)}/issue-domain`, {
+    method: 'PATCH',
+    body: JSON.stringify({ issueDomain }),
+  })
+}
+
+export function getReplayIssueDomainTransfers(id) {
+  return request(`${PREFIX}/${encodeURIComponent(id)}/issue-domain-transfers`)
 }
 
 export function updateReplayIssuePlannedCompletionDate(id, plannedCompletionDate) {
@@ -78,12 +99,14 @@ export function replaceReplayWeeklyTask(batchNames = [], token = '') {
   })
 }
 
-export function getReplayIssueGroupSummaries() {
-  return request(`${PREFIX}/stats/groups`)
+export function getReplayIssueGroupSummaries(params = {}) {
+  const query = queryString(params)
+  return request(`${PREFIX}/stats/groups${query ? `?${query}` : ''}`)
 }
 
-export function getReplayIssuePersonRankings() {
-  return request(`${PREFIX}/stats/person-ranking`)
+export function getReplayIssuePersonRankings(params = {}) {
+  const query = queryString(params)
+  return request(`${PREFIX}/stats/person-ranking${query ? `?${query}` : ''}`)
 }
 
 export function getReplayImportRounds() {

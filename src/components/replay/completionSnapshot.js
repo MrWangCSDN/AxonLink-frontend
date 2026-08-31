@@ -134,6 +134,7 @@ export async function downloadAndCopyCompletionSnapshot(blob, filename, environm
   const navigatorRef = environment.navigatorRef || globalThis.navigator
   const ClipboardItemCtor = environment.ClipboardItemCtor || globalThis.ClipboardItem
   const objectUrl = urlApi.createObjectURL(blob)
+  let previewUrlTransferred = false
   try {
     const anchor = documentRef.createElement('a')
     anchor.href = objectUrl
@@ -142,15 +143,19 @@ export async function downloadAndCopyCompletionSnapshot(blob, filename, environm
     documentRef.body.appendChild(anchor)
     anchor.click()
     anchor.remove()
-  } finally {
-    urlApi.revokeObjectURL(objectUrl)
-  }
 
-  if (!ClipboardItemCtor || !navigatorRef?.clipboard?.write) return { copied: false }
-  try {
-    await navigatorRef.clipboard.write([new ClipboardItemCtor({ 'image/png': blob })])
-    return { copied: true }
-  } catch {
-    return { copied: false }
+    if (!ClipboardItemCtor || !navigatorRef?.clipboard?.write) {
+      previewUrlTransferred = true
+      return { copied: false, previewUrl: objectUrl }
+    }
+    try {
+      await navigatorRef.clipboard.write([new ClipboardItemCtor({ 'image/png': blob })])
+      return { copied: true }
+    } catch {
+      previewUrlTransferred = true
+      return { copied: false, previewUrl: objectUrl }
+    }
+  } finally {
+    if (!previewUrlTransferred) urlApi.revokeObjectURL(objectUrl)
   }
 }

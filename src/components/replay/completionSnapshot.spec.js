@@ -139,9 +139,32 @@ describe('completionSnapshot', () => {
       urlApi,
       navigatorRef: { clipboard: { write: vi.fn().mockRejectedValue(new Error('denied')) } },
       ClipboardItemCtor: class ClipboardItem {},
-    })).resolves.toEqual({ copied: false })
+    })).resolves.toEqual({ copied: false, previewUrl: 'blob:test' })
 
     expect(anchor.click).toHaveBeenCalledOnce()
-    expect(urlApi.revokeObjectURL).toHaveBeenCalledWith('blob:test')
+    expect(urlApi.revokeObjectURL).not.toHaveBeenCalled()
+  })
+
+  it('hands the downloaded image URL to the caller when image clipboard is unavailable', async () => {
+    const blob = new Blob(['snapshot'], { type: 'image/png' })
+    const anchor = { click: vi.fn(), remove: vi.fn(), style: {} }
+    const documentRef = {
+      body: { appendChild: vi.fn() },
+      createElement: vi.fn(() => anchor),
+    }
+    const urlApi = {
+      createObjectURL: vi.fn(() => 'blob:test'),
+      revokeObjectURL: vi.fn(),
+    }
+
+    await expect(downloadAndCopyCompletionSnapshot(blob, 'snapshot.png', {
+      documentRef,
+      urlApi,
+      navigatorRef: {},
+      ClipboardItemCtor: null,
+    })).resolves.toEqual({ copied: false, previewUrl: 'blob:test' })
+
+    expect(anchor.click).toHaveBeenCalledOnce()
+    expect(urlApi.revokeObjectURL).not.toHaveBeenCalled()
   })
 })

@@ -4,7 +4,7 @@ import ReplayIssuePage from './ReplayIssuePage.vue'
 import {
   exportReplayIssues,
   getReplayIssueOptions,
-  getReplayIssueHeaderFilterOptions,
+  getReplayIssueHeaderFilterOptionCounts,
   getReplayIssueMailStatus,
   getReplayImportRounds,
   getReplayIssueRoundTracking,
@@ -16,6 +16,8 @@ import {
   getReplayCompletionIssues,
   getReplayIssueReviewPermissions,
   getReplayIssuePlanDatePermissions,
+  getReplayIssueDomainPermissions,
+  getReplayIssueDomainTransfers,
   approveReplayIssue,
   getReplayWeeklyTask,
   replaceReplayWeeklyTask,
@@ -25,12 +27,13 @@ import {
   sendReplayIssueMail,
   updateReplayIssue,
   updateReplayIssuePlannedCompletionDate,
+  updateReplayIssueDomain,
 } from '../../api/replayIssues.js'
 
 vi.mock('../../api/replayIssues.js', () => ({
   exportReplayIssues: vi.fn(),
   getReplayIssueOptions: vi.fn(),
-  getReplayIssueHeaderFilterOptions: vi.fn(),
+  getReplayIssueHeaderFilterOptionCounts: vi.fn(),
   getReplayIssueMailStatus: vi.fn(),
   getReplayImportRounds: vi.fn(),
   getReplayIssueRoundTracking: vi.fn(),
@@ -42,6 +45,8 @@ vi.mock('../../api/replayIssues.js', () => ({
   getReplayCompletionIssues: vi.fn(),
   getReplayIssueReviewPermissions: vi.fn(),
   getReplayIssuePlanDatePermissions: vi.fn(),
+  getReplayIssueDomainPermissions: vi.fn(),
+  getReplayIssueDomainTransfers: vi.fn(),
   approveReplayIssue: vi.fn(),
   getReplayWeeklyTask: vi.fn(),
   replaceReplayWeeklyTask: vi.fn(),
@@ -51,11 +56,12 @@ vi.mock('../../api/replayIssues.js', () => ({
   sendReplayIssueMail: vi.fn(),
   updateReplayIssue: vi.fn(),
   updateReplayIssuePlannedCompletionDate: vi.fn(),
+  updateReplayIssueDomain: vi.fn(),
 }))
 
 const fixtureRow = {
   id: 1, source_sheet: '贷款组', group_name: '贷款组', is_sandbox: 0, row_order: 2,
-  domain: '贷款组', sequence_no: '59', batch_no: 'RPT20260803-194444-3815',
+  domain: '贷款组', issue_domain: '贷款组', issue_domain_transfer_count: 0, sequence_no: '59', batch_no: 'RPT20260803-194444-3815',
   transaction_code: '6208', transaction_name: '对公贷款还款计划查询', issue_level: '交易级',
   registered_date: '20260803', field_name: '响应码', issue_description: 'CCBS响应不一致',
   transaction_owner: '张济华', matched_developer: '张三(c-zhangs3)、李四(c-lisi)', matched_bank_owner: '刘六(c-liul6)', matched_bank_owner_emp_nos: '200001', issue_status: '延后修复', issue_type: '代码问题', initial_analysis: '核对返回值',
@@ -68,10 +74,19 @@ const fixtureRow = {
 }
 
 const visibleColumnLabels = [
-  '任务标记', '领域', 'issue_id', '是否沙箱', '交易码', '交易名称', '问题级别', '字段名', '流水号', '全局流水号', '问题描述',
-  '计划验证日期', '缺陷修复日期', '开发负责人', '科技负责人', '操作', '问题状态', '审核状态', '问题类型', '需协同人', '初步问题分析', '最终处理方案', '备注',
-  '该问题出现在的交易笔数', 'issue_key', '首次出现日期', '上次出现日期', '出现批次',
+  'issue_id', '是否沙箱', '交易码', '交易名称', '问题级别', '字段名', '流水号', '全局流水号', '问题描述',
+  '任务标记', '领域', '问题所属领域', '计划验证日期', '缺陷修复日期', '开发负责人', '科技负责人', '操作', '问题状态', '审核状态', '问题类型', '需协同人', '初步问题分析', '最终处理方案', '备注',
+  '出现笔数', 'issue_key', '首次出现日期', '出现批次',
 ]
+
+function countedOptions(values, truncated = false, matchedIssueCount = values.length) {
+  return {
+    candidateCount: values.length,
+    matchedIssueCount,
+    truncated,
+    items: values.map((value, index) => ({ value, count: index + 1 })),
+  }
+}
 
 function arrangeApi({ total = 4607, items = [fixtureRow] } = {}) {
   listReplayIssues.mockResolvedValue({ total, items })
@@ -84,9 +99,12 @@ function arrangeApi({ total = 4607, items = [fixtureRow] } = {}) {
     reviewStatuses: ['待审核', '已审核'],
     coverageRounds: ['20260808-001', '20260807-001'],
   })
-  getReplayIssueHeaderFilterOptions.mockResolvedValue(['张三(c-zhangs3)', '李四(c-lisi)', '赵六(c-zhaol6)'])
+  getReplayIssueHeaderFilterOptionCounts.mockResolvedValue(countedOptions(['张三(c-zhangs3)', '李四(c-lisi)', '赵六(c-zhaol6)']))
   getReplayIssueReviewPermissions.mockResolvedValue({ reviewableGroups: ['贷款组'], reviewersByGroup: { 贷款组: ['审核甲', '审核乙'] }, reviewableTransactionCodes: [] })
   getReplayIssuePlanDatePermissions.mockResolvedValue({ editableGroups: ['公共组'] })
+  getReplayIssueDomainPermissions.mockResolvedValue({ editableDomains: ['贷款组'] })
+  getReplayIssueDomainTransfers.mockResolvedValue({ transferCount: 0, items: [] })
+  updateReplayIssueDomain.mockImplementation((id, issueDomain) => Promise.resolve({ id, issueDomain, transferCount: 1 }))
   updateReplayIssuePlannedCompletionDate.mockImplementation((id, value) => Promise.resolve({ id, plannedCompletionDate: value }))
   approveReplayIssue.mockResolvedValue({ ...fixtureRow, issue_status: '无需处理', review_status: '已审核', reviewer_real_name: '审核甲' })
   getReplayWeeklyTask.mockResolvedValue({ batchNames: ['20260808-001'], availableBatchNames: ['20260807-001', '20260808-001'], issueCount: 30 })
@@ -222,6 +240,31 @@ describe('ReplayIssuePage', () => {
     expect(listReplayIssues).toHaveBeenCalledTimes(listCallsBeforeOpen)
   })
 
+  it('isolates planned completion grouping and inherits the toolbar again after reopening', async () => {
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+    await wrapper.get('[data-testid="planned-completion-entry"]').trigger('click')
+    await flushPromises()
+
+    expect(getReplayCompletionDashboard).toHaveBeenLastCalledWith(expect.objectContaining({ groupBy: 'issueDomain' }))
+    const statsCallsBeforeModalSwitch = getReplayIssueStats.mock.calls.length
+
+    await wrapper.get('[data-testid="completion-grouping-domain"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="stats-group-issue-domain-toolbar"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.get('[data-testid="completion-grouping-domain"]').attributes('aria-pressed')).toBe('true')
+    expect(getReplayIssueStats).toHaveBeenCalledTimes(statsCallsBeforeModalSwitch)
+    expect(getReplayCompletionDashboard).toHaveBeenLastCalledWith(expect.objectContaining({ groupBy: 'domain' }))
+
+    await wrapper.get('.replay-completion-close').trigger('click')
+    await wrapper.get('[data-testid="planned-completion-entry"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="completion-grouping-issue-domain"]').attributes('aria-pressed')).toBe('true')
+    expect(getReplayCompletionDashboard).toHaveBeenLastCalledWith(expect.objectContaining({ groupBy: 'issueDomain' }))
+  })
+
   it('places planned completion date between description and defect date and applies group permissions', async () => {
     arrangeApi({ items: [
       { ...fixtureRow, id: 1, group_name: '公共组', domain: '公共组', planned_completion_date: '2026-08-26' },
@@ -242,6 +285,108 @@ describe('ReplayIssuePage', () => {
     expect(wrapper.get('[data-testid="plan-date-display-3"]').attributes('title')).toBe('已有缺陷修复日期，计划验证日期不可修改')
   })
 
+  it('edits issue domain in the combined column and lazily shows newest transfer history', async () => {
+    arrangeApi({ items: [{ ...fixtureRow, issue_domain: '贷款组', issue_domain_transfer_count: 2 }] })
+    getReplayIssueDomainTransfers.mockResolvedValue({
+      transferCount: 2,
+      items: [
+        { fromDomain: '平台组', toDomain: '贷款组', operatorRealName: '李力', operatorUsername: 'c-ll', transferredAt: '2026-08-09 17:08:09' },
+        { fromDomain: '公共组', toDomain: '平台组', operatorRealName: '李三', operatorUsername: 'c-ls', transferredAt: '2026-08-09 17:02:09' },
+      ],
+    })
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    const select = wrapper.get('[data-testid="issue-domain-select-1"]')
+    expect(select.findAll('option').map(option => option.text())).toEqual(['存款组', '贷款组', '公共组', '结算组', '迁移组', '平台组'])
+    const blur = vi.spyOn(select.element, 'blur')
+    await select.trigger('wheel')
+    expect(blur).toHaveBeenCalledTimes(1)
+    await select.setValue('平台组')
+    await select.trigger('blur')
+    await flushPromises()
+    expect(updateReplayIssueDomain).toHaveBeenCalledWith(1, '平台组')
+
+    const badge = wrapper.get('[data-testid="issue-domain-transfer-count-1"]')
+    await badge.trigger('mouseenter')
+    await flushPromises()
+    expect(getReplayIssueDomainTransfers).toHaveBeenCalledWith(1)
+    const history = wrapper.get('[data-testid="issue-domain-transfer-history-1"]')
+    expect(badge.element.closest('td').classList.contains('replay-issue-domain-table-cell')).toBe(true)
+    expect(history.text()).toContain('平台组 → 贷款组')
+    expect(history.text().indexOf('17:08:09')).toBeLessThan(history.text().indexOf('17:02:09'))
+  })
+
+  it('supports the existing counted header filter on issue domain', async () => {
+    getReplayIssueHeaderFilterOptionCounts.mockResolvedValue(countedOptions(['公共组', '平台组']))
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    const header = wrapper.findAll('thead th').at(visibleColumnLabels.indexOf('问题所属领域'))
+    expect(header.find('.replay-header-filter-button').exists()).toBe(true)
+    await header.get('.replay-header-filter-button').trigger('click')
+    await flushPromises()
+    expect(getReplayIssueHeaderFilterOptionCounts).toHaveBeenLastCalledWith(expect.objectContaining({
+      field: 'issueDomain',
+    }))
+    const options = wrapper.findAll('[data-testid="header-filter-panel"] input[type="checkbox"]')
+    await options.at(0).setValue(true)
+    await options.at(1).setValue(true)
+    await wrapper.find('[data-testid="header-filter-panel"] .replay-button-primary').trigger('click')
+    await flushPromises()
+    expect(listReplayIssues).toHaveBeenLastCalledWith(expect.objectContaining({
+      issueDomains: ['公共组', '平台组'],
+      offset: 0,
+    }))
+  })
+
+  it('locks issue domain for repaired, unauthorized, or three-transfer rows and hides a zero-count badge', async () => {
+    arrangeApi({ items: [
+      { ...fixtureRow, id: 1, issue_domain_transfer_count: 0 },
+      { ...fixtureRow, id: 2, issue_key: 'key-2', issue_domain_transfer_count: 3 },
+      { ...fixtureRow, id: 3, issue_key: 'key-3', issue_domain_transfer_count: 1, defect_repair_date: '2026-08-26' },
+      { ...fixtureRow, id: 4, issue_key: 'key-4', issue_domain: '公共组', issue_domain_transfer_count: 1 },
+    ] })
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="issue-domain-transfer-count-1"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="issue-domain-select-2"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-testid="issue-domain-select-3"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-testid="issue-domain-select-4"]').attributes('disabled')).toBeDefined()
+  })
+
+  it('keeps issue-domain selectors the same fixed width with or without a transfer badge', async () => {
+    arrangeApi({ items: [
+      { ...fixtureRow, id: 1, issue_domain_transfer_count: 0 },
+      { ...fixtureRow, id: 2, issue_key: 'key-2', issue_domain_transfer_count: 2 },
+    ] })
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    const firstStyle = wrapper.get('[data-testid="issue-domain-select-1"]').attributes('style')
+    const secondStyle = wrapper.get('[data-testid="issue-domain-select-2"]').attributes('style')
+    expect(firstStyle).toContain('width: 88px')
+    expect(firstStyle).toContain('flex-basis: 88px')
+    expect(firstStyle).toContain('flex-shrink: 0')
+    expect(secondStyle).toBe(firstStyle)
+  })
+
+  it('rejects a plan validation date later than first occurrence plus seven natural days', async () => {
+    arrangeApi({ items: [{ ...fixtureRow, first_occurrence_date: '2026-08-20 00:00:00.0', planned_completion_date: '' }] })
+    getReplayIssuePlanDatePermissions.mockResolvedValue({ editableGroups: ['贷款组'] })
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="plan-date-edit-1"]').trigger('click')
+    await wrapper.get('[data-testid="plan-date-input-1"]').setValue('2026-08-28')
+    await wrapper.get('[data-testid="plan-date-input-1"]').trigger('blur')
+    await flushPromises()
+
+    expect(updateReplayIssuePlannedCompletionDate).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-testid="plan-date-error"]').text()).toBe('计划验证日期不能晚于首次出现日期后 7 个自然日（最晚 2026-08-27）')
+  })
+
   it('uses the approved list order, colors, compact widths, and date-only occurrence values', async () => {
     arrangeApi({ items: [{ ...fixtureRow, group_name: '公共组', domain: '公共组', planned_completion_date: '2026-08-30' }] })
     const wrapper = mount(ReplayIssuePage)
@@ -249,6 +394,7 @@ describe('ReplayIssuePage', () => {
 
     const headers = wrapper.findAll('thead th')
     expect(headers.map(header => header.text())).toEqual(visibleColumnLabels)
+    expect(headers.map(header => header.text())).not.toContain('上次出现日期')
     const cells = wrapper.findAll('tbody tr[data-testid="replay-row"] td')
     expect(cells.at(visibleColumnLabels.indexOf('计划验证日期')).find('.replay-plan-date-emphasis').exists()).toBe(true)
     for (const label of ['初步问题分析', '最终处理方案', '备注']) {
@@ -257,13 +403,16 @@ describe('ReplayIssuePage', () => {
     expect(cells.at(visibleColumnLabels.indexOf('问题状态')).find('.replay-manual-value').exists()).toBe(true)
     expect(cells.at(visibleColumnLabels.indexOf('需协同人')).find('.replay-manual-value').exists()).toBe(true)
     expect(cells.at(visibleColumnLabels.indexOf('首次出现日期')).text()).toBe('2026-07-28')
-    expect(cells.at(visibleColumnLabels.indexOf('上次出现日期')).text()).toBe('2026-07-31')
 
     const columnWidths = wrapper.findAll('col').map(column => column.attributes('style'))
-    expect(columnWidths[visibleColumnLabels.indexOf('issue_id')]).toContain('width: 80px')
+    expect(columnWidths[visibleColumnLabels.indexOf('issue_id')]).toContain('width: 100px')
+    expect(columnWidths[visibleColumnLabels.indexOf('issue_id')]).toBe(columnWidths[visibleColumnLabels.indexOf('交易码')])
     expect(columnWidths[visibleColumnLabels.indexOf('issue_id')]).not.toBe(columnWidths[visibleColumnLabels.indexOf('领域')])
     expect(columnWidths[visibleColumnLabels.indexOf('是否沙箱')]).toBe(columnWidths[visibleColumnLabels.indexOf('问题级别')])
     expect(columnWidths[visibleColumnLabels.indexOf('交易码')]).toBe(columnWidths[visibleColumnLabels.indexOf('问题级别')])
+    expect(columnWidths[visibleColumnLabels.indexOf('问题所属领域')]).toContain('width: 140px')
+    expect(columnWidths[visibleColumnLabels.indexOf('出现笔数')]).toBe(columnWidths[visibleColumnLabels.indexOf('审核状态')])
+    expect(columnWidths[visibleColumnLabels.indexOf('出现笔数')]).toContain('width: 112px')
   })
 
   it('filters planned completion dates with multiple values while displaying empty cells as dash', async () => {
@@ -271,7 +420,7 @@ describe('ReplayIssuePage', () => {
       { ...fixtureRow, id: 1, planned_completion_date: '' },
       { ...fixtureRow, id: 2, issue_key: 'TRAN|6208|第二个字段', planned_completion_date: '2026-08-26' },
     ] })
-    getReplayIssueHeaderFilterOptions.mockResolvedValue(['空', '2026-08-26', '2026-08-27'])
+    getReplayIssueHeaderFilterOptionCounts.mockResolvedValue(countedOptions(['空', '2026-08-26', '2026-08-27']))
     const wrapper = mount(ReplayIssuePage)
     await flushPromises()
 
@@ -281,7 +430,7 @@ describe('ReplayIssuePage', () => {
 
     await header.get('.replay-header-filter-button').trigger('click')
     await flushPromises()
-    expect(getReplayIssueHeaderFilterOptions).toHaveBeenLastCalledWith(expect.objectContaining({
+    expect(getReplayIssueHeaderFilterOptionCounts).toHaveBeenLastCalledWith(expect.objectContaining({
       field: 'plannedCompletionDate',
     }))
     expect(wrapper.get('[data-testid="header-filter-panel"]').text()).toContain('空')
@@ -300,12 +449,12 @@ describe('ReplayIssuePage', () => {
   })
 
   it('filters issue id serial numbers global serial numbers and defect dates with fuzzy candidates', async () => {
-    getReplayIssueHeaderFilterOptions.mockImplementation(({ field, keyword }) => Promise.resolve({
+    getReplayIssueHeaderFilterOptionCounts.mockImplementation(({ field, keyword }) => Promise.resolve(countedOptions({
       issueId: keyword ? ['ISS-200'] : ['空', 'ISS-100', 'ISS-200'],
       serialNo: ['空', 'SER-100', 'SER-200'],
       globalSerialNo: ['空', 'GS-100', 'GS-200'],
       defectRepairDate: ['空', '2026-08-20', '2026-08-21'],
-    }[field] || []))
+    }[field] || [])))
     const wrapper = mount(ReplayIssuePage)
     await flushPromises()
 
@@ -320,7 +469,7 @@ describe('ReplayIssuePage', () => {
     await wrapper.get('[data-testid="header-filter-search"]').setValue('SS-2')
     await wrapper.get('[aria-label="查询筛选选项"]').trigger('click')
     await flushPromises()
-    expect(getReplayIssueHeaderFilterOptions).toHaveBeenLastCalledWith(expect.objectContaining({
+    expect(getReplayIssueHeaderFilterOptionCounts).toHaveBeenLastCalledWith(expect.objectContaining({
       field: 'issueId', keyword: 'SS-2', serialNo: undefined, globalSerialNo: undefined, defectRepairDate: undefined,
     }))
     expect(wrapper.get('[data-testid="header-filter-panel"]').text()).toContain('ISS-200')
@@ -331,7 +480,7 @@ describe('ReplayIssuePage', () => {
     const serialHeader = wrapper.findAll('thead th').at(visibleColumnLabels.indexOf('流水号'))
     await serialHeader.get('.replay-header-filter-button').trigger('click')
     await flushPromises()
-    expect(getReplayIssueHeaderFilterOptions).toHaveBeenLastCalledWith(expect.objectContaining({
+    expect(getReplayIssueHeaderFilterOptionCounts).toHaveBeenLastCalledWith(expect.objectContaining({
       field: 'serialNo', issueIds: ['ISS-200'],
     }))
     await wrapper.findAll('[data-testid="header-filter-panel"] input[type="checkbox"]').at(0).setValue(true)
@@ -341,6 +490,180 @@ describe('ReplayIssuePage', () => {
     expect(listReplayIssues).toHaveBeenLastCalledWith(expect.objectContaining({
       issueIds: ['ISS-200'], serialNos: ['空'], offset: 0,
     }))
+  })
+
+  it('filters transaction name field name issue description and issue key with exact selected values', async () => {
+    const candidates = {
+      transactionName: ['账户查询'],
+      fieldName: ['custName'],
+      issueDescription: ['新老核心客户名称不一致'],
+      issueKey: ['TC001|custName'],
+    }
+    getReplayIssueHeaderFilterOptionCounts.mockImplementation(({ field }) => Promise.resolve(countedOptions(candidates[field] || [])))
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    const fields = [
+      ['交易名称', 'transactionName', 'transactionNames'],
+      ['字段名', 'fieldName', 'fieldNames'],
+      ['问题描述', 'issueDescription', 'issueDescriptions'],
+      ['issue_key', 'issueKey', 'issueKeys'],
+    ]
+    for (const [label, field, requestKey] of fields) {
+      const header = wrapper.findAll('thead th').at(visibleColumnLabels.indexOf(label))
+      expect(header.find('.replay-header-filter-button').exists()).toBe(true)
+      await header.get('.replay-header-filter-button').trigger('click')
+      await flushPromises()
+      expect(getReplayIssueHeaderFilterOptionCounts).toHaveBeenLastCalledWith(expect.objectContaining({ field }))
+      await wrapper.findAll('[data-testid="header-filter-panel"] input[type="checkbox"]').at(0).setValue(true)
+      await wrapper.find('[data-testid="header-filter-panel"] .replay-button-primary').trigger('click')
+      await flushPromises()
+      expect(listReplayIssues).toHaveBeenLastCalledWith(expect.objectContaining({
+        [requestKey]: candidates[field],
+        offset: 0,
+      }))
+    }
+  })
+
+  it('shows Excel-style candidate and issue counts without recounting draft checkbox changes', async () => {
+    getReplayIssueHeaderFilterOptionCounts.mockResolvedValue({
+      candidateCount: 2,
+      matchedIssueCount: 11,
+      truncated: false,
+      items: [
+        { value: '空', count: 3 },
+        { value: '一段很长且不应换行的交易名称', count: 8 },
+      ],
+    })
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    const header = wrapper.findAll('thead th').at(visibleColumnLabels.indexOf('交易名称'))
+    await header.get('.replay-header-filter-button').trigger('click')
+    await flushPromises()
+
+    expect(getReplayIssueHeaderFilterOptionCounts).toHaveBeenLastCalledWith(expect.objectContaining({
+      field: 'transactionName',
+    }))
+    expect(wrapper.get('[data-testid="header-filter-candidate-count"]').text()).toBe('筛选数（2）')
+    expect(wrapper.get('[data-testid="header-filter-matched-count"]').text()).toBe('计数（11）')
+    expect(wrapper.findAll('.replay-header-filter-option-count').map(node => node.text())).toEqual(['（3）', '（8）'])
+
+    const requestCount = getReplayIssueHeaderFilterOptionCounts.mock.calls.length
+    await wrapper.findAll('[data-testid="header-filter-panel"] input[type="checkbox"]').at(0).setValue(true)
+    expect(getReplayIssueHeaderFilterOptionCounts).toHaveBeenCalledTimes(requestCount)
+    await wrapper.get('[data-testid="header-filter-search"]').setValue('交易')
+    await wrapper.get('[aria-label="查询筛选选项"]').trigger('click')
+    await flushPromises()
+    expect(getReplayIssueHeaderFilterOptionCounts).toHaveBeenCalledTimes(requestCount + 1)
+
+    await wrapper.find('[data-testid="header-filter-panel"] .replay-button-primary').trigger('click')
+    await flushPromises()
+    expect(listReplayIssues).toHaveBeenLastCalledWith(expect.objectContaining({
+      transactionNames: ['空'],
+    }))
+
+    getReplayIssueHeaderFilterOptionCounts.mockResolvedValue({
+      candidateCount: 500,
+      matchedIssueCount: 37,
+      truncated: true,
+      items: [{ value: 'custName', count: 1 }],
+    })
+    const fieldHeader = wrapper.findAll('thead th').at(visibleColumnLabels.indexOf('字段名'))
+    await fieldHeader.get('.replay-header-filter-button').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="header-filter-candidate-count"]').text()).toBe('筛选数（500+）')
+    expect(wrapper.get('[data-testid="header-filter-matched-count"]').text()).toBe('计数（37）')
+  })
+
+  it('cycles affected transaction count sorting while preserving header filters', async () => {
+    getReplayIssueHeaderFilterOptionCounts.mockResolvedValue(countedOptions(['公共组']))
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    const domainHeader = wrapper.findAll('thead th').at(visibleColumnLabels.indexOf('领域'))
+    await domainHeader.get('.replay-header-filter-button').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="header-filter-panel"] input[type="checkbox"]').setValue(true)
+    await wrapper.get('[data-testid="header-filter-panel"] .replay-button-primary').trigger('click')
+    await flushPromises()
+
+    const sortButton = wrapper.get('[data-testid="affected-transaction-count-sort"]')
+    expect(sortButton.attributes('data-sort')).toBe('default')
+    expect(sortButton.classes()).not.toContain('is-active')
+    expect(sortButton.attributes('aria-label')).toBe('按问题数升序排序')
+
+    await sortButton.trigger('click')
+    await flushPromises()
+    expect(sortButton.attributes('data-sort')).toBe('asc')
+    expect(sortButton.classes()).toContain('is-active')
+    expect(sortButton.find('.lucide-arrow-up-narrow-wide').exists()).toBe(true)
+    expect(sortButton.attributes('aria-label')).toBe('当前问题数升序，点击切换为降序')
+    expect(listReplayIssues).toHaveBeenLastCalledWith(expect.objectContaining({
+      groupNames: ['公共组'], affectedTransactionCountOrder: 'ASC', offset: 0,
+    }))
+
+    await sortButton.trigger('click')
+    await flushPromises()
+    expect(sortButton.attributes('data-sort')).toBe('desc')
+    expect(sortButton.find('.lucide-arrow-down-wide-narrow').exists()).toBe(true)
+    expect(sortButton.attributes('aria-label')).toBe('当前问题数降序，点击恢复默认排序')
+    expect(listReplayIssues).toHaveBeenLastCalledWith(expect.objectContaining({
+      groupNames: ['公共组'], affectedTransactionCountOrder: 'DESC', offset: 0,
+    }))
+
+    await sortButton.trigger('click')
+    await flushPromises()
+    expect(sortButton.attributes('data-sort')).toBe('default')
+    expect(sortButton.classes()).not.toContain('is-active')
+    expect(sortButton.attributes('aria-label')).toBe('按问题数升序排序')
+    expect(listReplayIssues).toHaveBeenLastCalledWith(expect.objectContaining({
+      groupNames: ['公共组'], affectedTransactionCountOrder: undefined, offset: 0,
+    }))
+  })
+
+  it('resizes the long-text filter panel by pointer drag and preserves size until unmount', async () => {
+    getReplayIssueHeaderFilterOptionCounts.mockResolvedValue(countedOptions(['一段很长且不应换行的字段名称'.repeat(8)]))
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    const transactionHeader = wrapper.findAll('thead th').at(visibleColumnLabels.indexOf('交易名称'))
+    await transactionHeader.get('.replay-header-filter-button').trigger('click')
+    await flushPromises()
+
+    const panel = wrapper.get('[data-testid="header-filter-panel"]')
+    expect(panel.attributes('style')).toContain('width: 280px')
+    expect(panel.attributes('style')).toContain('height: 360px')
+    expect(panel.get('.replay-header-filter-option-text').text()).toContain('一段很长')
+
+    await panel.get('[data-testid="header-filter-resize-handle"]').trigger('pointerdown', {
+      pointerId: 1, clientX: 280, clientY: 360,
+    })
+    window.dispatchEvent(new MouseEvent('pointermove', { clientX: 420, clientY: 440 }))
+    window.dispatchEvent(new MouseEvent('pointerup', { clientX: 420, clientY: 440 }))
+    await flushPromises()
+
+    expect(panel.attributes('style')).toContain('width: 420px')
+    expect(panel.attributes('style')).toContain('height: 440px')
+
+    await panel.get('[aria-label="关闭筛选"]').trigger('click')
+    const issueKeyHeader = wrapper.findAll('thead th').at(visibleColumnLabels.indexOf('issue_key'))
+    await issueKeyHeader.get('.replay-header-filter-button').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="header-filter-panel"]').attributes('style')).toContain('width: 420px')
+    expect(wrapper.get('[data-testid="header-filter-panel"]').attributes('style')).toContain('height: 440px')
+
+    const resizedPanel = wrapper.get('[data-testid="header-filter-panel"]')
+    await resizedPanel.get('[data-testid="header-filter-resize-handle"]').trigger('pointerdown', {
+      pointerId: 2, clientX: 420, clientY: 440,
+    })
+    window.dispatchEvent(new MouseEvent('pointermove', { clientX: -500, clientY: -500 }))
+    window.dispatchEvent(new MouseEvent('pointerup', { clientX: -500, clientY: -500 }))
+    await flushPromises()
+    expect(resizedPanel.attributes('style')).toContain('width: 280px')
+    expect(resizedPanel.attributes('style')).toContain('height: 260px')
+
+    wrapper.unmount()
   })
 
   it('keeps an open header filter attached to its title after collapsing the query panel', async () => {
@@ -365,7 +688,7 @@ describe('ReplayIssuePage', () => {
 
   it('validates and auto-saves a changed plan date on blur without saving unchanged values', async () => {
     getReplayIssuePlanDatePermissions.mockResolvedValue({ editableGroups: ['贷款组'] })
-    arrangeApi({ items: [{ ...fixtureRow, planned_completion_date: '' }] })
+    arrangeApi({ items: [{ ...fixtureRow, first_occurrence_date: '2026-08-20 00:00:00.0', planned_completion_date: '' }] })
     getReplayIssuePlanDatePermissions.mockResolvedValue({ editableGroups: ['贷款组'] })
     const wrapper = mount(ReplayIssuePage)
     await flushPromises()
@@ -516,7 +839,7 @@ describe('ReplayIssuePage', () => {
   })
 
   it('keeps active header filters when weekly-task-only is toggled', async () => {
-    getReplayIssueHeaderFilterOptions.mockResolvedValue(['6208'])
+    getReplayIssueHeaderFilterOptionCounts.mockResolvedValue(countedOptions(['6208']))
     const wrapper = mount(ReplayIssuePage)
     await flushPromises()
 
@@ -593,6 +916,59 @@ describe('ReplayIssuePage', () => {
     expect(wrapper.get('[data-testid="summary-modal"] tbody').text()).toContain('张三(c-zhangs3)、李四(c-lisi)')
   })
 
+  it('defaults statistics to issue domain and keeps summary modal grouping isolated from the toolbar', async () => {
+    getReplayIssueStats.mockImplementation(({ groupBy } = {}) => Promise.resolve({
+      total: 2,
+      groupCounts: groupBy === 'issueDomain'
+        ? { 迁移组: { total: 1 }, 平台组: { total: 1 } }
+        : { 公共组: { total: 1 }, 存款组: { total: 1 } },
+    }))
+    getReplayIssueGroupSummaries.mockImplementation(({ groupBy } = {}) => Promise.resolve(
+      groupBy === 'issueDomain'
+        ? [
+            { groupName: '迁移组', totalCount: 1 },
+            { groupName: '平台组', totalCount: 1 },
+          ]
+        : [{ groupName: '公共组', totalCount: 2 }],
+    ))
+    getReplayIssuePersonRankings.mockImplementation(({ groupBy } = {}) => Promise.resolve(
+      groupBy === 'issueDomain'
+        ? [{ rank: 1, groupName: '迁移组', developer: '张三(c-zhangs3)', totalCount: 1 }]
+        : [{ rank: 1, groupName: '存款组', developer: '张三(c-zhangs3)', totalCount: 1 }],
+    ))
+
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    expect(getReplayIssueStats).toHaveBeenLastCalledWith({ groupBy: 'issueDomain' })
+    expect(wrapper.get('[data-testid="stats-group-issue-domain-toolbar"]').attributes('aria-pressed')).toBe('true')
+
+    await wrapper.get('[data-testid="person-ranking-entry"]').trigger('click')
+    await flushPromises()
+    expect(getReplayIssuePersonRankings).toHaveBeenLastCalledWith({ groupBy: 'issueDomain' })
+    const statsCallsBeforeModalSwitch = getReplayIssueStats.mock.calls.length
+
+    await wrapper.get('[data-testid="stats-group-domain-modal"]').trigger('click')
+    await flushPromises()
+
+    expect(getReplayIssueStats).toHaveBeenCalledTimes(statsCallsBeforeModalSwitch)
+    expect(getReplayIssuePersonRankings).toHaveBeenLastCalledWith({ groupBy: 'domain' })
+    expect(wrapper.get('[data-testid="stats-group-issue-domain-toolbar"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.get('[data-testid="stats-group-domain-modal"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.findAll('[data-testid="person-ranking-group-tab"]').map(tab => tab.text())).toEqual(['存款组', '贷款组', '公共组', '结算组'])
+    expect(wrapper.get('[data-testid="summary-modal"] tbody').text()).toContain('张三(c-zhangs3)')
+
+    await wrapper.get('[data-testid="close-summary-modal"]').trigger('click')
+    await wrapper.get('[data-testid="stats-group-domain-toolbar"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="group-summary-entry"]').trigger('click')
+    await flushPromises()
+    expect(getReplayIssueStats).toHaveBeenLastCalledWith({ groupBy: 'domain' })
+    expect(getReplayIssueGroupSummaries).toHaveBeenLastCalledWith({ groupBy: 'domain' })
+    expect(wrapper.get('[data-testid="stats-group-domain-modal"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.get('[data-testid="summary-modal"] tbody').text()).toContain('公共组')
+  })
+
   it('uses the approved pending and fixed column segments in both summary tables', async () => {
     const wrapper = mount(ReplayIssuePage)
     await flushPromises()
@@ -620,7 +996,7 @@ describe('ReplayIssuePage', () => {
     expect(personHeaders.slice(9).every(header => header.classes('is-fixed-segment'))).toBe(true)
   })
 
-  it('defaults developer rankings to deposit, switches among four groups, and resets after reopening', async () => {
+  it('defaults developer rankings to deposit, switches among issue-domain groups, and resets after reopening', async () => {
     getReplayIssuePersonRankings.mockResolvedValue([
       { rank: 1, groupName: '存款组', developer: '存款负责人', newCount: 1, openCount: 2, reopenedCount: 0, deferredCount: 0, pendingVerificationCount: 0, pendingTotalCount: 3, noActionCount: 0, fixedCount: 1, fixedTotalCount: 1, totalCount: 4 },
       { rank: 1, groupName: '贷款组', developer: '贷款负责人', newCount: 2, openCount: 3, reopenedCount: 0, deferredCount: 0, pendingVerificationCount: 0, pendingTotalCount: 5, noActionCount: 0, fixedCount: 2, fixedTotalCount: 2, totalCount: 7 },
@@ -634,8 +1010,8 @@ describe('ReplayIssuePage', () => {
     await flushPromises()
 
     const tabs = wrapper.findAll('[data-testid="person-ranking-group-tab"]')
-    expect(tabs.map(tab => tab.text())).toEqual(['存款组', '贷款组', '公共组', '结算组'])
-    expect(tabs.map(tab => tab.attributes('data-active'))).toEqual(['true', 'false', 'false', 'false'])
+    expect(tabs.map(tab => tab.text())).toEqual(['存款组', '贷款组', '公共组', '结算组', '迁移组', '平台组'])
+    expect(tabs.map(tab => tab.attributes('data-active'))).toEqual(['true', 'false', 'false', 'false', 'false', 'false'])
     expect(wrapper.get('[data-testid="summary-modal"] tbody').text()).toContain('存款负责人')
     expect(wrapper.get('[data-testid="summary-modal"] tbody').text()).not.toContain('贷款负责人')
 
@@ -822,7 +1198,7 @@ describe('ReplayIssuePage', () => {
   })
 
   it('exports all rows using the current filters', async () => {
-    getReplayIssueHeaderFilterOptions.mockResolvedValueOnce(['公共组'])
+    getReplayIssueHeaderFilterOptionCounts.mockResolvedValueOnce(countedOptions(['公共组']))
     const wrapper = mount(ReplayIssuePage)
     await flushPromises()
     const domainHeader = wrapper.findAll('thead th').at(visibleColumnLabels.indexOf('领域'))
@@ -857,7 +1233,7 @@ describe('ReplayIssuePage', () => {
     await occurrenceHeader.get('.replay-header-filter-button').trigger('click')
     await flushPromises()
 
-    expect(getReplayIssueHeaderFilterOptions).toHaveBeenLastCalledWith(expect.objectContaining({ field: 'occurrenceBatch' }))
+    expect(getReplayIssueHeaderFilterOptionCounts).toHaveBeenLastCalledWith(expect.objectContaining({ field: 'occurrenceBatch' }))
     expect(getReplayImportRounds).toHaveBeenCalledTimes(1)
   })
 
@@ -965,7 +1341,8 @@ describe('ReplayIssuePage', () => {
     expect(row.find('.replay-manual-value').attributes('class')).toContain('replay-manual-value')
     expect(row.find('[data-testid="edit-1"]').exists()).toBe(true)
     expect(row.find('[data-testid="tracking-1"]').exists()).toBe(true)
-    expect(row.find('select').exists()).toBe(false)
+    expect(row.findAll('select')).toHaveLength(1)
+    expect(row.get('[data-testid="issue-domain-select-1"]').exists()).toBe(true)
   })
 
   it('displays developer and technology owners in separate columns', async () => {
@@ -989,7 +1366,7 @@ describe('ReplayIssuePage', () => {
     const developerHeader = wrapper.findAll('thead th').at(visibleColumnLabels.indexOf('开发负责人'))
     await developerHeader.get('.replay-header-filter-button').trigger('click')
     await flushPromises()
-    expect(getReplayIssueHeaderFilterOptions).toHaveBeenLastCalledWith(expect.objectContaining({ field: 'developer' }))
+    expect(getReplayIssueHeaderFilterOptionCounts).toHaveBeenLastCalledWith(expect.objectContaining({ field: 'developer' }))
     expect(wrapper.get('[data-testid="header-filter-panel"]').text()).toContain('张三(c-zhangs3)')
     expect(wrapper.get('[data-testid="header-filter-panel"]').text()).toContain('李四(c-lisi)')
 
@@ -1004,9 +1381,9 @@ describe('ReplayIssuePage', () => {
   })
 
   it('supports composable domain and sandbox header filters and clears them on reset', async () => {
-    getReplayIssueHeaderFilterOptions
-      .mockResolvedValueOnce(['公共组', '贷款组'])
-      .mockResolvedValueOnce(['否', '是'])
+    getReplayIssueHeaderFilterOptionCounts
+      .mockResolvedValueOnce(countedOptions(['公共组', '贷款组']))
+      .mockResolvedValueOnce(countedOptions(['否', '是']))
     const wrapper = mount(ReplayIssuePage)
     await flushPromises()
 
@@ -1014,7 +1391,7 @@ describe('ReplayIssuePage', () => {
     expect(domainHeader.find('.replay-header-filter-button').exists()).toBe(true)
     await domainHeader.get('.replay-header-filter-button').trigger('click')
     await flushPromises()
-    expect(getReplayIssueHeaderFilterOptions).toHaveBeenLastCalledWith(expect.objectContaining({ field: 'groupName' }))
+    expect(getReplayIssueHeaderFilterOptionCounts).toHaveBeenLastCalledWith(expect.objectContaining({ field: 'groupName' }))
     await wrapper.findAll('[data-testid="header-filter-panel"] input[type="checkbox"]').at(0).setValue(true)
     await wrapper.find('[data-testid="header-filter-panel"] .replay-button-primary').trigger('click')
     await flushPromises()
@@ -1024,7 +1401,7 @@ describe('ReplayIssuePage', () => {
     expect(sandboxHeader.find('.replay-header-filter-button').exists()).toBe(true)
     await sandboxHeader.get('.replay-header-filter-button').trigger('click')
     await flushPromises()
-    expect(getReplayIssueHeaderFilterOptions).toHaveBeenLastCalledWith(expect.objectContaining({
+    expect(getReplayIssueHeaderFilterOptionCounts).toHaveBeenLastCalledWith(expect.objectContaining({
       field: 'sandbox',
       groupNames: ['公共组'],
     }))

@@ -18,6 +18,10 @@
         </div>
       </div>
       <div class="replay-toolbar-actions">
+        <div class="replay-statistics-group-switch" role="group" aria-label="统计分组口径" data-testid="statistics-group-switch-toolbar">
+          <button type="button" data-testid="stats-group-domain-toolbar" :class="{ 'is-active': statisticsGroupBy === 'domain' }" :aria-pressed="String(statisticsGroupBy === 'domain')" :disabled="statisticsGroupingLoading" @click="setStatisticsGroupBy('domain')">按领域</button>
+          <button type="button" data-testid="stats-group-issue-domain-toolbar" :class="{ 'is-active': statisticsGroupBy === 'issueDomain' }" :aria-pressed="String(statisticsGroupBy === 'issueDomain')" :disabled="statisticsGroupingLoading" @click="setStatisticsGroupBy('issueDomain')">按问题所属领域</button>
+        </div>
         <button class="replay-button replay-button-weekly" type="button" data-testid="open-weekly-task" @click="openWeeklyTask">
           <Flag :size="16" aria-hidden="true" />
           配置优先任务
@@ -86,7 +90,7 @@
         class="replay-summary-entry replay-summary-entry-action"
         data-testid="planned-completion-entry"
         type="button"
-        @click="plannedCompletionOpen = true"
+        @click="openPlannedCompletion"
       >
         <CalendarRange :size="16" aria-hidden="true" />
         <span>计划完成情况</span>
@@ -115,6 +119,10 @@
         <header>
           <h3>{{ activeSummaryTitle }}</h3>
           <div class="replay-summary-modal-actions">
+            <div class="replay-statistics-group-switch" role="group" aria-label="统计分组口径" data-testid="statistics-group-switch-modal">
+              <button type="button" data-testid="stats-group-domain-modal" :class="{ 'is-active': summaryModalGroupBy === 'domain' }" :aria-pressed="String(summaryModalGroupBy === 'domain')" :disabled="summaryGroupingLoading" @click="setSummaryModalGroupBy('domain')">按领域</button>
+              <button type="button" data-testid="stats-group-issue-domain-modal" :class="{ 'is-active': summaryModalGroupBy === 'issueDomain' }" :aria-pressed="String(summaryModalGroupBy === 'issueDomain')" :disabled="summaryGroupingLoading" @click="setSummaryModalGroupBy('issueDomain')">按问题所属领域</button>
+            </div>
             <button
               class="replay-button replay-button-compact"
               type="button"
@@ -163,6 +171,20 @@
           <tr>
             <th v-for="column in columns" :key="column.key" scope="col" class="replay-column-header">
               <span>{{ column.label }}</span>
+              <button
+                v-if="column.key === 'affected_transaction_count'"
+                type="button"
+                class="replay-count-sort-button"
+                :class="{ 'is-active': affectedTransactionCountOrder !== '' }"
+                :data-sort="affectedTransactionCountSortState"
+                :title="affectedTransactionCountSortLabel"
+                :aria-label="affectedTransactionCountSortLabel"
+                data-testid="affected-transaction-count-sort"
+                @click.stop="toggleAffectedTransactionCountSort"
+              >
+                <ArrowUpNarrowWide v-if="affectedTransactionCountOrder === 'ASC'" :size="17" aria-hidden="true" />
+                <ArrowDownWideNarrow v-else :size="17" aria-hidden="true" />
+              </button>
               <button v-if="headerFilterConfig[column.key]" type="button" class="replay-header-filter-button" :class="{ active: headerFilters[column.key]?.length }" :title="`筛选${column.label}`" @click.stop="openHeaderFilter(column, $event)" aria-label="打开筛选"><i aria-hidden="true"></i></button>
               <HelpCircle v-if="column.key === 'final_solution'" :size="14" title="填写最终采用的修复方案和处理结果" aria-label="最终处理方案说明" />
             </th>
@@ -173,7 +195,7 @@
             <td
               v-for="column in columns"
               :key="column.key"
-              :class="{ 'replay-copyable-cell': copyableColumnKeys.has(column.key), 'replay-person-cell': column.key === 'matched_developer' || column.key === 'matched_bank_owner' }"
+              :class="{ 'replay-copyable-cell': copyableColumnKeys.has(column.key), 'replay-person-cell': column.key === 'matched_developer' || column.key === 'matched_bank_owner', 'replay-issue-domain-table-cell': column.key === 'issue_domain' }"
               :title="cellTitle(column, row)"
               @click="copyableColumnKeys.has(column.key) && copyCell(column, row)"
             >
@@ -185,6 +207,42 @@
               <button v-else-if="column.key === 'review_status' && row.review_status === '待审核'" type="button" class="replay-review-badge is-pending" :data-testid="`review-${row.id}`" :title="reviewActionTitle(row)" @click="approveReview(row)">待审核</button>
               <span v-else-if="column.key === 'review_status' && row.review_status === '已审核'" class="replay-review-badge is-approved" :data-testid="`review-${row.id}`" :title="row.reviewer_real_name ? `审核人：${row.reviewer_real_name}` : '已审核'">已审核</span>
               <span v-else-if="column.key === 'review_status'">-</span>
+              <div
+                v-else-if="column.key === 'issue_domain'"
+                class="replay-issue-domain-cell"
+                :class="{ 'is-locked': !canEditIssueDomain(row) }"
+              >
+                <select
+                  :value="issueDomainDraftValue(row)"
+                  :data-testid="`issue-domain-select-${row.id}`"
+                  style="width: 88px; flex: 0 0 88px"
+                  :disabled="!canEditIssueDomain(row) || issueDomainSavingId === row.id"
+                  :title="issueDomainEditTitle(row)"
+                  @change="setIssueDomainDraft(row, $event.target.value)"
+                  @blur="saveIssueDomain(row)"
+                  @wheel="$event.currentTarget.blur()"
+                >
+                  <option v-for="domainName in issueDomainOptions" :key="domainName" :value="domainName">{{ domainName }}</option>
+                </select>
+                <span
+                  v-if="issueDomainTransferCount(row) > 0"
+                  class="replay-issue-domain-history"
+                  :data-testid="`issue-domain-transfer-count-${row.id}`"
+                  tabindex="0"
+                  @mouseenter="loadIssueDomainTransfers(row)"
+                  @focus="loadIssueDomainTransfers(row)"
+                >
+                  <HistoryIcon :size="12" aria-hidden="true" /><b>{{ issueDomainTransferCount(row) }}</b>
+                  <span class="replay-issue-domain-tooltip" :data-testid="`issue-domain-transfer-history-${row.id}`" role="tooltip">
+                    <span v-if="issueDomainHistoryLoading[row.id]">正在加载…</span>
+                    <span v-else-if="issueDomainHistoryErrors[row.id]">{{ issueDomainHistoryErrors[row.id] }}</span>
+                    <span v-else v-for="entry in issueDomainHistories[row.id] || []" :key="`${entry.transferredAt}-${entry.fromDomain}-${entry.toDomain}`">
+                      <strong>{{ entry.fromDomain }} → {{ entry.toDomain }}</strong>
+                      <em>{{ issueDomainOperator(entry) }}　{{ entry.transferredAt }}</em>
+                    </span>
+                  </span>
+                </span>
+              </div>
               <div
                 v-else-if="column.key === 'planned_completion_date'"
                 class="replay-plan-date-cell replay-plan-date-emphasis"
@@ -224,15 +282,17 @@
         <header><strong>筛选 {{ activeHeaderColumn?.label }}</strong></header>
         <div class="replay-header-filter-content">
           <div class="replay-header-filter-search"><input v-model.trim="headerFilterSearch" type="search" placeholder="模糊搜索" data-testid="header-filter-search" @keydown.enter.prevent="loadHeaderFilterOptions" /><button type="button" aria-label="查询筛选选项" title="查询" @click="loadHeaderFilterOptions"><Search :size="14" /></button></div>
-          <div class="replay-header-filter-actions"><button type="button" @click="selectAllHeaderOptions">全选</button><button type="button" @click="invertHeaderOptions">反选</button></div>
-          <div class="replay-header-filter-options"><label v-for="option in headerFilterOptions" :key="option"><input v-model="headerFilterDraft" type="checkbox" :value="option" /><span>{{ option }}</span></label><p v-if="!headerFilterOptions.length">暂无选项</p></div>
+          <div class="replay-header-filter-actions"><button type="button" @click="selectAllHeaderOptions">全选</button><button type="button" @click="invertHeaderOptions">反选</button><span class="replay-header-filter-count" data-testid="header-filter-candidate-count">筛选数（{{ headerFilterCandidateCount }}<template v-if="headerFilterTruncated">+</template>）</span><span class="replay-header-filter-count" data-testid="header-filter-matched-count">计数（{{ headerFilterMatchedIssueCount }}）</span></div>
+          <div class="replay-header-filter-options"><label v-for="option in headerFilterOptions" :key="option.value"><input v-model="headerFilterDraft" type="checkbox" :value="option.value" /><span class="replay-header-filter-option-text">{{ option.value }}</span><span class="replay-header-filter-option-count">（{{ option.count }}）</span></label><p v-if="!headerFilterOptions.length">暂无选项</p></div>
         </div>
-        <footer><button class="replay-button replay-button-compact replay-header-filter-clear" type="button" @click="clearHeaderFilter">清空筛选</button><span class="replay-header-filter-footer-spacer"></span><button class="replay-button replay-button-compact" type="button" @click="closeHeaderFilter">取消</button><button class="replay-button replay-button-primary replay-button-compact" type="button" @click="applyHeaderFilter">确定</button></footer>
+        <footer><button class="replay-button replay-button-compact replay-header-filter-clear" type="button" @click="clearHeaderFilter">清空筛选</button><span class="replay-header-filter-footer-spacer"></span><button class="replay-button replay-button-compact" type="button" aria-label="关闭筛选" @click="closeHeaderFilter">取消</button><button class="replay-button replay-button-primary replay-button-compact" type="button" @click="applyHeaderFilter">确定</button></footer>
+        <button class="replay-header-filter-resize-handle" type="button" aria-label="拖拽调整筛选窗口大小" data-testid="header-filter-resize-handle" @pointerdown="startHeaderFilterResize"></button>
       </div>
     </div>
 
     <p v-if="copyMessage" class="replay-copy-toast" role="status" aria-live="polite">{{ copyMessage }}</p>
     <p v-if="planDateError" class="replay-copy-toast replay-plan-date-toast" role="alert" data-testid="plan-date-error">{{ planDateError }}</p>
+    <p v-if="issueDomainError" class="replay-copy-toast replay-plan-date-toast" role="alert" data-testid="issue-domain-error">{{ issueDomainError }}</p>
 
     <footer class="replay-pager">
       <span>共 {{ total }} 条，第 {{ page + 1 }} / {{ pageCount }} 页</span>
@@ -533,52 +593,72 @@
         </ol>
       </aside>
     </div>
-    <ReplayPlannedCompletionModal :open="plannedCompletionOpen" @close="plannedCompletionOpen = false" />
+    <ReplayPlannedCompletionModal
+      :open="plannedCompletionOpen"
+      :group-by="plannedCompletionGroupBy"
+      @update:group-by="setPlannedCompletionGroupBy"
+      @close="plannedCompletionOpen = false"
+    />
   </section>
 </template>
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { BarChart3, CalendarRange, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, Download, FileSpreadsheet, Flag, HelpCircle, History as HistoryIcon, Menu, Pencil, RotateCcw, Save, Search, Upload, Users, X } from 'lucide-vue-next'
-import { approveReplayIssue, exportReplayIssues, getReplayImportRounds, getReplayIssueGroupSummaries, getReplayIssueHeaderFilterOptions, getReplayIssueMailStatus, getReplayIssueOptions, getReplayIssuePersonRankings, getReplayIssueReviewPermissions, getReplayIssuePlanDatePermissions, getReplayIssueRoundTracking, getReplayIssueStats, getReplayWeeklyTask, replaceReplayWeeklyTask, getReplayDailyReportBatches, downloadReplayDailyReport, importReplayIssues, listReplayIssues, searchReplayIssueUsers, sendReplayIssueMail, updateReplayIssue, updateReplayIssuePlannedCompletionDate } from '../../api/replayIssues.js'
+import { ArrowDownWideNarrow, ArrowUpNarrowWide, BarChart3, CalendarRange, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, Download, FileSpreadsheet, Flag, HelpCircle, History as HistoryIcon, Menu, Pencil, RotateCcw, Save, Search, Upload, Users, X } from 'lucide-vue-next'
+import { approveReplayIssue, exportReplayIssues, getReplayImportRounds, getReplayIssueDomainPermissions, getReplayIssueDomainTransfers, getReplayIssueGroupSummaries, getReplayIssueHeaderFilterOptionCounts, getReplayIssueMailStatus, getReplayIssueOptions, getReplayIssuePersonRankings, getReplayIssueReviewPermissions, getReplayIssuePlanDatePermissions, getReplayIssueRoundTracking, getReplayIssueStats, getReplayWeeklyTask, replaceReplayWeeklyTask, getReplayDailyReportBatches, downloadReplayDailyReport, importReplayIssues, listReplayIssues, searchReplayIssueUsers, sendReplayIssueMail, updateReplayIssue, updateReplayIssueDomain, updateReplayIssuePlannedCompletionDate } from '../../api/replayIssues.js'
 import ReplayPlannedCompletionModal from './ReplayPlannedCompletionModal.vue'
 
 defineEmits(['toggleNavigation'])
 
 const columns = [
-  ['weekly_task', '任务标记', '110px'],
-  ['domain', '领域', 'calc(4em + 20px)'], ['issue_id', 'issue_id', '80px'], ['is_sandbox', '是否沙箱', '100px'],
+  ['issue_id', 'issue_id', '100px'], ['is_sandbox', '是否沙箱', '100px'],
   ['transaction_code', '交易码', '100px'], ['transaction_name', '交易名称', '180px'], ['issue_level', '问题级别', '100px'],
   ['field_name', '字段名', '120px'], ['serial_no', '流水号', '160px'], ['global_serial_no', '全局流水号', '180px'], ['issue_description', '问题描述', '220px'],
+  ['weekly_task', '任务标记', '110px'], ['domain', '领域', 'calc(4em + 20px)'], ['issue_domain', '问题所属领域', '140px'],
   ['planned_completion_date', '计划验证日期', '132px'], ['defect_repair_date', '缺陷修复日期', '120px'],
   ['matched_developer', '开发负责人', '10em'], ['matched_bank_owner', '科技负责人', '10em'], ['operation', '操作', '176px'], ['issue_status', '问题状态', '132px'], ['review_status', '审核状态', '112px'], ['issue_type', '问题类型', '132px'], ['cooperation_person_username', '需协同人', '180px'],
   ['initial_analysis', '初步问题分析', '220px'], ['final_solution', '最终处理方案', '220px'], ['remark', '备注', '160px'],
-  ['affected_transaction_count', '该问题出现在的交易笔数', '176px'],
+  ['affected_transaction_count', '出现笔数', '112px'],
   ['issue_key', 'issue_key', '180px'],
-  ['first_occurrence_date', '首次出现日期', '180px'], ['last_occurrence_date', '上次出现日期', '180px'],
+  ['first_occurrence_date', '首次出现日期', '180px'],
   ['occurrence_rounds', '出现批次', '220px'],
 ].map(([key, label, width]) => ({ key, label, width }))
 
 const headerFilterConfig = {
-  domain: ['groupName', 'groupNames'], is_sandbox: ['sandbox', 'sandboxes'],
+  domain: ['groupName', 'groupNames'], issue_domain: ['issueDomain', 'issueDomains'],
+  is_sandbox: ['sandbox', 'sandboxes'],
   issue_id: ['issueId', 'issueIds'],
-  transaction_code: ['transactionCode', 'transactionCodes'], issue_level: ['issueLevel', 'issueLevels'],
-  serial_no: ['serialNo', 'serialNos'], global_serial_no: ['globalSerialNo', 'globalSerialNos'],
+  transaction_code: ['transactionCode', 'transactionCodes'], transaction_name: ['transactionName', 'transactionNames'],
+  issue_level: ['issueLevel', 'issueLevels'], field_name: ['fieldName', 'fieldNames'],
+  serial_no: ['serialNo', 'serialNos'], global_serial_no: ['globalSerialNo', 'globalSerialNos'], issue_description: ['issueDescription', 'issueDescriptions'],
   defect_repair_date: ['defectRepairDate', 'defectRepairDates'],
   matched_developer: ['developer', 'developers'], matched_bank_owner: ['bankOwner', 'bankOwners'],
   issue_status: ['issueStatus', 'issueStatuses'], issue_type: ['issueType', 'issueTypes'],
   review_status: ['reviewStatus', 'reviewStatuses'],
   cooperation_person_username: ['cooperationPerson', 'cooperationPersons'],
   planned_completion_date: ['plannedCompletionDate', 'plannedCompletionDates'],
-  occurrence_rounds: ['occurrenceBatch', 'occurrenceBatches'],
+  issue_key: ['issueKey', 'issueKeys'], occurrence_rounds: ['occurrenceBatch', 'occurrenceBatches'],
 }
 const headerFilters = reactive({})
 const headerFilterOpen = ref(false)
 const activeHeaderColumn = ref(null)
-const headerFilterPanelStyle = reactive({ top: '96px', left: '12px' })
+const DEFAULT_HEADER_FILTER_WIDTH = 280
+const DEFAULT_HEADER_FILTER_HEIGHT = 360
+const MIN_HEADER_FILTER_WIDTH = 280
+const MIN_HEADER_FILTER_HEIGHT = 260
+const HEADER_FILTER_VIEWPORT_MARGIN = 12
+const headerFilterSize = reactive({ width: DEFAULT_HEADER_FILTER_WIDTH, height: DEFAULT_HEADER_FILTER_HEIGHT })
+const headerFilterPanelStyle = reactive({
+  top: '96px', left: '12px',
+  width: `${DEFAULT_HEADER_FILTER_WIDTH}px`, height: `${DEFAULT_HEADER_FILTER_HEIGHT}px`,
+})
 let headerFilterAnchor = null
+let headerFilterResizeState = null
 const headerFilterSearch = ref('')
 const headerFilterOptions = ref([])
+const headerFilterCandidateCount = ref(0)
+const headerFilterMatchedIssueCount = ref(0)
+const headerFilterTruncated = ref(false)
 const headerFilterDraft = ref([])
 
 const copyableColumnKeys = new Set(['transaction_name', 'field_name', 'issue_description', 'initial_analysis', 'final_solution', 'remark', 'serial_no', 'global_serial_no', 'issue_key'])
@@ -587,11 +667,27 @@ const issueTypes = ['迁移问题', '防腐问题', '代码问题', '新核心�
 const manualDisplayKeys = new Set(['issue_status', 'issue_type', 'cooperation_person_username'])
 const detailDisplayKeys = new Set(['initial_analysis', 'final_solution', 'remark'])
 const filters = reactive({ groupName: '', issueId: '', issueLevel: '', issueType: '', issueStatus: '', reviewStatus: '', sandbox: '', developer: '', bankOwner: '', cooperationPerson: '', serialNo: '', globalSerialNo: '', defectRepairDate: '', coverageRound: '', keyword: '', weeklyTask: false })
+const affectedTransactionCountOrder = ref('')
+const affectedTransactionCountSortState = computed(() =>
+  affectedTransactionCountOrder.value ? affectedTransactionCountOrder.value.toLowerCase() : 'default')
+const affectedTransactionCountSortLabel = computed(() => {
+  if (affectedTransactionCountOrder.value === 'ASC') return '当前问题数升序，点击切换为降序'
+  if (affectedTransactionCountOrder.value === 'DESC') return '当前问题数降序，点击恢复默认排序'
+  return '按问题数升序排序'
+})
 const allStatuses = ['新建', '打开', '无需处理', '延后修复', '修复待验证', '重新打开', '已修复']
 const options = reactive({ groups: [], issueLevels: [], issueTypes, issueStatuses: allStatuses, reviewStatuses: ['待审核', '已审核'], coverageRounds: [] })
 const stats = reactive({ total: 0, openTotal: 0, noActionTotal: 0, processingTotal: 0, pendingVerificationTotal: 0, fixedTotal: 0, groupCounts: {}, importedAt: '' })
 const reviewPermissions = reactive({ reviewableGroups: [], reviewersByGroup: {}, reviewableTransactionCodes: [] })
 const planDatePermissions = reactive({ editableGroups: [] })
+const issueDomainOptions = ['存款组', '贷款组', '公共组', '结算组', '迁移组', '平台组']
+const issueDomainPermissions = reactive({ editableDomains: [] })
+const issueDomainDrafts = reactive({})
+const issueDomainHistories = reactive({})
+const issueDomainHistoryLoading = reactive({})
+const issueDomainHistoryErrors = reactive({})
+const issueDomainSavingId = ref(null)
+const issueDomainError = ref('')
 const editingPlanDateId = ref(null)
 const planDateDraft = ref('')
 const planDateOriginal = ref('')
@@ -604,12 +700,20 @@ watch(queryPanelCollapsed, async () => {
   if (viewport) viewport.scrollTop = 0
   positionHeaderFilter()
 })
-const summaryGroups = ['公共组', '存款组', '贷款组', '结算组']
-const personRankingGroups = ['存款组', '贷款组', '公共组', '结算组']
+const statisticsGroupBy = ref('issueDomain')
+const statisticsGroupingLoading = ref(false)
+const summaryModalGroupBy = ref('issueDomain')
+const summaryGroupingLoading = ref(false)
+const domainSummaryGroups = ['公共组', '存款组', '贷款组', '结算组']
+const issueDomainSummaryGroups = [...domainSummaryGroups, '迁移组', '平台组']
+const domainPersonRankingGroups = ['存款组', '贷款组', '公共组', '结算组']
+const issueDomainPersonRankingGroups = [...domainPersonRankingGroups, '迁移组', '平台组']
+const summaryGroups = computed(() => summaryModalGroupBy.value === 'issueDomain' ? issueDomainSummaryGroups : domainSummaryGroups)
+const personRankingGroups = computed(() => summaryModalGroupBy.value === 'issueDomain' ? issueDomainPersonRankingGroups : domainPersonRankingGroups)
 const activePersonRankingGroup = ref('存款组')
 const filteredGroupSummaryRows = computed(() => {
   const rowsByGroup = new Map(groupSummaryRows.value.map((row) => [row.groupName, row]))
-  return summaryGroups.map((groupName) => rowsByGroup.get(groupName)).filter(Boolean)
+  return summaryGroups.value.map((groupName) => rowsByGroup.get(groupName)).filter(Boolean)
 })
 const filteredPersonRankingRows = computed(() => personRankingRows.value
   .filter(row => row.groupName === activePersonRankingGroup.value)
@@ -660,6 +764,7 @@ const copyMessage = ref('')
 let copyMessageTimer = null
 const activeSummaryModal = ref('')
 const plannedCompletionOpen = ref(false)
+const plannedCompletionGroupBy = ref('issueDomain')
 const groupSummaryRows = ref([])
 const personRankingRows = ref([])
 const groupSummaryLoading = ref(false)
@@ -792,8 +897,12 @@ function groupSummary(card, group) {
 }
 
 async function openSummaryModal(type) {
-  if (type === 'person') activePersonRankingGroup.value = '存款组'
+  summaryModalGroupBy.value = statisticsGroupBy.value
   activeSummaryModal.value = type
+  await loadSummaryRows(type)
+}
+
+async function loadSummaryRows(type) {
   const loadingRef = type === 'group' ? groupSummaryLoading : personRankingLoading
   if (loadingRef.value) return
   const rowsRef = type === 'group' ? groupSummaryRows : personRankingRows
@@ -802,13 +911,52 @@ async function openSummaryModal(type) {
   loadingRef.value = true
   errorRef.value = ''
   try {
-    rowsRef.value = await loader() || []
+    rowsRef.value = await loader({ groupBy: summaryModalGroupBy.value }) || []
+    if (type === 'person') {
+      const availableGroups = new Set(rowsRef.value.map(row => row.groupName))
+      activePersonRankingGroup.value = personRankingGroups.value.find(group => availableGroups.has(group)) || personRankingGroups.value[0]
+    }
   } catch (cause) {
     rowsRef.value = []
     errorRef.value = `查询失败：${cause?.message || cause}`
   } finally {
     loadingRef.value = false
   }
+}
+
+async function setSummaryModalGroupBy(groupBy) {
+  if (!['domain', 'issueDomain'].includes(groupBy) || summaryModalGroupBy.value === groupBy || summaryGroupingLoading.value) return
+  summaryModalGroupBy.value = groupBy
+  summaryGroupingLoading.value = true
+  try {
+    await loadSummaryRows(activeSummaryModal.value)
+  } finally {
+    summaryGroupingLoading.value = false
+  }
+}
+
+async function setStatisticsGroupBy(groupBy) {
+  if (!['domain', 'issueDomain'].includes(groupBy) || statisticsGroupBy.value === groupBy || statisticsGroupingLoading.value) return
+  statisticsGroupBy.value = groupBy
+  statisticsGroupingLoading.value = true
+  try {
+    const nextStats = await getReplayIssueStats({ groupBy })
+    Object.assign(stats, nextStats || {})
+  } catch (cause) {
+    error.value = `统计口径切换失败：${cause?.message || cause}`
+  } finally {
+    statisticsGroupingLoading.value = false
+  }
+}
+
+function openPlannedCompletion() {
+  plannedCompletionGroupBy.value = statisticsGroupBy.value
+  plannedCompletionOpen.value = true
+}
+
+function setPlannedCompletionGroupBy(groupBy) {
+  if (!['domain', 'issueDomain'].includes(groupBy)) return
+  plannedCompletionGroupBy.value = groupBy
 }
 
 function closeSummaryModal() {
@@ -915,6 +1063,7 @@ function filterParams() {
     ...(filters.defectRepairDate ? { defectRepairDate: filters.defectRepairDate } : {}),
     ...(filters.coverageRound ? { coverageRound: filters.coverageRound } : {}),
     ...(filters.weeklyTask ? { weeklyTask: true } : {}),
+    affectedTransactionCountOrder: affectedTransactionCountOrder.value || undefined,
     keyword: filters.keyword || undefined,
   }
   Object.entries(headerFilterConfig).forEach(([key, [, requestKey]]) => {
@@ -926,6 +1075,9 @@ function filterParams() {
 async function openHeaderFilter(column, event) {
   activeHeaderColumn.value = column
   headerFilterSearch.value = ''
+  headerFilterCandidateCount.value = 0
+  headerFilterMatchedIssueCount.value = 0
+  headerFilterTruncated.value = false
   headerFilterDraft.value = [...(headerFilters[column.key] || [])]
   headerFilterAnchor = event?.currentTarget || null
   positionHeaderFilter()
@@ -936,22 +1088,73 @@ async function openHeaderFilter(column, event) {
 function positionHeaderFilter() {
   const rect = headerFilterAnchor?.getBoundingClientRect?.()
   if (rect) {
-    const width = Math.min(300, window.innerWidth - 24)
-    const left = Math.max(12, Math.min(rect.left, window.innerWidth - width - 12))
-    const estimatedHeight = Math.min(430, window.innerHeight - 170)
+    const maxViewportWidth = Math.max(1, window.innerWidth - HEADER_FILTER_VIEWPORT_MARGIN * 2)
+    const maxViewportHeight = Math.max(1, window.innerHeight - HEADER_FILTER_VIEWPORT_MARGIN * 2)
+    headerFilterSize.width = Math.min(headerFilterSize.width, maxViewportWidth)
+    headerFilterSize.height = Math.min(headerFilterSize.height, maxViewportHeight)
+    const width = headerFilterSize.width
+    const estimatedHeight = headerFilterSize.height
+    const left = Math.max(HEADER_FILTER_VIEWPORT_MARGIN, Math.min(rect.left, window.innerWidth - width - HEADER_FILTER_VIEWPORT_MARGIN))
     const below = rect.bottom + 8
-    const top = below + estimatedHeight <= window.innerHeight - 12
+    const top = below + estimatedHeight <= window.innerHeight - HEADER_FILTER_VIEWPORT_MARGIN
       ? below
-      : Math.max(12, rect.top - estimatedHeight - 8)
+      : Math.max(HEADER_FILTER_VIEWPORT_MARGIN, rect.top - estimatedHeight - 8)
     headerFilterPanelStyle.left = `${left}px`
     headerFilterPanelStyle.top = `${top}px`
+    syncHeaderFilterSizeStyle()
   }
+}
+
+function syncHeaderFilterSizeStyle() {
+  headerFilterPanelStyle.width = `${Math.round(headerFilterSize.width)}px`
+  headerFilterPanelStyle.height = `${Math.round(headerFilterSize.height)}px`
+}
+
+function startHeaderFilterResize(event) {
+  event.preventDefault()
+  headerFilterResizeState = {
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    startWidth: headerFilterSize.width,
+    startHeight: headerFilterSize.height,
+  }
+  event.currentTarget?.setPointerCapture?.(event.pointerId)
+  window.addEventListener('pointermove', resizeHeaderFilter)
+  window.addEventListener('pointerup', stopHeaderFilterResize)
+  window.addEventListener('pointercancel', stopHeaderFilterResize)
+}
+
+function resizeHeaderFilter(event) {
+  if (!headerFilterResizeState) return
+  const left = Number.parseFloat(headerFilterPanelStyle.left) || HEADER_FILTER_VIEWPORT_MARGIN
+  const top = Number.parseFloat(headerFilterPanelStyle.top) || HEADER_FILTER_VIEWPORT_MARGIN
+  const maxWidth = Math.max(1, window.innerWidth - left - HEADER_FILTER_VIEWPORT_MARGIN)
+  const maxHeight = Math.max(1, window.innerHeight - top - HEADER_FILTER_VIEWPORT_MARGIN)
+  const minWidth = Math.min(MIN_HEADER_FILTER_WIDTH, maxWidth)
+  const minHeight = Math.min(MIN_HEADER_FILTER_HEIGHT, maxHeight)
+  const requestedWidth = headerFilterResizeState.startWidth + event.clientX - headerFilterResizeState.startX
+  const requestedHeight = headerFilterResizeState.startHeight + event.clientY - headerFilterResizeState.startY
+  headerFilterSize.width = Math.max(minWidth, Math.min(requestedWidth, maxWidth))
+  headerFilterSize.height = Math.max(minHeight, Math.min(requestedHeight, maxHeight))
+  syncHeaderFilterSizeStyle()
+}
+
+function stopHeaderFilterResize() {
+  headerFilterResizeState = null
+  window.removeEventListener('pointermove', resizeHeaderFilter)
+  window.removeEventListener('pointerup', stopHeaderFilterResize)
+  window.removeEventListener('pointercancel', stopHeaderFilterResize)
 }
 
 async function loadHeaderFilterOptions() {
   if (!activeHeaderColumn.value) return
   const [field] = headerFilterConfig[activeHeaderColumn.value.key]
-  headerFilterOptions.value = await getReplayIssueHeaderFilterOptions({ ...headerFilterParams(activeHeaderColumn.value.key), field, keyword: headerFilterSearch.value || undefined }) || []
+  const result = await getReplayIssueHeaderFilterOptionCounts({ ...headerFilterParams(activeHeaderColumn.value.key), field, keyword: headerFilterSearch.value || undefined })
+  headerFilterOptions.value = result?.items || []
+  headerFilterCandidateCount.value = Number(result?.candidateCount) || 0
+  headerFilterMatchedIssueCount.value = Number(result?.matchedIssueCount) || 0
+  headerFilterTruncated.value = Boolean(result?.truncated)
 }
 
 function baseFilterParams() {
@@ -965,12 +1168,13 @@ function headerFilterParams(excludeKey) {
   return params
 }
 
-function selectAllHeaderOptions() { headerFilterDraft.value = [...headerFilterOptions.value] }
+function selectAllHeaderOptions() { headerFilterDraft.value = headerFilterOptions.value.map(option => option.value) }
 function invertHeaderOptions() {
   const selected = new Set(headerFilterDraft.value)
-  headerFilterDraft.value = headerFilterOptions.value.filter(option => !selected.has(option))
+  headerFilterDraft.value = headerFilterOptions.value.map(option => option.value).filter(value => !selected.has(value))
 }
 function closeHeaderFilter() {
+  stopHeaderFilterResize()
   headerFilterOpen.value = false
   headerFilterAnchor = null
 }
@@ -984,6 +1188,78 @@ function canReviewGroup(row) {
 function canEditPlanDate(row) {
   if (hasDefectRepairDate(row)) return false
   return (planDatePermissions.editableGroups || []).includes(row?.group_name)
+}
+
+function issueDomainTransferCount(row) {
+  return Number(row?.issue_domain_transfer_count) || 0
+}
+
+function issueDomainDraftValue(row) {
+  return issueDomainDrafts[row.id] ?? row.issue_domain ?? row.group_name ?? ''
+}
+
+function canEditIssueDomain(row) {
+  if (!row || hasDefectRepairDate(row) || issueDomainTransferCount(row) >= 3) return false
+  const currentDomain = String(row.issue_domain || row.group_name || '').trim()
+  return (issueDomainPermissions.editableDomains || []).includes(currentDomain)
+}
+
+function issueDomainEditTitle(row) {
+  if (hasDefectRepairDate(row)) return '已有缺陷修复日期，问题所属领域不可修改'
+  if (issueDomainTransferCount(row) >= 3) return '已经达到 3 次转组上限，无法继续转组'
+  if (!canEditIssueDomain(row)) return '没有权限修改该问题所属领域'
+  return '选择后失去焦点自动保存'
+}
+
+function setIssueDomainDraft(row, value) {
+  issueDomainDrafts[row.id] = value
+  issueDomainError.value = ''
+}
+
+async function saveIssueDomain(row) {
+  if (!canEditIssueDomain(row) || issueDomainSavingId.value === row.id) return
+  const current = String(row.issue_domain || row.group_name || '').trim()
+  const target = String(issueDomainDrafts[row.id] ?? current).trim()
+  if (!target || target === current) {
+    delete issueDomainDrafts[row.id]
+    return
+  }
+  issueDomainSavingId.value = row.id
+  issueDomainError.value = ''
+  try {
+    const updated = await updateReplayIssueDomain(row.id, target)
+    row.issue_domain = updated?.issueDomain ?? updated?.issue_domain ?? target
+    row.issue_domain_transfer_count = updated?.transferCount ?? updated?.transfer_count ?? issueDomainTransferCount(row) + 1
+    delete issueDomainDrafts[row.id]
+    delete issueDomainHistories[row.id]
+    delete issueDomainHistoryErrors[row.id]
+  } catch (cause) {
+    delete issueDomainDrafts[row.id]
+    issueDomainError.value = cause?.message || '问题所属领域保存失败'
+  } finally {
+    issueDomainSavingId.value = null
+  }
+}
+
+async function loadIssueDomainTransfers(row) {
+  if (!row || issueDomainTransferCount(row) <= 0 || Object.prototype.hasOwnProperty.call(issueDomainHistories, row.id) || issueDomainHistoryLoading[row.id]) return
+  issueDomainHistoryLoading[row.id] = true
+  issueDomainHistoryErrors[row.id] = ''
+  try {
+    const result = await getReplayIssueDomainTransfers(row.id)
+    issueDomainHistories[row.id] = result?.items || []
+  } catch (cause) {
+    issueDomainHistoryErrors[row.id] = cause?.message || '转组记录加载失败'
+  } finally {
+    issueDomainHistoryLoading[row.id] = false
+  }
+}
+
+function issueDomainOperator(entry) {
+  const realName = String(entry?.operatorRealName || '').trim()
+  const username = String(entry?.operatorUsername || '').trim()
+  if (realName && username) return `${realName}（${username}）`
+  return realName || username || '系统'
 }
 
 function hasDefectRepairDate(row) {
@@ -1014,6 +1290,20 @@ function validPlanDate(value) {
   return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
 }
 
+function parseDateOnly(value) {
+  const normalized = String(value || '').trim()
+  if (normalized.length < 10) return null
+  const datePart = normalized.slice(0, 10)
+  if (!validPlanDate(datePart)) return null
+  if (normalized.length > 10 && ![' ', 'T'].includes(normalized[10])) return null
+  const [year, month, day] = datePart.split('-').map(Number)
+  return new Date(Date.UTC(year, month - 1, day))
+}
+
+function dateText(date) {
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`
+}
+
 async function savePlanDate(row) {
   if (editingPlanDateId.value !== row.id || planDateSavingId.value === row.id) return
   if (hasDefectRepairDate(row)) {
@@ -1030,6 +1320,19 @@ async function savePlanDate(row) {
   if (normalized && !validPlanDate(normalized)) {
     planDateError.value = '填写日期格式不合法，请按 2026-08-26 格式填写'
     return
+  }
+  if (normalized) {
+    const firstOccurrence = parseDateOnly(row.first_occurrence_date)
+    if (!firstOccurrence) {
+      planDateError.value = '首次出现日期无效，无法填写计划验证日期'
+      return
+    }
+    const latest = new Date(firstOccurrence.getTime())
+    latest.setUTCDate(latest.getUTCDate() + 7)
+    if (parseDateOnly(normalized) > latest) {
+      planDateError.value = `计划验证日期不能晚于首次出现日期后 7 个自然日（最晚 ${dateText(latest)}）`
+      return
+    }
   }
   planDateSavingId.value = row.id
   planDateError.value = ''
@@ -1296,7 +1599,7 @@ async function loadList({ preserveOnError = false } = {}) {
 
 async function loadMetadata() {
   try {
-    const [nextOptions, nextStats, rounds, permissions, nextPlanDatePermissions] = await Promise.all([getReplayIssueOptions(), getReplayIssueStats(), getReplayImportRounds(), getReplayIssueReviewPermissions(), getReplayIssuePlanDatePermissions()])
+    const [nextOptions, nextStats, rounds, permissions, nextPlanDatePermissions, nextIssueDomainPermissions] = await Promise.all([getReplayIssueOptions(), getReplayIssueStats({ groupBy: statisticsGroupBy.value }), getReplayImportRounds(), getReplayIssueReviewPermissions(), getReplayIssuePlanDatePermissions(), getReplayIssueDomainPermissions()])
     Object.assign(options, nextOptions || {})
     options.coverageRounds = (nextOptions?.coverageRounds || (rounds || []).map((round) => round.roundCode)).filter(Boolean)
     options.issueStatuses = allStatuses
@@ -1304,6 +1607,7 @@ async function loadMetadata() {
     Object.assign(stats, nextStats || {})
     Object.assign(reviewPermissions, permissions || { reviewableGroups: [], reviewersByGroup: {}, reviewableTransactionCodes: [] })
     Object.assign(planDatePermissions, nextPlanDatePermissions || { editableGroups: [] })
+    Object.assign(issueDomainPermissions, nextIssueDomainPermissions || { editableDomains: [] })
   } catch (cause) {
     error.value = `加载筛选项失败：${cause?.message || cause}`
   }
@@ -1324,6 +1628,14 @@ function toggleWeeklyTask() {
   return loadList()
 }
 
+async function toggleAffectedTransactionCountSort() {
+  affectedTransactionCountOrder.value = affectedTransactionCountOrder.value === ''
+    ? 'ASC'
+    : affectedTransactionCountOrder.value === 'ASC' ? 'DESC' : ''
+  page.value = 0
+  await loadList()
+}
+
 async function exportExcel() {
   if (exporting.value) return
   exporting.value = true
@@ -1339,6 +1651,7 @@ async function exportExcel() {
 
 function resetFilters() {
   Object.assign(filters, { groupName: '', issueId: '', issueLevel: '', issueType: '', issueStatus: '', reviewStatus: '', sandbox: '', developer: '', bankOwner: '', cooperationPerson: '', serialNo: '', globalSerialNo: '', defectRepairDate: '', coverageRound: '', keyword: '', weeklyTask: false })
+  affectedTransactionCountOrder.value = ''
   return query()
 }
 
@@ -1484,6 +1797,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   if (copyMessageTimer) clearTimeout(copyMessageTimer)
+  stopHeaderFilterResize()
 })
 </script>
 
@@ -1518,6 +1832,11 @@ onBeforeUnmount(() => {
 .replay-toolbar p, .replay-import-modal p { margin: 3px 0 0; color: var(--text-muted, #6b7280); font-size: 12px; line-height: 18px; }
 .replay-toolbar-title { min-width: 0; display: flex; align-items: center; gap: 10px; }
 .replay-toolbar-actions { display: flex; align-items: center; gap: 8px; }
+.replay-statistics-group-switch { display: inline-flex; align-items: center; flex: 0 0 auto; gap: 2px; padding: 2px; border: 1px solid var(--border, #d7dee8); border-radius: 6px; background: var(--bg-domain-hover, #f5f7fa); }
+.replay-statistics-group-switch button { min-height: 28px; padding: 0 11px; border: 0; border-radius: 4px; color: var(--text-secondary, #4b5563); background: transparent; cursor: pointer; font: inherit; font-size: 12px; white-space: nowrap; }
+.replay-statistics-group-switch button:hover, .replay-statistics-group-switch button:focus-visible { color: var(--text-active, #3b5adb); outline: 1px solid color-mix(in srgb, var(--text-active, #3b5adb) 45%, transparent); }
+.replay-statistics-group-switch button.is-active { color: #fff; background: var(--text-active, #3b5adb); box-shadow: 0 1px 2px rgba(31, 41, 55, .16); font-weight: 600; }
+.replay-statistics-group-switch button:disabled { cursor: wait; opacity: .72; }
 .replay-query-toggle { color: var(--text-active, #3b5adb); border-color: var(--border, #d7dee8); background: var(--bg-card, #fff); }
 .replay-query-toggle:hover, .replay-query-toggle:focus-visible { color: var(--btn-primary-text, #fff); border-color: var(--text-active, #3b5adb); background: var(--text-active, #3b5adb); }
 .replay-query-panel { flex: 0 0 auto; overflow: visible; }
@@ -1647,12 +1966,16 @@ onBeforeUnmount(() => {
 .replay-table th > svg { margin-left: 4px; opacity: .82; }
 .replay-table thead th { position: sticky; top: 0; z-index: 3; background: var(--replay-teal); color: #fff; background-clip: padding-box; }
 .replay-column-header { position: relative; }
+.replay-count-sort-button { display: inline-grid; place-items: center; width: 20px; height: 20px; margin-left: 5px; padding: 0; border: 0; border-radius: 3px; color: #b7c9cc; background: transparent; cursor: pointer; vertical-align: middle; }
+.replay-count-sort-button:hover, .replay-count-sort-button:focus-visible { color: #fff; background: rgba(255, 255, 255, .1); }
+.replay-count-sort-button.is-active { color: #ffd166; }
+.replay-count-sort-button:focus-visible { outline: 1px solid currentColor; outline-offset: 1px; }
 .replay-header-filter-button { display: inline-grid; place-items: center; width: 18px; height: 18px; margin-left: 3px; padding: 0; border: 0; background: transparent; cursor: pointer; vertical-align: middle; }
 .replay-header-filter-button i { display: block; width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 7px solid #e9fff9; filter: drop-shadow(0 0 1px rgba(0,0,0,.7)); }
 .replay-header-filter-button:hover i, .replay-header-filter-button:focus-visible i { border-top-color: #fff; }
 .replay-header-filter-button.active i { border-top-color: #ffd166; }
 .replay-header-filter-button:focus-visible { outline: 1px solid #fff; outline-offset: 1px; }
-.replay-header-filter-panel { position: fixed; z-index: 1500; width: min(280px, calc(100vw - 24px)); max-height: min(360px, calc(100vh - 170px)); display: grid; grid-template-rows: auto minmax(150px, 1fr) auto; gap: 6px; padding: 8px; border: 1px solid #8e8e8e; border-radius: 3px; color: #222; background: #454545; box-shadow: 0 8px 22px rgba(0, 0, 0, .32); }
+.replay-header-filter-panel { position: fixed; z-index: 1500; box-sizing: border-box; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 6px; padding: 8px; overflow: hidden; border: 1px solid #8e8e8e; border-radius: 3px; color: #222; background: #454545; box-shadow: 0 8px 22px rgba(0, 0, 0, .32); }
 .replay-header-filter-panel > header, .replay-header-filter-panel > footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .replay-header-filter-panel > header { padding: 0 2px; color: #fff; }
 .replay-header-filter-panel > header strong { font-size: 13px; }
@@ -1663,10 +1986,13 @@ onBeforeUnmount(() => {
 .replay-header-filter-search button { width: 28px; border: 1px solid #42b883; border-radius: 3px; color: #fff; background: #42b883; cursor: pointer; }
 .replay-header-filter-actions { display: flex; gap: 6px; }
 .replay-header-filter-actions button { padding: 3px 7px; border: 0; color: #ddd; background: transparent; cursor: pointer; font-size: 11px; }
+.replay-header-filter-count { align-self: center; color: #c7c7c7; font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .replay-header-filter-options { min-height: 0; overflow: auto; display: grid; align-content: start; gap: 1px; padding: 3px; border-radius: 3px; background: #555; }
-.replay-header-filter-options label { display: flex; align-items: flex-start; gap: 6px; min-height: 23px; padding: 3px 4px; border-radius: 3px; color: #eee; font-size: 12px; line-height: 1.35; cursor: pointer; }
+.replay-header-filter-options label { display: flex; align-items: flex-start; gap: 6px; width: max-content; min-width: 100%; min-height: 23px; padding: 3px 4px; border-radius: 3px; color: #eee; font-size: 12px; line-height: 1.35; cursor: pointer; }
 .replay-header-filter-options label:hover { background: #666; }
-.replay-header-filter-options label span { min-width: 0; overflow-wrap: anywhere; word-break: break-word; }
+.replay-header-filter-options label span { white-space: nowrap; overflow-wrap: normal; word-break: normal; }
+.replay-header-filter-options label .replay-header-filter-option-count { position: sticky; right: 0; flex: 0 0 auto; min-width: 52px; margin-left: auto; padding-left: 10px; color: #c7c7c7; background: #555; text-align: right; font-variant-numeric: tabular-nums; }
+.replay-header-filter-options label:hover .replay-header-filter-option-count { background: #666; }
 .replay-header-filter-options input { flex: 0 0 auto; margin-top: 2px; accent-color: #42d1a5; }
 .replay-header-filter-options p { margin: 12px 4px; color: #bbb; text-align: center; font-size: 12px; }
 .replay-header-filter-panel > footer { padding-top: 5px; border-top: 1px solid #666; }
@@ -1674,6 +2000,7 @@ onBeforeUnmount(() => {
 .replay-header-filter-clear { color: #ffcf8a !important; }
 .replay-header-filter-panel .replay-button { min-height: 25px; border-color: #777; color: #eee; background: #555; }
 .replay-header-filter-panel .replay-button-primary { border-color: #42b883; color: #fff; background: #42b883; }
+.replay-header-filter-resize-handle { position: absolute; right: 1px; bottom: 1px; width: 16px; height: 16px; padding: 0; border: 0; cursor: nwse-resize; touch-action: none; background: linear-gradient(135deg, transparent 0 42%, #bbb 43% 49%, transparent 50% 61%, #ddd 62% 68%, transparent 69%); }
 .replay-table th, .replay-table td { height: 34px; padding: 7px 10px; text-align: left; vertical-align: middle; border-right: 1px solid var(--border, #e8edf5); border-bottom: 1px solid var(--border, #e8edf5); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .replay-table td.replay-person-cell { height: 34px; min-height: 34px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: normal; }
 .replay-table th:first-child, .replay-table td:first-child { border-left: 1px solid var(--border, #e8edf5); }
@@ -1698,6 +2025,17 @@ button.replay-review-badge { cursor: pointer; }
 .replay-plan-date-edit:hover svg, .replay-plan-date-edit:focus-visible svg { opacity: 1; }
 .replay-plan-date-cell input { height: 26px; padding: 3px 5px; font-variant-numeric: tabular-nums; }
 .replay-plan-date-toast { color: #fff; background: #b42318; }
+.replay-issue-domain-cell { min-width: 0; display: flex; align-items: center; gap: 5px; overflow: visible; }
+.replay-issue-domain-cell select { height: 27px; padding: 2px 4px; }
+.replay-issue-domain-cell.is-locked select { color: var(--text-muted, #8c94a6); background: var(--bg-domain-hover, #f5f7fa); cursor: not-allowed; }
+.replay-issue-domain-history { position: relative; flex: 0 0 auto; display: inline-flex; align-items: center; gap: 2px; min-width: 27px; color: #2563eb; cursor: help; }
+.replay-issue-domain-history b { font-size: 12px; font-variant-numeric: tabular-nums; }
+.replay-table td.replay-issue-domain-table-cell { position: relative; overflow: visible; }
+.replay-issue-domain-tooltip { position: absolute; z-index: 80; right: 0; top: calc(100% + 5px); display: none; width: max-content; max-width: 520px; max-height: 240px; overflow: auto; margin: 0; padding: 9px 11px; border: 1px solid var(--border, #d7dee8); border-radius: 5px; color: var(--text-primary, #1f2937); background: var(--bg-card, #fff); box-shadow: 0 10px 26px rgba(13, 20, 36, .2); white-space: normal; }
+.replay-issue-domain-history:hover .replay-issue-domain-tooltip, .replay-issue-domain-history:focus .replay-issue-domain-tooltip { display: grid; gap: 6px; }
+.replay-issue-domain-tooltip > span { display: grid; gap: 2px; }
+.replay-issue-domain-tooltip strong { font-size: 12px; font-weight: 600; }
+.replay-issue-domain-tooltip em { color: var(--text-muted, #6b7280); font-size: 12px; font-style: normal; }
 .replay-copyable-cell { cursor: copy; }
 .replay-copyable-cell:hover { background: var(--bg-domain-hover, #f5f7fa) !important; }
 .replay-state { text-align: center !important; color: var(--text-muted, #6b7280); }
@@ -1834,7 +2172,6 @@ button.replay-review-badge { cursor: pointer; }
   .replay-summary-modal, .replay-summary-modal-group, .replay-summary-modal-person { width: calc(100vw - 24px); max-height: calc(100vh - 24px); }
   .replay-summary-modal-group { height: auto; }
   .replay-summary-modal-person { height: min(70vh, 640px); }
-  .replay-header-filter-panel { max-height: calc(100vh - 116px); }
   .replay-edit-grid { grid-template-columns: 1fr; }
   .replay-edit-wide { grid-column: auto; }
   .replay-pager { justify-content: space-between; gap: 8px; flex-wrap: wrap; }

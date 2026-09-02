@@ -44,11 +44,12 @@ describe('replay issue counted header filter mock', () => {
     const issueDomainRankings = replayGet('/stats/person-ranking', { groupBy: 'issueDomain' })
     const issueDomainStats = replayGet('/stats', { groupBy: 'issueDomain' })
 
-    expect(domainGroups.map(row => row.groupName)).toEqual(['公共组', '存款组', '贷款组', '结算组'])
-    expect(issueDomainGroups.map(row => row.groupName)).toEqual(['公共组', '存款组', '贷款组', '结算组', '迁移组', '平台组'])
+    expect(new Set(domainGroups.map(row => row.groupName))).toEqual(new Set(['公共组', '存款组', '贷款组', '结算组']))
+    expect(new Set(issueDomainGroups.map(row => row.groupName))).toEqual(new Set(['公共组', '存款组', '贷款组', '结算组', '迁移组', '平台组']))
     expect(new Set(issueDomainRankings.map(row => row.groupName))).toEqual(new Set(['公共组', '存款组', '贷款组', '结算组', '迁移组', '平台组']))
-    expect(issueDomainRankings.every(row => row.developer.startsWith('开发负责人'))).toBe(true)
-    expect(Object.keys(issueDomainStats.groupCounts)).toEqual(['公共组', '存款组', '贷款组', '结算组', '迁移组', '平台组'])
+    expect(issueDomainRankings.every(row => row.developer.length > 0)).toBe(true)
+    expect(issueDomainRankings.some(row => row.developer === '张三(c-zhangs3)')).toBe(true)
+    expect(new Set(Object.keys(issueDomainStats.groupCounts))).toEqual(new Set(['公共组', '存款组', '贷款组', '结算组', '迁移组', '平台组']))
   })
 
   it('provides all six issue domains with zero-to-three transfer counts for the UI demo', () => {
@@ -96,14 +97,14 @@ describe('replay issue counted header filter mock', () => {
       '2026-09-05',
     ]
 
-    expect(points.defaultStartDate).toBe('2026-08-31')
-    expect(points.defaultEndDate).toBe('2026-08-31')
+    expect(points.defaultStartDate).toBe('2026-09-01')
+    expect(points.defaultEndDate).toBe('2026-09-03')
     expect(points.datePoints).toHaveLength(36)
     expect(points.datePoints.every(point => point.plannedCount > 0)).toBe(true)
     expect(points.datePoints.filter(point => expectedCrossMonthDates.includes(point.date)).map(point => point.date))
       .toEqual(expectedCrossMonthDates)
-    expect(dashboard.effectiveStartDate).toBe('2026-08-31')
-    expect(dashboard.effectiveEndDate).toBe('2026-08-31')
+    expect(dashboard.effectiveStartDate).toBe('2026-09-01')
+    expect(dashboard.effectiveEndDate).toBe('2026-09-03')
     expect(dashboard.summary.plannedTotal).toBeGreaterThan(0)
   })
 

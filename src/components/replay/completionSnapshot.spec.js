@@ -44,16 +44,18 @@ function completionRow(name, plannedTotal) {
     unfinishedCount: 3,
     overdueUnfinishedCount: 4,
     completionRate: 60,
+    pendingVerificationCount: 7,
   }
 }
 
 describe('completionSnapshot', () => {
-  it('builds a safe filename containing the group and effective date range', () => {
+  it('builds a safe filename containing replay type, group, and effective date range', () => {
     expect(buildCompletionSnapshotFilename({
+      replayType: 'DZ',
       groupName: '存款组',
       startDate: '2026-08-28',
       endDate: '2026-08-30',
-    })).toBe('计划完成情况-存款组-2026-08-28至2026-08-30.png')
+    })).toBe('计划完成情况-动账-存款组-2026-08-28至2026-08-30.png')
   })
 
   it('renders the effective date range, group total, and every developer into one PNG', async () => {
@@ -66,6 +68,7 @@ describe('completionSnapshot', () => {
       unfinishedCount: 3,
       overdueUnfinishedCount: 2,
       completionRate: 58.33,
+      pendingVerificationCount: 17,
     }
     const developers = [
       completionRow('负责人甲', 5),
@@ -74,6 +77,7 @@ describe('completionSnapshot', () => {
     ]
 
     const result = await createCompletionSnapshotBlob({
+      replayType: 'QUERY',
       group,
       developers,
       startDate: '2026-08-28',
@@ -83,11 +87,14 @@ describe('completionSnapshot', () => {
     expect(result).toBe(environment.blob)
     expect(environment.writtenTexts).toEqual(expect.arrayContaining([
       '计划完成情况',
+      '查询',
       '存款组',
       '2026-08-28 至 2026-08-30',
       '负责人甲',
       '负责人乙',
       '负责人丙',
+      '修复待验证',
+      '17',
     ]))
     expect(environment.canvas.height).toBeGreaterThan(500)
     expect(environment.canvas.toBlob).toHaveBeenCalledWith(expect.any(Function), 'image/png')

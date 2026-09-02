@@ -18,6 +18,18 @@
         </div>
       </div>
       <div class="replay-toolbar-actions">
+        <div class="replay-statistics-group-switch" role="group" aria-label="回放交易类型" data-testid="replay-type-switch-toolbar">
+          <button
+            v-for="option in replayTypeOptions"
+            :key="option.value"
+            type="button"
+            :data-testid="`replay-type-${option.value.toLowerCase()}-toolbar`"
+            :class="{ 'is-active': statisticsReplayType === option.value }"
+            :aria-pressed="String(statisticsReplayType === option.value)"
+            :disabled="replayTypeLoading"
+            @click="setStatisticsReplayType(option.value)"
+          >{{ option.label }}</button>
+        </div>
         <div class="replay-statistics-group-switch" role="group" aria-label="统计分组口径" data-testid="statistics-group-switch-toolbar">
           <button type="button" data-testid="stats-group-domain-toolbar" :class="{ 'is-active': statisticsGroupBy === 'domain' }" :aria-pressed="String(statisticsGroupBy === 'domain')" :disabled="statisticsGroupingLoading" @click="setStatisticsGroupBy('domain')">按领域</button>
           <button type="button" data-testid="stats-group-issue-domain-toolbar" :class="{ 'is-active': statisticsGroupBy === 'issueDomain' }" :aria-pressed="String(statisticsGroupBy === 'issueDomain')" :disabled="statisticsGroupingLoading" @click="setStatisticsGroupBy('issueDomain')">按问题所属领域</button>
@@ -67,33 +79,63 @@
     <div v-if="!queryPanelCollapsed" class="replay-summary-actions-row replay-summary-actions-row-transparent" data-testid="replay-summary-actions-row">
     <div class="replay-summary-entries" aria-label="问题明细汇总">
       <button
+        ref="groupSummaryEntryRef"
         class="replay-summary-entry replay-summary-entry-action"
+        :class="{
+          'is-window-open': summaryWindowSessions.group.status === 'open',
+          'is-window-minimized': summaryWindowSessions.group.status === 'minimized',
+        }"
+        :data-window-state="summaryWindowSessions.group.status"
         data-testid="group-summary-entry"
         type="button"
-        @click="openSummaryModal('group')"
+        :disabled="statisticsWindowTransitioning"
+        :title="summaryWindowEntryTitle('group', '各组问题数')"
+        :aria-label="summaryWindowEntryTitle('group', '各组问题数')"
+        @click="openStatisticsWindow('group')"
       >
         <BarChart3 :size="16" aria-hidden="true" />
         <span>各组问题数</span>
+        <span v-if="summaryWindowSessions.group.status === 'minimized'" class="replay-window-minimized-mark" aria-hidden="true">—</span>
       </button>
 
       <button
+        ref="personRankingEntryRef"
         class="replay-summary-entry replay-summary-entry-person replay-summary-entry-action"
+        :class="{
+          'is-window-open': summaryWindowSessions.person.status === 'open',
+          'is-window-minimized': summaryWindowSessions.person.status === 'minimized',
+        }"
+        :data-window-state="summaryWindowSessions.person.status"
         data-testid="person-ranking-entry"
         type="button"
-        @click="openSummaryModal('person')"
+        :disabled="statisticsWindowTransitioning"
+        :title="summaryWindowEntryTitle('person', '各组开发负责人问题排名')"
+        :aria-label="summaryWindowEntryTitle('person', '各组开发负责人问题排名')"
+        @click="openStatisticsWindow('person')"
       >
         <Users :size="16" aria-hidden="true" />
         <span>各组开发负责人问题排名</span>
+        <span v-if="summaryWindowSessions.person.status === 'minimized'" class="replay-window-minimized-mark" aria-hidden="true">—</span>
       </button>
 
       <button
+        ref="plannedCompletionEntryRef"
         class="replay-summary-entry replay-summary-entry-action"
+        :class="{
+          'is-window-open': completionWindow.status === 'open',
+          'is-window-minimized': completionWindow.status === 'minimized',
+        }"
+        :data-window-state="completionWindow.status"
         data-testid="planned-completion-entry"
         type="button"
-        @click="openPlannedCompletion"
+        :disabled="statisticsWindowTransitioning"
+        :title="completionWindow.status === 'minimized' ? '计划完成情况，窗口已最小化，点击恢复' : '计划完成情况'"
+        :aria-label="completionWindow.status === 'minimized' ? '计划完成情况，窗口已最小化，点击恢复' : '计划完成情况'"
+        @click="openStatisticsWindow('completion')"
       >
         <CalendarRange :size="16" aria-hidden="true" />
         <span>计划完成情况</span>
+        <span v-if="completionWindow.status === 'minimized'" class="replay-window-minimized-mark" aria-hidden="true">—</span>
       </button>
     </div>
 
@@ -101,14 +143,13 @@
       <label class="replay-weekly-task-filter">
         <span class="replay-checkbox-line"><input v-model="filters.weeklyTask" data-testid="weekly-task-only" type="checkbox" :disabled="loading" @change="toggleWeeklyTask" />仅看优先任务</span>
       </label>
-      <button class="replay-icon-button" type="button" data-testid="reset-filters" title="重置筛选" aria-label="重置筛选" :disabled="loading" @click="resetFilters">
-        <RotateCcw :size="16" aria-hidden="true" />
-      </button>
+      <button class="replay-button" type="button" data-testid="reset-filters" title="重置筛选条件" aria-label="重置筛选条件" :disabled="loading" @click="resetFilters">重置筛选条件</button>
     </div>
     </div>
 
     <div v-if="activeSummaryModal" class="replay-summary-modal-mask" data-testid="summary-modal-mask">
       <section
+        ref="summaryModalElementRef"
         class="replay-summary-modal"
         :class="activeSummaryModal === 'person' ? 'replay-summary-modal-person' : 'replay-summary-modal-group'"
         role="dialog"
@@ -119,6 +160,18 @@
         <header>
           <h3>{{ activeSummaryTitle }}</h3>
           <div class="replay-summary-modal-actions">
+            <div class="replay-statistics-group-switch" role="group" aria-label="回放交易类型" data-testid="replay-type-switch-modal">
+              <button
+                v-for="option in replayTypeOptions"
+                :key="option.value"
+                type="button"
+                :data-testid="`replay-type-${option.value.toLowerCase()}-modal`"
+                :class="{ 'is-active': summaryModalReplayType === option.value }"
+                :aria-pressed="String(summaryModalReplayType === option.value)"
+                :disabled="summaryGroupingLoading"
+                @click="setSummaryModalReplayType(option.value)"
+              >{{ option.label }}</button>
+            </div>
             <div class="replay-statistics-group-switch" role="group" aria-label="统计分组口径" data-testid="statistics-group-switch-modal">
               <button type="button" data-testid="stats-group-domain-modal" :class="{ 'is-active': summaryModalGroupBy === 'domain' }" :aria-pressed="String(summaryModalGroupBy === 'domain')" :disabled="summaryGroupingLoading" @click="setSummaryModalGroupBy('domain')">按领域</button>
               <button type="button" data-testid="stats-group-issue-domain-modal" :class="{ 'is-active': summaryModalGroupBy === 'issueDomain' }" :aria-pressed="String(summaryModalGroupBy === 'issueDomain')" :disabled="summaryGroupingLoading" @click="setSummaryModalGroupBy('issueDomain')">按问题所属领域</button>
@@ -132,7 +185,10 @@
             >
               <Copy :size="13" aria-hidden="true" />复制表格
             </button>
-            <button class="replay-icon-button" type="button" data-testid="close-summary-modal" title="关闭" aria-label="关闭" @click="closeSummaryModal">
+            <button class="replay-icon-button" type="button" data-testid="minimize-summary-modal" title="最小化" aria-label="最小化" :disabled="statisticsWindowTransitioning" @click="minimizeStatisticsWindow(activeSummaryModal)">
+              <Minus :size="18" aria-hidden="true" />
+            </button>
+            <button class="replay-icon-button" type="button" data-testid="close-summary-modal" title="关闭" aria-label="关闭" :disabled="statisticsWindowTransitioning" @click="closeStatisticsWindow(activeSummaryModal)">
               <X :size="18" aria-hidden="true" />
             </button>
           </div>
@@ -151,8 +207,8 @@
           >{{ groupName }}</button>
         </div>
         <p v-if="activeSummaryLoading" class="replay-summary-state">正在查询…</p>
-        <p v-else-if="activeSummaryError" class="replay-summary-state replay-error">{{ activeSummaryError }}</p>
-        <div v-else class="replay-summary-table-wrap">
+        <p v-if="activeSummaryError" class="replay-summary-state replay-error">{{ activeSummaryError }}</p>
+        <div v-if="!activeSummaryLoading" class="replay-summary-table-wrap">
           <table class="replay-summary-table" :class="{ 'replay-person-ranking-table': activeSummaryModal === 'person' }">
             <thead><tr><th v-for="column in activeSummaryColumns" :key="column.key" scope="col" :class="summaryColumnClass(column)">{{ column.label }}</th></tr></thead>
             <tbody>
@@ -456,7 +512,7 @@
             <span>问题类型 <em class="replay-required-mark">*</em></span>
             <select v-model="editDraft.issueType" data-testid="edit-type" :disabled="issueTypeLocked" :class="{ 'replay-invalid': editError && !editDraft.issueType }">
               <option value="">请选择问题类型</option>
-              <option v-for="type in issueTypes" :key="type" :value="type">{{ type }}</option>
+              <option v-for="type in editableIssueTypes" :key="type" :value="type">{{ type }}</option>
             </select>
           </label>
           <label class="replay-edit-wide">
@@ -549,35 +605,55 @@
                 <strong>批次编号 {{ group.roundCode }}</strong>
                 <span v-if="group.roundId && groupIndex === 0" class="replay-current-batch">最新批次</span>
                 <time>{{ display(group.importedAt) }}</time>
+                <button
+                  class="replay-original-data-toggle"
+                  type="button"
+                  :data-testid="`original-data-toggle-${group.roundId ?? 'base'}`"
+                  :aria-expanded="isOriginalDataOpen(group)"
+                  @click.stop="toggleOriginalData(group)"
+                >
+                  <ChevronDown :size="13" aria-hidden="true" :class="{ 'is-expanded': isOriginalDataOpen(group) }" />
+                  原始数据
+                </button>
               </summary>
               <div class="replay-round-body">
-              <p class="replay-round-section-title">本批次导入结果</p>
-              <dl>
-                <div><dt>本批次出现</dt><dd>{{ group.appeared ? '是' : '否（自动处理）' }}</dd></div>
-                <div><dt>导入状态</dt><dd>{{ statusTransition(group) }}</dd></div>
-                <div><dt>导入结果</dt><dd>{{ display(group.actionType) }}</dd></div>
-                <div><dt>来源</dt><dd>{{ sourceDisplay(group) }}</dd></div>
-                <div><dt>人工修改</dt><dd>人工修改 {{ group.manualChangeCount || 0 }} 次</dd></div>
-                <div><dt>最终状态</dt><dd>本批次最终状态 {{ display(group.finalStatus) }}</dd></div>
-              </dl>
+              <div :data-testid="`original-data-${group.roundId ?? 'base'}`" class="replay-original-data">
+                <div v-if="isOriginalDataOpen(group)" class="replay-original-data-panel">
+                  <p class="replay-round-section-title">本批次导入的原始值</p>
+                  <div v-if="group.originalData?.length" class="replay-original-data-list">
+                    <div v-for="item in group.originalData" :key="`${item.field}-${item.value}`" class="replay-original-data-row">
+                      <span>{{ item.field }}</span>
+                      <span class="replay-tracking-value" :title="display(item.value)">{{ display(item.value) }}</span>
+                    </div>
+                  </div>
+                  <p v-else class="replay-no-change">本批次没有可展示的原始数据</p>
+                </div>
+              </div>
+              <p class="replay-round-section-title">变更时间线</p>
               <details
-                v-if="group.inheritedEvents?.length"
                 open
-                class="replay-manual-events replay-inherited-events"
-                :data-testid="`inherited-events-${group.roundId}`"
+                class="replay-manual-events replay-system-events"
+                :data-testid="`system-events-${group.roundId ?? 'base'}`"
               >
-                <summary>本批次继承内容（{{ group.inheritedEvents.length }}）</summary>
+                <summary>系统操作（{{ group.inheritedEvents?.length || 1 }}）</summary>
                 <ol>
+                  <li v-if="!group.inheritedEvents?.length" class="replay-system-event-fallback">
+                    <div class="replay-event-heading"><strong>{{ display(group.actionType || '导入') }}</strong><time>{{ display(group.importedAt) }}</time></div>
+                    <p class="replay-event-operator"><span>操作人</span><strong>系统</strong></p>
+                    <p class="replay-no-change">本次导入未产生字段变化</p>
+                  </li>
                   <li v-for="event in group.inheritedEvents" :key="event.id">
-                    <div class="replay-event-heading"><strong>{{ event.operationType }}</strong><time>{{ event.operationAt }}</time></div>
-                    <dl>
-                      <div><dt>问题类型</dt><dd>{{ display(event.issueType) }}</dd></div>
-                      <div><dt>初步分析</dt><dd>{{ display(event.initialAnalysis) }}</dd></div>
-                      <div><dt>处理方案</dt><dd>{{ display(event.finalSolution) }}</dd></div>
-                      <div><dt>需协同人</dt><dd>{{ collaboratorDisplay(event) }}</dd></div>
-                      <div><dt>备注</dt><dd>{{ display(event.remark) }}</dd></div>
-                    </dl>
-                    <details><summary>完整快照</summary><pre>{{ formatSnapshots(event) }}</pre></details>
+                    <div class="replay-event-heading"><strong>{{ display(event.operationType || '系统导入') }}</strong><time>{{ display(event.operationAt) }}</time></div>
+                    <p class="replay-event-operator"><span>操作人</span><strong>{{ operatorDisplay(event) }}</strong></p>
+                    <div v-if="event.changes?.length" class="replay-change-table" :data-testid="`change-table-${event.id}`" role="table" aria-label="系统字段变更">
+                      <div class="replay-change-row replay-change-header" role="row"><span role="columnheader">字段</span><span role="columnheader">变更前</span><span role="columnheader">变更后</span></div>
+                      <div v-for="change in event.changes" :key="`${event.id}-${change.field}`" class="replay-change-row" role="row">
+                        <span role="cell">{{ change.field }}</span>
+                        <span role="cell" class="replay-tracking-value" :title="display(change.before)">{{ display(change.before) }}</span>
+                        <span role="cell" class="replay-tracking-value" :title="display(change.after)">{{ display(change.after) }}</span>
+                      </div>
+                    </div>
+                    <p v-else class="replay-no-change">本次导入未产生字段变化</p>
                   </li>
                 </ol>
               </details>
@@ -591,16 +667,16 @@
                 <ol>
                   <li v-for="event in group.manualEvents" :key="event.id">
                     <div class="replay-event-heading"><strong>{{ event.operationType }}</strong><time>{{ event.operationAt }}</time></div>
-                    <p>{{ event.operatorRealName || event.operatorUsername || '系统' }}<span v-if="event.operatorUsername">（{{ event.operatorUsername }}）</span></p>
-                    <dl>
-                      <div><dt>当前状态</dt><dd>{{ display(event.issueStatus) }}</dd></div>
-                      <div><dt>问题类型</dt><dd>{{ display(event.issueType) }}</dd></div>
-                      <div><dt>初步分析</dt><dd>{{ display(event.initialAnalysis) }}</dd></div>
-                      <div><dt>处理方案</dt><dd>{{ display(event.finalSolution) }}</dd></div>
-                      <div><dt>需协同人</dt><dd>{{ collaboratorDisplay(event) }}</dd></div>
-                      <div><dt>备注</dt><dd>{{ display(event.remark) }}</dd></div>
-                    </dl>
-                    <details><summary>完整快照</summary><pre>{{ formatSnapshots(event) }}</pre></details>
+                    <p class="replay-event-operator"><span>操作人</span><strong>{{ operatorDisplay(event) }}</strong></p>
+                    <div v-if="event.changes?.length" class="replay-change-table" :data-testid="`change-table-${event.id}`" role="table" aria-label="用户字段变更">
+                      <div class="replay-change-row replay-change-header" role="row"><span role="columnheader">字段</span><span role="columnheader">变更前</span><span role="columnheader">变更后</span></div>
+                      <div v-for="change in event.changes" :key="`${event.id}-${change.field}`" class="replay-change-row" role="row">
+                        <span role="cell">{{ change.field }}</span>
+                        <span role="cell" class="replay-tracking-value" :title="display(change.before)">{{ display(change.before) }}</span>
+                        <span role="cell" class="replay-tracking-value" :title="display(change.after)">{{ display(change.after) }}</span>
+                      </div>
+                    </div>
+                    <p v-else class="replay-no-change">本次操作未产生字段变化</p>
                   </li>
                 </ol>
               </details>
@@ -612,19 +688,25 @@
       </aside>
     </div>
     <ReplayPlannedCompletionModal
-      :open="plannedCompletionOpen"
+      ref="plannedCompletionRef"
+      :window-state="completionWindow.status"
+      :transitioning="statisticsWindowTransitioning"
       :group-by="plannedCompletionGroupBy"
+      :replay-type="plannedCompletionReplayType"
       @update:group-by="setPlannedCompletionGroupBy"
-      @close="plannedCompletionOpen = false"
+      @update:replay-type="setPlannedCompletionReplayType"
+      @minimize="minimizeStatisticsWindow('completion')"
+      @close="closeStatisticsWindow('completion')"
     />
   </section>
 </template>
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { ArrowDownWideNarrow, ArrowUpNarrowWide, BarChart3, CalendarRange, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, Download, FileSpreadsheet, Flag, HelpCircle, History as HistoryIcon, Menu, Pencil, RotateCcw, Save, Search, Upload, Users, X } from 'lucide-vue-next'
+import { ArrowDownWideNarrow, ArrowUpNarrowWide, BarChart3, CalendarRange, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, Download, FileSpreadsheet, Flag, HelpCircle, History as HistoryIcon, Menu, Minus, Pencil, Save, Search, Upload, Users, X } from 'lucide-vue-next'
 import { approveReplayIssue, exportReplayIssues, getReplayImportRounds, getReplayIssueDomainPermissions, getReplayIssueDomainTransfers, getReplayIssueGroupSummaries, getReplayIssueHeaderFilterOptionCounts, getReplayIssueMailStatus, getReplayIssueOptions, getReplayIssuePersonRankings, getReplayIssueReviewPermissions, getReplayIssuePlanDatePermissions, getReplayIssuePlanDateChanges, getReplayIssueRoundTracking, getReplayIssueStats, getReplayWeeklyTask, replaceReplayWeeklyTask, getReplayDailyReportBatches, downloadReplayDailyReport, importReplayIssues, listReplayIssues, searchReplayIssueUsers, sendReplayIssueMail, updateReplayIssue, updateReplayIssueDomain, updateReplayIssuePlannedCompletionDate } from '../../api/replayIssues.js'
 import ReplayPlannedCompletionModal from './ReplayPlannedCompletionModal.vue'
+import { replayModalMotionVariables, waitForReplayModalMotion } from './replayModalMotion.js'
 
 defineEmits(['toggleNavigation'])
 
@@ -633,7 +715,7 @@ const columns = [
   ['transaction_code', '交易码', '100px'], ['transaction_name', '交易名称', '180px'], ['issue_level', '问题级别', '100px'],
   ['field_name', '字段名', '120px'], ['serial_no', '流水号', '160px'], ['global_serial_no', '全局流水号', '180px'], ['issue_description', '问题描述', '220px'],
   ['weekly_task', '任务标记', '110px'], ['domain', '领域', 'calc(4em + 20px)'], ['issue_domain', '问题所属领域', '140px'],
-  ['planned_completion_date', '计划验证日期', '132px'], ['defect_repair_date', '缺陷修复日期', '120px'],
+  ['planned_completion_date', '计划验证日期', '160px'], ['defect_repair_date', '缺陷修复日期', '120px'],
   ['matched_developer', '开发负责人', '10em'], ['matched_bank_owner', '科技负责人', '10em'], ['operation', '操作', '176px'], ['issue_status', '问题状态', '132px'], ['review_status', '审核状态', '112px'], ['issue_type', '问题类型', '132px'], ['cooperation_person_username', '需协同人', '180px'],
   ['initial_analysis', '初步问题分析', '220px'], ['final_solution', '最终处理方案', '220px'], ['remark', '备注', '160px'],
   ['affected_transaction_count', '出现笔数', '112px'],
@@ -681,7 +763,8 @@ const headerFilterDraft = ref([])
 
 const copyableColumnKeys = new Set(['transaction_name', 'field_name', 'issue_description', 'initial_analysis', 'final_solution', 'remark', 'serial_no', 'global_serial_no', 'issue_key'])
 const manualStatuses = ['打开', '无需处理', '延后修复', '修复待验证']
-const issueTypes = ['迁移问题', '防腐问题', '代码问题', '新核心下线', '参数问题', '平台问题', '规则差异问题', '合理差异', '外围问题', '其他问题']
+const issueTypes = ['迁移问题', '防腐问题', '代码问题', '新核心下线', '参数问题', '平台问题', '规则差异问题', '合理差异', '规则性差异问题', '外围问题', '其他问题']
+const noActionIssueTypes = ['合理差异', '规则性差异问题', '外围问题']
 const manualDisplayKeys = new Set(['issue_status', 'issue_type', 'cooperation_person_username'])
 const detailDisplayKeys = new Set(['initial_analysis', 'final_solution', 'remark'])
 const filters = reactive({ groupName: '', issueId: '', issueLevel: '', issueType: '', issueStatus: '', reviewStatus: '', sandbox: '', developer: '', bankOwner: '', cooperationPerson: '', serialNo: '', globalSerialNo: '', defectRepairDate: '', coverageRound: '', keyword: '', weeklyTask: false })
@@ -697,12 +780,12 @@ const allStatuses = ['新建', '打开', '无需处理', '延后修复', '修复
 const options = reactive({ groups: [], issueLevels: [], issueTypes, issueStatuses: allStatuses, reviewStatuses: ['待审核', '已审核'], coverageRounds: [] })
 const stats = reactive({ total: 0, openTotal: 0, noActionTotal: 0, processingTotal: 0, pendingVerificationTotal: 0, fixedTotal: 0, groupCounts: {}, importedAt: '' })
 const reviewPermissions = reactive({ reviewableGroups: [], reviewersByGroup: {}, reviewableTransactionCodes: [] })
-const planDatePermissions = reactive({ editableGroups: [], editableTransactionCodes: [] })
+const planDatePermissions = reactive({ editableGroups: [], dateLimitBypassGroups: [], editableTransactionCodes: [] })
 const planDateHistories = reactive({})
 const planDateHistoryLoading = reactive({})
 const planDateHistoryErrors = reactive({})
 const issueDomainOptions = ['存款组', '贷款组', '公共组', '结算组', '迁移组', '平台组']
-const issueDomainPermissions = reactive({ editableDomains: [] })
+const issueDomainPermissions = reactive({ editableDomains: [], transferLimitBypassDomains: [] })
 const issueDomainDrafts = reactive({})
 const issueDomainHistories = reactive({})
 const issueDomainHistoryLoading = reactive({})
@@ -723,20 +806,59 @@ watch(queryPanelCollapsed, async () => {
 })
 const statisticsGroupBy = ref('issueDomain')
 const statisticsGroupingLoading = ref(false)
-const summaryModalGroupBy = ref('issueDomain')
-const summaryGroupingLoading = ref(false)
+const replayTypeOptions = [
+  { value: 'ALL', label: '全部' },
+  { value: 'DZ', label: '动账' },
+  { value: 'QUERY', label: '查询' },
+]
+const statisticsReplayType = ref('ALL')
+const replayTypeLoading = ref(false)
 const domainSummaryGroups = ['公共组', '存款组', '贷款组', '结算组']
 const issueDomainSummaryGroups = [...domainSummaryGroups, '迁移组', '平台组']
 const domainPersonRankingGroups = ['存款组', '贷款组', '公共组', '结算组']
 const issueDomainPersonRankingGroups = [...domainPersonRankingGroups, '迁移组', '平台组']
+
+function createSummaryWindowSession() {
+  return reactive({
+    status: 'closed',
+    groupBy: 'issueDomain',
+    replayType: 'ALL',
+    rows: [],
+    loading: false,
+    refreshing: false,
+    groupingLoading: false,
+    error: '',
+    activeGroup: '存款组',
+    scrollTop: 0,
+    requestVersion: 0,
+  })
+}
+
+const summaryWindowSessions = {
+  group: createSummaryWindowSession(),
+  person: createSummaryWindowSession(),
+}
+const activeSummaryModal = ref('')
+const statisticsWindowTransitioning = ref(false)
+const groupSummaryEntryRef = ref(null)
+const personRankingEntryRef = ref(null)
+const plannedCompletionEntryRef = ref(null)
+const summaryModalElementRef = ref(null)
+const activeSummarySession = computed(() => summaryWindowSessions[activeSummaryModal.value] || null)
+const summaryModalGroupBy = computed(() => activeSummarySession.value?.groupBy || 'issueDomain')
+const summaryModalReplayType = computed(() => activeSummarySession.value?.replayType || 'ALL')
+const summaryGroupingLoading = computed(() => activeSummarySession.value?.groupingLoading || false)
 const summaryGroups = computed(() => summaryModalGroupBy.value === 'issueDomain' ? issueDomainSummaryGroups : domainSummaryGroups)
 const personRankingGroups = computed(() => summaryModalGroupBy.value === 'issueDomain' ? issueDomainPersonRankingGroups : domainPersonRankingGroups)
-const activePersonRankingGroup = ref('存款组')
+const activePersonRankingGroup = computed({
+  get: () => summaryWindowSessions.person.activeGroup,
+  set: value => { summaryWindowSessions.person.activeGroup = value },
+})
 const filteredGroupSummaryRows = computed(() => {
-  const rowsByGroup = new Map(groupSummaryRows.value.map((row) => [row.groupName, row]))
+  const rowsByGroup = new Map(summaryWindowSessions.group.rows.map((row) => [row.groupName, row]))
   return summaryGroups.value.map((groupName) => rowsByGroup.get(groupName)).filter(Boolean)
 })
-const filteredPersonRankingRows = computed(() => personRankingRows.value
+const filteredPersonRankingRows = computed(() => summaryWindowSessions.person.rows
   .filter(row => row.groupName === activePersonRankingGroup.value)
   .map((row, index) => ({ ...row, rank: index + 1 })))
 const summaryCards = [
@@ -745,8 +867,8 @@ const summaryCards = [
   { key: 'open', label: '问题打开总数', valueKey: 'openTotal' },
   { key: 'reopened', label: '问题重新打开总数', valueKey: 'reopenedTotal' },
   { key: 'deferred', label: '问题延后修复总数', valueKey: 'deferredTotal' },
-  { key: 'noAction', label: '问题无需处理总数', valueKey: 'noActionTotal' },
   { key: 'pendingVerification', label: '问题待验证总数', valueKey: 'pendingVerificationTotal' },
+  { key: 'noAction', label: '问题无需处理总数', valueKey: 'noActionTotal' },
   { key: 'fixed', label: '问题已修复总数', valueKey: 'fixedTotal' },
 ]
 const groupSummaryColumns = [
@@ -783,20 +905,15 @@ const loading = ref(false)
 const error = ref('')
 const copyMessage = ref('')
 let copyMessageTimer = null
-const activeSummaryModal = ref('')
-const plannedCompletionOpen = ref(false)
+const completionWindow = reactive({ status: 'closed' })
+const plannedCompletionRef = ref(null)
 const plannedCompletionGroupBy = ref('issueDomain')
-const groupSummaryRows = ref([])
-const personRankingRows = ref([])
-const groupSummaryLoading = ref(false)
-const personRankingLoading = ref(false)
-const groupSummaryError = ref('')
-const personRankingError = ref('')
+const plannedCompletionReplayType = ref('ALL')
 const activeSummaryTitle = computed(() => activeSummaryModal.value === 'person' ? '各组开发负责人问题排名' : '各组问题数')
 const activeSummaryColumns = computed(() => activeSummaryModal.value === 'person' ? personRankingColumns : groupSummaryColumns)
 const activeSummaryRows = computed(() => activeSummaryModal.value === 'person' ? filteredPersonRankingRows.value : filteredGroupSummaryRows.value)
-const activeSummaryLoading = computed(() => activeSummaryModal.value === 'person' ? personRankingLoading.value : groupSummaryLoading.value)
-const activeSummaryError = computed(() => activeSummaryModal.value === 'person' ? personRankingError.value : groupSummaryError.value)
+const activeSummaryLoading = computed(() => activeSummarySession.value?.loading || false)
+const activeSummaryError = computed(() => activeSummarySession.value?.error || '')
 
 const importOpen = ref(false)
 const importFile = ref(null)
@@ -828,7 +945,12 @@ const savingId = ref(null)
 const editOpen = ref(false)
 const editIssue = ref(null)
 const editDraft = reactive({ issueStatus: '', issueType: '', initialAnalysis: '', finalSolution: '', cooperationPersonUsername: '', cooperationPersonDisplay: '', remark: '' })
-const issueTypeLocked = computed(() => ['无需处理', '延后修复'].includes(editDraft.issueStatus))
+const editableIssueTypes = computed(() => {
+  if (editDraft.issueStatus === '无需处理') return noActionIssueTypes
+  if (editDraft.issueStatus === '延后修复') return ['迁移问题']
+  return issueTypes
+})
+const issueTypeLocked = computed(() => editDraft.issueStatus === '延后修复')
 function onEditStatusChange() {
   if (editDraft.issueStatus === '无需处理') editDraft.issueType = '合理差异'
   if (editDraft.issueStatus === '延后修复') editDraft.issueType = '迁移问题'
@@ -876,6 +998,7 @@ const trackingIssue = ref(null)
 const trackingGroups = ref([])
 const trackingLoading = ref(false)
 const trackingError = ref('')
+const originalDataOpen = reactive({})
 
 const pageCount = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
 
@@ -917,42 +1040,173 @@ function groupSummary(card, group) {
   return stats.groupCounts?.[group]?.[key] ?? 0
 }
 
-async function openSummaryModal(type) {
-  summaryModalGroupBy.value = statisticsGroupBy.value
-  activeSummaryModal.value = type
-  await loadSummaryRows(type)
+function statisticsWindowRecord(id) {
+  if (id === 'completion') return completionWindow
+  const record = summaryWindowSessions[id]
+  if (!record) throw new Error('未知统计窗口')
+  return record
 }
 
-async function loadSummaryRows(type) {
-  const loadingRef = type === 'group' ? groupSummaryLoading : personRankingLoading
-  if (loadingRef.value) return
-  const rowsRef = type === 'group' ? groupSummaryRows : personRankingRows
-  const errorRef = type === 'group' ? groupSummaryError : personRankingError
-  const loader = type === 'group' ? getReplayIssueGroupSummaries : getReplayIssuePersonRankings
-  loadingRef.value = true
-  errorRef.value = ''
+function statisticsWindowStatus(id) {
+  return statisticsWindowRecord(id).status
+}
+
+function setStatisticsWindowStatus(id, status) {
+  statisticsWindowRecord(id).status = status
+  if (id === 'completion') return
+  activeSummaryModal.value = status === 'open'
+    ? id
+    : activeSummaryModal.value === id ? '' : activeSummaryModal.value
+}
+
+function currentOpenStatisticsWindow() {
+  return ['group', 'person', 'completion']
+    .find(id => statisticsWindowStatus(id) === 'open') || ''
+}
+
+function prepareStatisticsWindow(id, previousStatus) {
+  if (previousStatus !== 'closed') return
+  if (id === 'completion') {
+    plannedCompletionGroupBy.value = statisticsGroupBy.value
+    plannedCompletionReplayType.value = statisticsReplayType.value
+    return
+  }
+  const session = summaryWindowSessions[id]
+  session.groupBy = statisticsGroupBy.value
+  session.replayType = statisticsReplayType.value
+  session.rows = []
+  session.error = ''
+  session.activeGroup = '存款组'
+  session.scrollTop = 0
+}
+
+function statisticsWindowEntryElement(id) {
+  if (id === 'group') return groupSummaryEntryRef.value
+  if (id === 'person') return personRankingEntryRef.value
+  return plannedCompletionEntryRef.value
+}
+
+function statisticsWindowDialogElement(id) {
+  return id === 'completion'
+    ? plannedCompletionRef.value?.getWindowElement?.()
+    : summaryModalElementRef.value
+}
+
+async function runStatisticsWindowMotion(id, direction) {
+  const dialog = statisticsWindowDialogElement(id)
+  const entry = statisticsWindowEntryElement(id)
+  if (!dialog || !entry) return
+  const variables = replayModalMotionVariables(
+    dialog.getBoundingClientRect(),
+    entry.getBoundingClientRect(),
+  )
+  const className = direction === 'minimize' ? 'is-window-minimizing' : 'is-window-restoring'
+  const backdropClassName = direction === 'minimize'
+    ? 'is-window-backdrop-minimizing'
+    : 'is-window-backdrop-restoring'
+  const backdrop = dialog.parentElement
+  Object.entries(variables).forEach(([name, value]) => dialog.style.setProperty(name, value))
+  dialog.classList.add(className)
+  backdrop?.classList.add(backdropClassName)
   try {
-    rowsRef.value = await loader({ groupBy: summaryModalGroupBy.value }) || []
+    await waitForReplayModalMotion(dialog)
+  } finally {
+    dialog.classList.remove(className)
+    backdrop?.classList.remove(backdropClassName)
+    Object.keys(variables).forEach(name => dialog.style.removeProperty(name))
+  }
+}
+
+async function refreshStatisticsWindow(id, previousStatus) {
+  if (id === 'completion') return
+  const session = summaryWindowSessions[id]
+  await loadSummaryRows(id, { refresh: previousStatus === 'minimized' })
+  await nextTick()
+  const scrollContainer = summaryModalElementRef.value?.querySelector('.replay-summary-table-wrap')
+  if (scrollContainer) scrollContainer.scrollTop = session.scrollTop
+}
+
+async function openStatisticsWindow(id) {
+  if (statisticsWindowTransitioning.value || statisticsWindowStatus(id) === 'open') return
+  statisticsWindowTransitioning.value = true
+  let previousStatus = 'closed'
+  try {
+    const currentId = currentOpenStatisticsWindow()
+    if (currentId && currentId !== id) {
+      await minimizeStatisticsWindow(currentId, { coordinated: true })
+    }
+    previousStatus = statisticsWindowStatus(id)
+    prepareStatisticsWindow(id, previousStatus)
+    setStatisticsWindowStatus(id, 'open')
+    await nextTick()
+    await runStatisticsWindowMotion(id, 'restore')
+  } finally {
+    statisticsWindowTransitioning.value = false
+  }
+  await refreshStatisticsWindow(id, previousStatus)
+}
+
+async function loadSummaryRows(type, { refresh = false } = {}) {
+  const session = summaryWindowSessions[type]
+  if (!session || session.loading || session.refreshing) return
+  const loader = type === 'group' ? getReplayIssueGroupSummaries : getReplayIssuePersonRankings
+  const requestVersion = ++session.requestVersion
+  session[refresh ? 'refreshing' : 'loading'] = true
+  session.error = ''
+  try {
+    const rows = await loader({
+      groupBy: session.groupBy,
+      replayType: session.replayType,
+    }) || []
+    if (requestVersion !== session.requestVersion || session.status === 'closed') return
+    session.rows = rows
     if (type === 'person') {
-      const availableGroups = new Set(rowsRef.value.map(row => row.groupName))
-      activePersonRankingGroup.value = personRankingGroups.value.find(group => availableGroups.has(group)) || personRankingGroups.value[0]
+      const allowedGroups = session.groupBy === 'issueDomain' ? issueDomainPersonRankingGroups : domainPersonRankingGroups
+      if (!allowedGroups.includes(session.activeGroup)) session.activeGroup = allowedGroups[0]
     }
   } catch (cause) {
-    rowsRef.value = []
-    errorRef.value = `查询失败：${cause?.message || cause}`
+    if (requestVersion === session.requestVersion && session.status !== 'closed') {
+      session.error = refresh
+        ? `数据刷新失败，请稍后重试：${cause?.message || cause}`
+        : `查询失败：${cause?.message || cause}`
+      if (!refresh) session.rows = []
+    }
   } finally {
-    loadingRef.value = false
+    if (requestVersion === session.requestVersion) {
+      session.loading = false
+      session.refreshing = false
+    }
+  }
+}
+
+async function setSummaryModalReplayType(replayType) {
+  const session = activeSummarySession.value
+  if (!replayTypeOptions.some(option => option.value === replayType)
+    || !session
+    || session.replayType === replayType
+    || session.groupingLoading) return
+  session.replayType = replayType
+  session.groupingLoading = true
+  try {
+    await loadSummaryRows(activeSummaryModal.value)
+  } finally {
+    session.groupingLoading = false
   }
 }
 
 async function setSummaryModalGroupBy(groupBy) {
-  if (!['domain', 'issueDomain'].includes(groupBy) || summaryModalGroupBy.value === groupBy || summaryGroupingLoading.value) return
-  summaryModalGroupBy.value = groupBy
-  summaryGroupingLoading.value = true
+  const session = activeSummarySession.value
+  if (!['domain', 'issueDomain'].includes(groupBy) || !session || session.groupBy === groupBy || session.groupingLoading) return
+  session.groupBy = groupBy
+  if (activeSummaryModal.value === 'person') {
+    const allowedGroups = groupBy === 'issueDomain' ? issueDomainPersonRankingGroups : domainPersonRankingGroups
+    if (!allowedGroups.includes(session.activeGroup)) session.activeGroup = allowedGroups[0]
+  }
+  session.groupingLoading = true
   try {
     await loadSummaryRows(activeSummaryModal.value)
   } finally {
-    summaryGroupingLoading.value = false
+    session.groupingLoading = false
   }
 }
 
@@ -961,7 +1215,7 @@ async function setStatisticsGroupBy(groupBy) {
   statisticsGroupBy.value = groupBy
   statisticsGroupingLoading.value = true
   try {
-    const nextStats = await getReplayIssueStats({ groupBy })
+    const nextStats = await getReplayIssueStats({ groupBy, replayType: statisticsReplayType.value })
     Object.assign(stats, nextStats || {})
   } catch (cause) {
     error.value = `统计口径切换失败：${cause?.message || cause}`
@@ -970,9 +1224,27 @@ async function setStatisticsGroupBy(groupBy) {
   }
 }
 
-function openPlannedCompletion() {
-  plannedCompletionGroupBy.value = statisticsGroupBy.value
-  plannedCompletionOpen.value = true
+async function setStatisticsReplayType(replayType) {
+  if (!replayTypeOptions.some(option => option.value === replayType) || replayTypeLoading.value) return
+  statisticsReplayType.value = replayType
+  resetFilterValues()
+  clearHeaderFilters()
+  closeHeaderFilter()
+  affectedTransactionCountOrder.value = ''
+  page.value = 0
+  replayTypeLoading.value = true
+  error.value = ''
+  try {
+    const [, nextStats] = await Promise.all([
+      loadList(),
+      getReplayIssueStats({ groupBy: statisticsGroupBy.value, replayType }),
+    ])
+    Object.assign(stats, nextStats || {})
+  } catch (cause) {
+    error.value = `交易类型切换失败：${cause?.message || cause}`
+  } finally {
+    replayTypeLoading.value = false
+  }
 }
 
 function setPlannedCompletionGroupBy(groupBy) {
@@ -980,8 +1252,60 @@ function setPlannedCompletionGroupBy(groupBy) {
   plannedCompletionGroupBy.value = groupBy
 }
 
-function closeSummaryModal() {
-  activeSummaryModal.value = ''
+function setPlannedCompletionReplayType(replayType) {
+  if (!replayTypeOptions.some(option => option.value === replayType)) return
+  plannedCompletionReplayType.value = replayType
+}
+
+function resetSummaryWindowSession(type) {
+  const session = summaryWindowSessions[type]
+  const requestVersion = session.requestVersion + 1
+  Object.assign(session, {
+    status: 'closed',
+    groupBy: 'issueDomain',
+    replayType: 'ALL',
+    rows: [],
+    loading: false,
+    refreshing: false,
+    groupingLoading: false,
+    error: '',
+    activeGroup: '存款组',
+    scrollTop: 0,
+    requestVersion,
+  })
+}
+
+function closeStatisticsWindow(id) {
+  if (statisticsWindowTransitioning.value) return
+  if (id === 'completion') {
+    completionWindow.status = 'closed'
+    return
+  }
+  if (!summaryWindowSessions[id]) return
+  resetSummaryWindowSession(id)
+  if (activeSummaryModal.value === id) activeSummaryModal.value = ''
+}
+
+async function minimizeStatisticsWindow(id, { coordinated = false } = {}) {
+  if (!id || statisticsWindowStatus(id) !== 'open') return
+  if (statisticsWindowTransitioning.value && !coordinated) return
+  if (!coordinated) statisticsWindowTransitioning.value = true
+  try {
+    if (id !== 'completion') {
+      const scrollContainer = summaryModalElementRef.value?.querySelector('.replay-summary-table-wrap')
+      summaryWindowSessions[id].scrollTop = scrollContainer?.scrollTop || 0
+    }
+    await runStatisticsWindowMotion(id, 'minimize')
+    setStatisticsWindowStatus(id, 'minimized')
+  } finally {
+    if (!coordinated) statisticsWindowTransitioning.value = false
+  }
+}
+
+function summaryWindowEntryTitle(type, label) {
+  return summaryWindowSessions[type].status === 'minimized'
+    ? `${label}，窗口已最小化，点击恢复`
+    : label
 }
 
 function summaryRowKey(row, index) {
@@ -1069,6 +1393,7 @@ function requestParams() {
 
 function filterParams() {
   const params = {
+    replayType: statisticsReplayType.value,
     groupName: filters.groupName || undefined,
     issueLevel: filters.issueLevel || undefined,
     issueType: filters.issueType || undefined,
@@ -1104,6 +1429,11 @@ async function openHeaderFilter(column, event) {
   positionHeaderFilter()
   headerFilterOpen.value = true
   await loadHeaderFilterOptions()
+  if (column.key === 'occurrence_rounds'
+    && statisticsReplayType.value !== 'ALL'
+    && !headerFilters[column.key]?.length) {
+    headerFilterDraft.value = headerFilterOptions.value.map(option => option.value)
+  }
 }
 
 function positionHeaderFilter() {
@@ -1179,7 +1509,7 @@ async function loadHeaderFilterOptions() {
 }
 
 function baseFilterParams() {
-  return { groupName: filters.groupName || undefined, sandbox: filters.sandbox === '' ? undefined : filters.sandbox === 'true', issueId: filters.issueId || undefined, issueLevel: filters.issueLevel || undefined, issueType: filters.issueType || undefined, issueStatus: filters.issueStatus || undefined, reviewStatus: filters.reviewStatus || undefined, developer: filters.developer || undefined, bankOwner: filters.bankOwner || undefined, cooperationPerson: filters.cooperationPerson || undefined, serialNo: filters.serialNo || undefined, globalSerialNo: filters.globalSerialNo || undefined, defectRepairDate: filters.defectRepairDate || undefined, coverageRound: filters.coverageRound || undefined, weeklyTask: filters.weeklyTask || undefined }
+  return { replayType: statisticsReplayType.value, groupName: filters.groupName || undefined, sandbox: filters.sandbox === '' ? undefined : filters.sandbox === 'true', issueId: filters.issueId || undefined, issueLevel: filters.issueLevel || undefined, issueType: filters.issueType || undefined, issueStatus: filters.issueStatus || undefined, reviewStatus: filters.reviewStatus || undefined, developer: filters.developer || undefined, bankOwner: filters.bankOwner || undefined, cooperationPerson: filters.cooperationPerson || undefined, serialNo: filters.serialNo || undefined, globalSerialNo: filters.globalSerialNo || undefined, defectRepairDate: filters.defectRepairDate || undefined, coverageRound: filters.coverageRound || undefined, weeklyTask: filters.weeklyTask || undefined }
 }
 function headerFilterParams(excludeKey) {
   const params = { ...baseFilterParams() }
@@ -1212,6 +1542,10 @@ function canEditPlanDate(row) {
   return (planDatePermissions.editableGroups || []).includes(row?.group_name)
     || (transactionCode !== '' && (planDatePermissions.editableTransactionCodes || [])
       .some(code => String(code || '').trim() === transactionCode))
+}
+
+function canBypassPlanDateLimit(row) {
+  return (planDatePermissions.dateLimitBypassGroups || []).includes(row?.group_name)
 }
 
 function planDateChangeCount(row) {
@@ -1248,15 +1582,21 @@ function issueDomainDraftValue(row) {
   return issueDomainDrafts[row.id] ?? row.issue_domain ?? row.group_name ?? ''
 }
 
+function canBypassIssueDomainTransferLimit(row) {
+  const currentDomain = String(row?.issue_domain || row?.group_name || '').trim()
+  return (issueDomainPermissions.transferLimitBypassDomains || []).includes(currentDomain)
+}
+
 function canEditIssueDomain(row) {
-  if (!row || hasDefectRepairDate(row) || issueDomainTransferCount(row) >= 3) return false
+  if (!row || hasDefectRepairDate(row)) return false
   const currentDomain = String(row.issue_domain || row.group_name || '').trim()
-  return (issueDomainPermissions.editableDomains || []).includes(currentDomain)
+  if (!(issueDomainPermissions.editableDomains || []).includes(currentDomain)) return false
+  return issueDomainTransferCount(row) < 3 || canBypassIssueDomainTransferLimit(row)
 }
 
 function issueDomainEditTitle(row) {
   if (hasDefectRepairDate(row)) return '已有缺陷修复日期，问题所属领域不可修改'
-  if (issueDomainTransferCount(row) >= 3) return '已经达到 3 次转组上限，无法继续转组'
+  if (issueDomainTransferCount(row) >= 3 && !canBypassIssueDomainTransferLimit(row)) return '已经达到 3 次转组上限，无法继续转组'
   if (!canEditIssueDomain(row)) return '没有权限修改该问题所属领域'
   return '选择后失去焦点自动保存'
 }
@@ -1371,7 +1711,7 @@ async function savePlanDate(row) {
     planDateError.value = '填写日期格式不合法，请按 2026-08-26 格式填写'
     return
   }
-  if (normalized) {
+  if (normalized && !canBypassPlanDateLimit(row)) {
     const firstOccurrence = parseDateOnly(row.first_occurrence_date)
     if (!firstOccurrence) {
       planDateError.value = '首次出现日期无效，无法填写计划验证日期'
@@ -1612,22 +1952,23 @@ function closeTracking() {
   trackingOpen.value = false
 }
 
-function statusTransition(group) {
-  return `${display(group.statusBefore)} → ${display(group.statusAfter)}`
+function trackingGroupKey(group) {
+  return String(group.roundId ?? `base-${group.roundCode}`)
 }
 
-function sourceDisplay(group) {
-  if (!group.sourceSheet) return '-'
-  return group.sourceRow ? `${group.sourceSheet} 第 ${group.sourceRow} 行` : group.sourceSheet
+function isOriginalDataOpen(group) {
+  return originalDataOpen[trackingGroupKey(group)] === true
 }
 
-function collaboratorDisplay(event) {
-  if (event.cooperationPersonRealName && event.cooperationPersonUsername) return `${event.cooperationPersonRealName}(${event.cooperationPersonUsername})`
-  return event.cooperationPersonRealName || event.cooperationPersonUsername || '-'
+function toggleOriginalData(group) {
+  const key = trackingGroupKey(group)
+  originalDataOpen[key] = !isOriginalDataOpen(group)
 }
 
-function formatSnapshots(event) {
-  return [event.beforeSnapshot ? `操作前：${event.beforeSnapshot}` : '操作前：-', event.afterSnapshot ? `操作后：${event.afterSnapshot}` : '操作后：-', event.incomingSnapshot ? `导入输入：${event.incomingSnapshot}` : '导入输入：-'].join('\n')
+function operatorDisplay(event) {
+  if (!event) return '系统'
+  if (String(event.operatorRealName || '').trim() === '系统' || String(event.operatorUsername || '').toUpperCase() === 'SYSTEM') return '系统'
+  return event.operatorRealName || event.operatorUsername || '系统'
 }
 
 async function loadList({ preserveOnError = false } = {}) {
@@ -1652,15 +1993,15 @@ async function loadList({ preserveOnError = false } = {}) {
 
 async function loadMetadata() {
   try {
-    const [nextOptions, nextStats, rounds, permissions, nextPlanDatePermissions, nextIssueDomainPermissions] = await Promise.all([getReplayIssueOptions(), getReplayIssueStats({ groupBy: statisticsGroupBy.value }), getReplayImportRounds(), getReplayIssueReviewPermissions(), getReplayIssuePlanDatePermissions(), getReplayIssueDomainPermissions()])
+    const [nextOptions, nextStats, rounds, permissions, nextPlanDatePermissions, nextIssueDomainPermissions] = await Promise.all([getReplayIssueOptions(), getReplayIssueStats({ groupBy: statisticsGroupBy.value, replayType: statisticsReplayType.value }), getReplayImportRounds(), getReplayIssueReviewPermissions(), getReplayIssuePlanDatePermissions(), getReplayIssueDomainPermissions()])
     Object.assign(options, nextOptions || {})
     options.coverageRounds = (nextOptions?.coverageRounds || (rounds || []).map((round) => round.roundCode)).filter(Boolean)
     options.issueStatuses = allStatuses
     options.reviewStatuses = nextOptions?.reviewStatuses || ['待审核', '已审核']
     Object.assign(stats, nextStats || {})
     Object.assign(reviewPermissions, permissions || { reviewableGroups: [], reviewersByGroup: {}, reviewableTransactionCodes: [] })
-    Object.assign(planDatePermissions, nextPlanDatePermissions || { editableGroups: [], editableTransactionCodes: [] })
-    Object.assign(issueDomainPermissions, nextIssueDomainPermissions || { editableDomains: [] })
+    Object.assign(planDatePermissions, nextPlanDatePermissions || { editableGroups: [], dateLimitBypassGroups: [], editableTransactionCodes: [] })
+    Object.assign(issueDomainPermissions, nextIssueDomainPermissions || { editableDomains: [], transferLimitBypassDomains: [] })
   } catch (cause) {
     error.value = `加载筛选项失败：${cause?.message || cause}`
   }
@@ -1703,9 +2044,13 @@ async function exportExcel() {
 }
 
 function resetFilters() {
-  Object.assign(filters, { groupName: '', issueId: '', issueLevel: '', issueType: '', issueStatus: '', reviewStatus: '', sandbox: '', developer: '', bankOwner: '', cooperationPerson: '', serialNo: '', globalSerialNo: '', defectRepairDate: '', coverageRound: '', keyword: '', weeklyTask: false })
+  resetFilterValues()
   affectedTransactionCountOrder.value = ''
   return query()
+}
+
+function resetFilterValues() {
+  Object.assign(filters, { groupName: '', issueId: '', issueLevel: '', issueType: '', issueStatus: '', reviewStatus: '', sandbox: '', developer: '', bankOwner: '', cooperationPerson: '', serialNo: '', globalSerialNo: '', defectRepairDate: '', coverageRound: '', keyword: '', weeklyTask: false })
 }
 
 async function openWeeklyTask() {
@@ -1929,8 +2274,20 @@ onBeforeUnmount(() => {
 .replay-summary-entry { position: relative; min-height: 32px; display: inline-flex; align-items: center; gap: 7px; padding: 0 11px; border: 1px solid var(--border, #d7dee8); border-radius: 4px; color: var(--text-secondary, #374151); background: var(--bg-card, #fff); cursor: default; outline: none; font-size: 12px; }
 .replay-summary-entry:hover, .replay-summary-entry:focus-visible, .replay-summary-entry:focus-within { border-color: var(--text-active, #3b5adb); color: var(--text-active, #3b5adb); }
 .replay-summary-entry-action { font: inherit; cursor: pointer; }
+.replay-summary-entry.is-window-open { border-color: #2f6fd6; color: #fff; background: #2f6fd6; box-shadow: 0 1px 4px rgba(47,111,214,.24); }
+.replay-summary-entry.is-window-minimized { border-color: #8bb3e8; color: #175dab; background: #eaf3ff; }
+.replay-summary-entry.is-window-minimized::after { position: absolute; top: 3px; right: 4px; width: 7px; height: 7px; border: 2px solid #fff; border-radius: 50%; background: #f59b23; content: ''; }
+.replay-window-minimized-mark { margin-left: 2px; color: #df7d00; font-weight: 800; line-height: 1; }
 .replay-summary-modal-mask { position: fixed; z-index: 1000; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(13, 20, 36, .42); }
+.replay-summary-modal-mask.is-window-backdrop-restoring { animation: replay-window-backdrop-in 220ms ease-out both; }
+.replay-summary-modal-mask.is-window-backdrop-minimizing { animation: replay-window-backdrop-out 220ms ease-in forwards; }
 .replay-summary-modal { display: flex; flex-direction: column; max-height: calc(100vh - 48px); overflow: hidden; border: 1px solid var(--border, #d7dee8); border-radius: 12px; color: var(--text-primary, #1f2937); background: var(--bg-card, #fff); box-shadow: 0 24px 80px rgba(13, 20, 36, .3); }
+.replay-summary-modal.is-window-minimizing { animation: replay-window-minimize 300ms cubic-bezier(.4,0,.2,1) forwards; transform-origin: center; }
+.replay-summary-modal.is-window-restoring { animation: replay-window-restore 300ms cubic-bezier(.2,.8,.2,1) both; transform-origin: center; }
+@keyframes replay-window-minimize { from { transform: translate(0,0) scale(1,1); opacity: 1; } to { transform: translate(var(--replay-window-x),var(--replay-window-y)) scale(var(--replay-window-scale-x),var(--replay-window-scale-y)); opacity: 0; } }
+@keyframes replay-window-restore { from { transform: translate(var(--replay-window-x),var(--replay-window-y)) scale(var(--replay-window-scale-x),var(--replay-window-scale-y)); opacity: 0; } to { transform: translate(0,0) scale(1,1); opacity: 1; } }
+@keyframes replay-window-backdrop-in { from { background: rgba(13,20,36,0); } to { background: rgba(13,20,36,.42); } }
+@keyframes replay-window-backdrop-out { from { background: rgba(13,20,36,.42); } to { background: rgba(13,20,36,0); } }
 .replay-summary-modal-group { width: min(80vw, 1200px); height: auto; }
 .replay-summary-modal-person { width: min(90vw, 1500px); height: min(70vh, 640px); }
 .replay-summary-modal > header { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--border, #d7dee8); }
@@ -2078,6 +2435,7 @@ button.replay-review-badge { cursor: pointer; }
 .replay-plan-date-edit:hover, .replay-plan-date-edit:focus-visible { background: var(--bg-domain-hover, #f5f7fa); outline: 1px solid var(--border, #d7dee8); }
 .replay-plan-date-edit:hover svg, .replay-plan-date-edit:focus-visible svg { opacity: 1; }
 .replay-plan-date-cell input { height: 26px; padding: 3px 5px; font-variant-numeric: tabular-nums; }
+.replay-plan-date-history { margin-left: auto; }
 .replay-plan-date-toast { color: #fff; background: #b42318; }
 .replay-issue-domain-cell { min-width: 0; display: flex; align-items: center; gap: 5px; overflow: visible; }
 .replay-issue-domain-cell select { height: 27px; padding: 2px 4px; }
@@ -2139,15 +2497,32 @@ button.replay-review-badge { cursor: pointer; }
 .replay-timeline > li { position: relative; padding: 0 0 16px 18px; border-left: 1px solid var(--border, #d7dee8); }
 .replay-timeline-marker { position: absolute; top: 2px; left: -5px; width: 9px; height: 9px; border: 2px solid var(--text-active, #3b5adb); border-radius: 50%; background: var(--bg-card, #fff); }
 .replay-round-group { margin-top: 0 !important; border: 1px solid var(--border, #e8edf5); border-radius: 5px; background: var(--bg-card, #fff); }
-.replay-round-summary { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 8px; padding: 10px; color: var(--text-primary, #1f2937) !important; }
+.replay-round-summary { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; align-items: center; gap: 8px; padding: 10px; color: var(--text-primary, #1f2937) !important; }
 .replay-round-summary strong { min-width: 0; overflow-wrap: anywhere; }
 .replay-round-summary time { color: var(--text-muted, #6b7280); font-size: 11px; white-space: nowrap; }
-.replay-current-round { padding: 2px 6px; border-radius: 3px; color: var(--text-active, #3b5adb); background: var(--bg-active, #edf1ff); font-size: 10px; white-space: nowrap; }
+.replay-current-batch { padding: 2px 6px; border-radius: 3px; color: var(--text-active, #3b5adb); background: var(--bg-active, #edf1ff); font-size: 10px; white-space: nowrap; }
+.replay-original-data-toggle { display: inline-flex; align-items: center; gap: 3px; min-height: 26px; padding: 3px 7px; border: 1px solid var(--border, #d7dee8); border-radius: 4px; color: var(--text-active, #3b5adb); background: var(--bg-card, #fff); font: inherit; font-size: 11px; cursor: pointer; white-space: nowrap; }
+.replay-original-data-toggle:hover { border-color: var(--text-active, #3b5adb); background: var(--bg-active, #f5f7ff); }
+.replay-original-data-toggle svg { transition: transform .15s ease; }
+.replay-original-data-toggle svg.is-expanded { transform: rotate(180deg); }
 .replay-round-body { padding: 0 10px 10px; border-top: 1px solid var(--border, #e8edf5); }
 .replay-round-section-title { margin: 9px 0 7px !important; color: var(--text-secondary, #374151) !important; font-size: 12px; font-weight: 600; }
+.replay-original-data-panel { padding-bottom: 4px; }
+.replay-original-data-list { display: grid; gap: 1px; border: 1px solid var(--border, #d7dee8); background: var(--border, #d7dee8); }
+.replay-original-data-row { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 8px; min-width: 0; padding: 7px 8px; color: var(--text-secondary, #374151); background: var(--bg-page, #f7f8fa); font-size: 11px; }
+.replay-original-data-row > span:first-child { color: var(--text-muted, #6b7280); }
+.replay-tracking-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: help; }
 .replay-event-heading { display: flex; justify-content: space-between; gap: 8px; }
 .replay-event-heading time { color: var(--text-muted, #6b7280); font-size: 11px; white-space: nowrap; }
 .replay-round-body > p { margin: 5px 0 9px; color: var(--text-secondary, #374151); font-size: 12px; }
+.replay-event-operator { display: flex; align-items: center; gap: 6px; margin: 4px 0 8px !important; color: var(--text-muted, #6b7280) !important; font-size: 11px !important; }
+.replay-event-operator strong { color: var(--text-secondary, #374151); font-weight: 600; }
+.replay-no-change { margin: 7px 0 0; color: var(--text-muted, #6b7280) !important; font-size: 11px !important; }
+.replay-change-table { display: grid; gap: 1px; border: 1px solid var(--border, #d7dee8); background: var(--border, #d7dee8); font-size: 11px; }
+.replay-change-row { display: grid; grid-template-columns: 82px minmax(0, 1fr) minmax(0, 1fr); gap: 1px; min-width: 0; background: var(--bg-card, #fff); }
+.replay-change-row > span { min-width: 0; padding: 7px 6px; overflow-wrap: anywhere; }
+.replay-change-header { color: var(--text-muted, #6b7280); background: var(--bg-page, #f0f2f7); font-size: 10px; }
+.replay-change-header > span { padding-top: 5px; padding-bottom: 5px; }
 .replay-timeline dl { display: grid; gap: 6px; margin: 0; }
 .replay-timeline dl div { display: grid; grid-template-columns: 78px minmax(0, 1fr); gap: 8px; }
 .replay-timeline dt { color: var(--text-muted, #6b7280); }
@@ -2213,6 +2588,11 @@ button.replay-review-badge { cursor: pointer; }
 
 [data-theme="dark"] .replay-page { --replay-teal: #145c67; --replay-row-alt: rgba(126, 184, 255, .07); }
 
+@media (prefers-reduced-motion: reduce) {
+  .replay-summary-modal.is-window-minimizing, .replay-summary-modal.is-window-restoring,
+  .replay-summary-modal-mask.is-window-backdrop-minimizing, .replay-summary-modal-mask.is-window-backdrop-restoring { animation-duration: .01ms; }
+}
+
 @media (max-width: 768px) {
   .replay-page { --replay-content-gutter: 12px; }
   .replay-toolbar, .replay-pager { padding-left: 12px; padding-right: 12px; }
@@ -2230,6 +2610,10 @@ button.replay-review-badge { cursor: pointer; }
   .replay-edit-grid { grid-template-columns: 1fr; }
   .replay-edit-wide { grid-column: auto; }
   .replay-pager { justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+  .replay-round-summary { grid-template-columns: minmax(0, 1fr) auto; }
+  .replay-round-summary time { grid-column: 1; }
+  .replay-original-data-toggle { grid-column: 2; grid-row: 2; }
+  .replay-change-row { grid-template-columns: 70px minmax(0, 1fr) minmax(0, 1fr); }
   .replay-tracking-drawer { width: 100%; }
 }
 </style>

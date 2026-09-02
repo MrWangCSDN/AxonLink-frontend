@@ -1,14 +1,18 @@
-const logicalWidth = 1400
+const logicalWidth = 1530
 const horizontalPadding = 48
 const tableTop = 132
 const tableHeaderHeight = 52
 const tableRowHeight = 48
 const bottomPadding = 36
-const columnWidths = [404, 150, 150, 150, 150, 170, 130]
-const tableHeaders = ['领域 / 开发负责人', '计划问题数', '已修复', '延期修复', '未完成', '延期未完成', '完成率']
+const columnWidths = [404, 150, 150, 150, 150, 170, 130, 130]
+const tableHeaders = ['领域 / 开发负责人', '计划问题数', '已修复', '延期修复', '未完成', '延期未完成', '完成率', '修复待验证']
 
 function safeSegment(value) {
   return String(value || '').trim().replace(/[\\/:*?"<>|]/g, '_') || '未命名'
+}
+
+function replayTypeLabel(value) {
+  return value === 'DZ' ? '动账' : value === 'QUERY' ? '查询' : '全部'
 }
 
 function numberLabel(value) {
@@ -38,6 +42,7 @@ function rowValues(row, label) {
     numberLabel(row.unfinishedCount),
     numberLabel(row.overdueUnfinishedCount),
     rateLabel(row.completionRate),
+    numberLabel(row.pendingVerificationCount),
   ]
 }
 
@@ -62,11 +67,11 @@ function drawRow(context, values, y, background, bold = false) {
   context.fillRect(horizontalPadding, y + tableRowHeight - 1, tableWidth, 1)
 }
 
-export function buildCompletionSnapshotFilename({ groupName, startDate, endDate }) {
-  return `计划完成情况-${safeSegment(groupName)}-${safeSegment(startDate)}至${safeSegment(endDate)}.png`
+export function buildCompletionSnapshotFilename({ replayType = 'ALL', groupName, startDate, endDate }) {
+  return `计划完成情况-${replayTypeLabel(replayType)}-${safeSegment(groupName)}-${safeSegment(startDate)}至${safeSegment(endDate)}.png`
 }
 
-export function createCompletionSnapshotBlob({ group, developers = [], startDate, endDate }, environment = {}) {
+export function createCompletionSnapshotBlob({ replayType = 'ALL', group, developers = [], startDate, endDate }, environment = {}) {
   const documentRef = environment.documentRef || globalThis.document
   const pixelRatio = Math.max(1, Number(environment.pixelRatio) || 2)
   const rows = [
@@ -91,10 +96,11 @@ export function createCompletionSnapshotBlob({ group, developers = [], startDate
   context.fillText('计划完成情况', horizontalPadding, 40)
   context.fillStyle = '#4d6380'
   context.font = '600 18px -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif'
-  context.fillText(group?.groupName || '当前领域', horizontalPadding, 78)
+  context.fillText(replayTypeLabel(replayType), horizontalPadding, 78)
+  context.fillText(group?.groupName || '当前领域', horizontalPadding + 60, 78)
   context.fillStyle = '#728096'
   context.font = '400 16px -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif'
-  context.fillText(`${startDate} 至 ${endDate}`, horizontalPadding + 180, 78)
+  context.fillText(`${startDate} 至 ${endDate}`, horizontalPadding + 240, 78)
   context.textAlign = 'right'
   context.fillText(`开发负责人 ${developers.length} 人`, logicalWidth - horizontalPadding, 78)
 

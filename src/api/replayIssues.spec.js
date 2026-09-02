@@ -106,11 +106,11 @@ describe('replay issues API', () => {
       .mockResolvedValueOnce(jsonResponse({ code: 200, data: { points: [] } }))
       .mockResolvedValueOnce(jsonResponse({ code: 200, data: { groups: [] } }))
 
-    await getReplayCompletionDatePoints()
-    await getReplayCompletionDashboard({ startDate: '2026-08-20', endDate: '2026-08-27', groupBy: 'issueDomain' })
+    await getReplayCompletionDatePoints({ replayType: 'QUERY' })
+    await getReplayCompletionDashboard({ startDate: '2026-08-20', endDate: '2026-08-27', groupBy: 'issueDomain', replayType: 'QUERY' })
 
-    expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues/stats/planned-completion/date-points')
-    expect(fetch.mock.calls[1][0]).toBe('/api/ai/parallel-replay/issues/stats/planned-completion?startDate=2026-08-20&endDate=2026-08-27&groupBy=issueDomain')
+    expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues/stats/planned-completion/date-points?replayType=QUERY')
+    expect(fetch.mock.calls[1][0]).toBe('/api/ai/parallel-replay/issues/stats/planned-completion?startDate=2026-08-20&endDate=2026-08-27&groupBy=issueDomain&replayType=QUERY')
   })
 
   it('encodes the exact group developer category and paging filters for completion drill-down', async () => {
@@ -120,6 +120,7 @@ describe('replay issues API', () => {
       startDate: '2026-08-20',
       endDate: '2026-08-27',
       groupBy: 'issueDomain',
+      replayType: 'DZ',
       groupName: '贷款组',
       matchedDeveloper: '张三、李四',
       category: 'OVERDUE_UNFINISHED',
@@ -127,7 +128,7 @@ describe('replay issues API', () => {
       offset: 40,
     })
 
-    expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues/stats/planned-completion/issues?startDate=2026-08-20&endDate=2026-08-27&groupBy=issueDomain&groupName=%E8%B4%B7%E6%AC%BE%E7%BB%84&matchedDeveloper=%E5%BC%A0%E4%B8%89%E3%80%81%E6%9D%8E%E5%9B%9B&category=OVERDUE_UNFINISHED&limit=20&offset=40')
+    expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues/stats/planned-completion/issues?startDate=2026-08-20&endDate=2026-08-27&groupBy=issueDomain&replayType=DZ&groupName=%E8%B4%B7%E6%AC%BE%E7%BB%84&matchedDeveloper=%E5%BC%A0%E4%B8%89%E3%80%81%E6%9D%8E%E5%9B%9B&category=OVERDUE_UNFINISHED&limit=20&offset=40')
   })
 
   it('gets review permissions and approves through the documented endpoint', async () => {
@@ -213,11 +214,11 @@ describe('replay issues API', () => {
       .mockResolvedValueOnce(jsonResponse({ code: 200, data: [] }))
       .mockResolvedValueOnce(jsonResponse({ code: 200, data: [] }))
 
-    await getReplayIssueGroupSummaries({ groupBy: 'issueDomain' })
-    await getReplayIssuePersonRankings({ groupBy: 'issueDomain' })
+    await getReplayIssueGroupSummaries({ groupBy: 'issueDomain', replayType: 'DZ' })
+    await getReplayIssuePersonRankings({ groupBy: 'issueDomain', replayType: 'QUERY' })
 
-    expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues/stats/groups?groupBy=issueDomain')
-    expect(fetch.mock.calls[1][0]).toBe('/api/ai/parallel-replay/issues/stats/person-ranking?groupBy=issueDomain')
+    expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues/stats/groups?groupBy=issueDomain&replayType=DZ')
+    expect(fetch.mock.calls[1][0]).toBe('/api/ai/parallel-replay/issues/stats/person-ranking?groupBy=issueDomain&replayType=QUERY')
   })
 
   it('gets formal import rounds and grouped issue tracking', async () => {

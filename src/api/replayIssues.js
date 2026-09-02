@@ -39,8 +39,9 @@ export function getReplayIssueStats(params = {}) {
   return request(`${PREFIX}/stats${query ? `?${query}` : ''}`)
 }
 
-export function getReplayCompletionDatePoints() {
-  return request(`${PREFIX}/stats/planned-completion/date-points`)
+export function getReplayCompletionDatePoints(params = {}) {
+  const query = queryString(params)
+  return request(`${PREFIX}/stats/planned-completion/date-points${query ? `?${query}` : ''}`)
 }
 
 export function getReplayCompletionDashboard(params = {}) {

@@ -1,12 +1,23 @@
 <template>
-  <div v-if="open" class="replay-completion-mask">
-    <section class="replay-completion-modal" role="dialog" aria-modal="true" aria-labelledby="completion-modal-title">
+  <div v-show="windowState === 'open'" class="replay-completion-mask">
+    <section ref="windowElementRef" class="replay-completion-modal" role="dialog" :aria-modal="windowState === 'open' ? 'true' : undefined" aria-labelledby="completion-modal-title">
       <header class="replay-completion-header">
         <div>
           <h2 id="completion-modal-title">计划完成情况</h2>
           <p>按全量计划验证日期统计，各日期点仅展示实际存在的数据</p>
         </div>
-        <button class="replay-completion-close" type="button" aria-label="关闭" @click="emit('close')"><X :size="20" /></button>
+        <div class="replay-completion-window-actions">
+          <button
+            class="replay-completion-minimize"
+            data-testid="minimize-completion-modal"
+            type="button"
+            aria-label="最小化"
+            title="最小化"
+            :disabled="transitioning"
+            @click="emit('minimize')"
+          ><Minus :size="20" /></button>
+          <button class="replay-completion-close" type="button" aria-label="关闭" :disabled="transitioning" @click="emit('close')"><X :size="20" /></button>
+        </div>
       </header>
 
       <div class="replay-completion-body">
@@ -30,13 +41,18 @@
                 <option v-for="date in rangeDateOptions" :key="date" :value="date">{{ date }}</option>
               </select></label>
               <button data-testid="apply-completion-range" type="button" :disabled="loading" @click="applyInputRange">查询</button>
+              <div class="replay-completion-grouping-switch replay-completion-replay-type-switch" role="group" aria-label="计划完成情况回放交易类型" data-testid="completion-replay-type-switch">
+                <button type="button" data-testid="completion-replay-type-all" :class="{ 'is-active': replayType === 'ALL' }" :aria-pressed="String(replayType === 'ALL')" :disabled="loading" @click="emit('update:replayType', 'ALL')">全部</button>
+                <button type="button" data-testid="completion-replay-type-dz" :class="{ 'is-active': replayType === 'DZ' }" :aria-pressed="String(replayType === 'DZ')" :disabled="loading" @click="emit('update:replayType', 'DZ')">动账</button>
+                <button type="button" data-testid="completion-replay-type-query" :class="{ 'is-active': replayType === 'QUERY' }" :aria-pressed="String(replayType === 'QUERY')" :disabled="loading" @click="emit('update:replayType', 'QUERY')">查询</button>
+              </div>
               <div class="replay-completion-grouping-switch" role="group" aria-label="计划完成情况统计分组口径" data-testid="completion-grouping-switch">
                 <button type="button" data-testid="completion-grouping-domain" :class="{ 'is-active': groupBy === 'domain' }" :aria-pressed="String(groupBy === 'domain')" :disabled="loading" @click="emit('update:groupBy', 'domain')">领域</button>
                 <button type="button" data-testid="completion-grouping-issue-domain" :class="{ 'is-active': groupBy === 'issueDomain' }" :aria-pressed="String(groupBy === 'issueDomain')" :disabled="loading" @click="emit('update:groupBy', 'issueDomain')">问题所属领域</button>
               </div>
             </div>
 
-            <div ref="timelineScrollRef" class="replay-completion-timeline-scroll">
+            <div ref="timelineScrollRef" class="replay-completion-timeline-scroll" @scroll="rememberTimelineScroll">
               <i data-testid="timeline-center-gutter" class="replay-completion-center-gutter" :style="timelineCenterGutterStyle" aria-hidden="true"></i>
               <div ref="timelineRef" class="replay-completion-timeline" :style="timelineWidthStyle">
                 <div class="replay-completion-columns">
@@ -180,7 +196,7 @@
               >{{ snapshotMessage }}</span>
               <div class="replay-completion-table-wrap">
                 <table class="replay-completion-table">
-                  <thead><tr><th>领域 / 开发负责人</th><th>计划问题数</th><th>已修复</th><th>延期修复</th><th>未完成</th><th>延期未完成</th><th>完成率</th></tr></thead>
+                  <thead><tr><th>领域 / 开发负责人</th><th>计划问题数</th><th>已修复</th><th>延期修复</th><th>未完成</th><th>延期未完成</th><th>完成率</th><th>修复待验证</th></tr></thead>
                   <tbody v-if="activeGroup">
                     <tr data-testid="completion-group-row" class="replay-completion-group-row">
                       <th>{{ activeGroup.groupName }}</th>
@@ -190,6 +206,7 @@
                       <td><button type="button" @click="openIssues(activeGroup, null, 'UNFINISHED')">{{ activeGroup.unfinishedCount }}</button></td>
                       <td><button type="button" @click="openIssues(activeGroup, null, 'OVERDUE_UNFINISHED')">{{ activeGroup.overdueUnfinishedCount }}</button></td>
                       <td>{{ rateLabel(activeGroup.completionRate) }}</td>
+                      <td>{{ activeGroup.pendingVerificationCount }}</td>
                     </tr>
                     <tr v-for="developer in sortedActiveDevelopers" :key="developer.matchedDeveloper" data-testid="completion-developer-row" class="replay-completion-developer-row">
                       <th><span>{{ developer.matchedDeveloper }}</span></th>
@@ -199,9 +216,10 @@
                       <td><button :data-testid="`developer-UNFINISHED-${developer.matchedDeveloper}`" type="button" @click="openIssues(activeGroup, developer, 'UNFINISHED')">{{ developer.unfinishedCount }}</button></td>
                       <td><button :data-testid="`developer-OVERDUE_UNFINISHED-${developer.matchedDeveloper}`" type="button" @click="openIssues(activeGroup, developer, 'OVERDUE_UNFINISHED')">{{ developer.overdueUnfinishedCount }}</button></td>
                       <td>{{ rateLabel(developer.completionRate) }}</td>
+                      <td>{{ developer.pendingVerificationCount }}</td>
                     </tr>
                   </tbody>
-                  <tbody v-else><tr><td class="replay-completion-empty-group" colspan="7">当前时间范围暂无该领域数据</td></tr></tbody>
+                  <tbody v-else><tr><td class="replay-completion-empty-group" colspan="8">当前时间范围暂无该领域数据</td></tr></tbody>
                 </table>
               </div>
             </div>
@@ -266,7 +284,7 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
-import { Camera, X } from 'lucide-vue-next'
+import { Camera, Minus, X } from 'lucide-vue-next'
 import {
   getReplayCompletionDashboard,
   getReplayCompletionDatePoints,
@@ -285,16 +303,21 @@ import {
 } from './replayCompletionTimeline.js'
 
 const props = defineProps({
-  open: { type: Boolean, default: false },
+  windowState: {
+    type: String,
+    default: 'closed',
+    validator: value => ['closed', 'open', 'minimized'].includes(value),
+  },
   groupBy: { type: String, default: 'domain' },
+  replayType: { type: String, default: 'ALL' },
+  transitioning: { type: Boolean, default: false },
 })
-const emit = defineEmits(['close', 'update:groupBy'])
+const emit = defineEmits(['minimize', 'close', 'update:groupBy', 'update:replayType'])
 const columnWidth = 96
 const defaultGroupName = '存款组'
 const domainGroupTabs = ['存款组', '贷款组', '公共组', '结算组']
 const issueDomainGroupTabs = [...domainGroupTabs, '迁移组', '平台组']
 const groupTabs = computed(() => props.groupBy === 'issueDomain' ? issueDomainGroupTabs : domainGroupTabs)
-const developerNameCollator = new Intl.Collator('zh-CN')
 const datePoints = ref([])
 const startIndex = ref(-1)
 const endIndex = ref(-1)
@@ -302,7 +325,9 @@ const startDateInput = ref('')
 const endDateInput = ref('')
 const dashboard = ref(null)
 const activeGroupName = ref(defaultGroupName)
+const windowElementRef = ref(null)
 const timelineScrollRef = ref(null)
+const savedTimelineScrollLeft = ref(0)
 const timelineRef = ref(null)
 const timelineCenterGutterWidth = ref(0)
 const sliderShellRef = ref(null)
@@ -313,6 +338,7 @@ const topHeightBeforeCollapse = ref(0)
 const draggingSplit = ref(false)
 const loading = ref(false)
 const error = ref('')
+const initialized = ref(false)
 const snapshotting = ref(false)
 const snapshotEffectActive = ref(false)
 const snapshotMessage = ref('')
@@ -333,6 +359,7 @@ let overlapEdge = null
 let overlapMoved = false
 let splitResizeObserver = null
 let timelineResizeObserver = null
+defineExpose({ getWindowElement: () => windowElementRef.value })
 const drawer = reactive({
   open: false, loading: false, error: '', title: '', total: 0, items: [], limit: 20, offset: 0,
   groupName: '', matchedDeveloper: null, category: '', today: '',
@@ -374,13 +401,7 @@ const maxPlannedCount = computed(() => Math.max(1, ...datePoints.value.map(point
 const drawerPage = computed(() => Math.floor(drawer.offset / drawer.limit) + 1)
 const drawerPageCount = computed(() => Math.max(1, Math.ceil(drawer.total / drawer.limit)))
 const activeGroup = computed(() => dashboard.value?.groups?.find(group => group.groupName === activeGroupName.value) || null)
-const sortedActiveDevelopers = computed(() => [...(activeGroup.value?.developers || [])].sort((left, right) => {
-  const countDifference = Number(right.plannedTotal || 0) - Number(left.plannedTotal || 0)
-  return countDifference || developerNameCollator.compare(
-    String(left.matchedDeveloper || ''),
-    String(right.matchedDeveloper || ''),
-  )
-}))
+const sortedActiveDevelopers = computed(() => [...(activeGroup.value?.developers || [])])
 const splitLayoutStyle = computed(() => ({
   '--completion-top-height': `${topPaneHeight.value}px`,
 }))
@@ -395,12 +416,15 @@ function resetSplitLayout() {
   topHeightBeforeCollapse.value = topPaneHeight.value
 }
 
-function toggleUpperPane() {
+async function toggleUpperPane() {
   if (upperCollapsed.value) {
     upperCollapsed.value = false
     topPaneHeight.value = clampTopHeight(topHeightBeforeCollapse.value, availableSplitHeight() || 760)
+    await nextTick()
+    if (timelineScrollRef.value) timelineScrollRef.value.scrollLeft = savedTimelineScrollLeft.value
     return
   }
+  savedTimelineScrollLeft.value = timelineScrollRef.value?.scrollLeft || 0
   topHeightBeforeCollapse.value = topPaneHeight.value
   upperCollapsed.value = true
 }
@@ -446,7 +470,9 @@ function observeSplitLayout() {
 
 function updateTimelineCenterGutter() {
   const viewportWidth = timelineScrollRef.value?.clientWidth || 0
-  const timelineWidth = timelineRef.value?.getBoundingClientRect().width || 0
+  if (viewportWidth <= 0) return
+  const measuredTimelineWidth = timelineRef.value?.getBoundingClientRect().width || 0
+  const timelineWidth = Math.max(measuredTimelineWidth, datePoints.value.length * columnWidth)
   timelineCenterGutterWidth.value = timelineCenterGutter(
     viewportWidth,
     timelineWidth,
@@ -463,18 +489,18 @@ function observeTimelineViewport() {
   if (timelineRef.value) timelineResizeObserver.observe(timelineRef.value)
 }
 
-function disposeTimelineViewport() {
+function disposeTimelineViewport({ preserveGutter = false } = {}) {
   timelineResizeObserver?.disconnect()
   timelineResizeObserver = null
-  timelineCenterGutterWidth.value = 0
+  if (!preserveGutter) timelineCenterGutterWidth.value = 0
 }
 
-function disposeSplitLayout() {
+function disposeSplitLayout({ preserveTimelineGutter = false } = {}) {
   stopOverlapDrag(null, false)
   stopSplitDrag()
   splitResizeObserver?.disconnect()
   splitResizeObserver = null
-  disposeTimelineViewport()
+  disposeTimelineViewport({ preserveGutter: preserveTimelineGutter })
 }
 
 function display(value) {
@@ -577,12 +603,14 @@ async function captureSnapshot() {
   const endDate = dashboard.value?.effectiveEndDate || endDateInput.value
   try {
     const blob = await createCompletionSnapshotBlob({
+      replayType: props.replayType,
       group: activeGroup.value,
       developers: sortedActiveDevelopers.value,
       startDate,
       endDate,
     })
     const filename = buildCompletionSnapshotFilename({
+      replayType: props.replayType,
       groupName: activeGroup.value.groupName,
       startDate,
       endDate,
@@ -615,24 +643,43 @@ function synchronizeRange(startDate, endDate) {
   endIndex.value = indexOfDate(endDate)
 }
 
+async function centerSelectedRange({ smooth = false } = {}) {
+  await nextTick()
+  if (startIndex.value < 0 || endIndex.value < 0) return
+  const middleIndex = Math.floor((startIndex.value + endIndex.value) / 2)
+  const columns = timelineRef.value?.querySelectorAll('.replay-completion-column')
+  columns?.[middleIndex]?.scrollIntoView?.({
+    ...(smooth ? { behavior: 'smooth' } : {}),
+    block: 'nearest',
+    inline: 'center',
+  })
+}
+
+function rememberTimelineScroll() {
+  if (props.windowState !== 'open' || !timelineScrollRef.value) return
+  savedTimelineScrollLeft.value = timelineScrollRef.value.scrollLeft
+}
+
 async function selectDatePoint(date) {
   if (loading.value) return
   synchronizeRange(date, date)
   await loadDashboard(date, date)
-  await nextTick()
-  const dateIndex = indexOfDate(date)
-  const columns = timelineRef.value?.querySelectorAll('.replay-completion-column')
-  columns?.[dateIndex]?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest', inline: 'center' })
+  await centerSelectedRange({ smooth: true })
 }
 
-async function loadDashboard(startDate, endDate, synchronizeEffective = false) {
+async function loadDashboard(startDate, endDate, synchronizeEffective = false, { closeDrawer = true } = {}) {
   loading.value = true
   error.value = ''
   try {
-    const result = await getReplayCompletionDashboard({ startDate, endDate, groupBy: props.groupBy })
+    const result = await getReplayCompletionDashboard({
+      startDate,
+      endDate,
+      groupBy: props.groupBy,
+      replayType: props.replayType,
+    })
     dashboard.value = result
     if (synchronizeEffective) synchronizeRange(result.effectiveStartDate, result.effectiveEndDate)
-    drawer.open = false
+    if (closeDrawer) drawer.open = false
   } catch (exception) {
     error.value = exception?.message || '计划完成情况加载失败'
   } finally {
@@ -649,7 +696,7 @@ async function initialize() {
   dashboard.value = null
   drawer.open = false
   try {
-    const result = await getReplayCompletionDatePoints()
+    const result = await getReplayCompletionDatePoints({ replayType: props.replayType })
     datePoints.value = result?.datePoints || []
     synchronizeRange(result.defaultStartDate, result.defaultEndDate)
     await loadDashboard(result.defaultStartDate, result.defaultEndDate)
@@ -657,13 +704,63 @@ async function initialize() {
     resetSplitLayout()
     observeSplitLayout()
     observeTimelineViewport()
-    const selectedColumns = timelineScrollRef.value?.querySelectorAll('.replay-completion-column.is-selected')
-    selectedColumns?.[selectedColumns.length - 1]?.scrollIntoView?.({ block: 'nearest', inline: 'end' })
+    await centerSelectedRange()
   } catch (exception) {
     error.value = exception?.message || '计划验证日期加载失败'
   } finally {
     loading.value = false
   }
+}
+
+function resetDrawer() {
+  Object.assign(drawer, {
+    open: false,
+    loading: false,
+    error: '',
+    title: '',
+    total: 0,
+    items: [],
+    limit: 20,
+    offset: 0,
+    groupName: '',
+    matchedDeveloper: null,
+    category: '',
+    today: '',
+  })
+}
+
+function resetSession() {
+  datePoints.value = []
+  startIndex.value = -1
+  endIndex.value = -1
+  startDateInput.value = ''
+  endDateInput.value = ''
+  dashboard.value = null
+  activeGroupName.value = defaultGroupName
+  loading.value = false
+  error.value = ''
+  snapshotting.value = false
+  resetDrawer()
+  resetSplitLayout()
+  resetSnapshotFeedback()
+  savedTimelineScrollLeft.value = 0
+  if (timelineScrollRef.value) timelineScrollRef.value.scrollLeft = 0
+  const tableScroll = windowElementRef.value?.querySelector('.replay-completion-table-wrap')
+  if (tableScroll) tableScroll.scrollTop = 0
+}
+
+async function refreshPreservedSession() {
+  const timelineScrollLeft = savedTimelineScrollLeft.value
+  const tableScroll = windowElementRef.value?.querySelector('.replay-completion-table-wrap')
+  const tableScrollTop = tableScroll?.scrollTop || 0
+  await loadDashboard(startDateInput.value, endDateInput.value, false, { closeDrawer: false })
+  await nextTick()
+  observeSplitLayout()
+  observeTimelineViewport()
+  savedTimelineScrollLeft.value = timelineScrollLeft
+  if (timelineScrollRef.value) timelineScrollRef.value.scrollLeft = timelineScrollLeft
+  const restoredTableScroll = windowElementRef.value?.querySelector('.replay-completion-table-wrap')
+  if (restoredTableScroll) restoredTableScroll.scrollTop = tableScrollTop
 }
 
 async function applyInputRange() {
@@ -677,6 +774,7 @@ async function applyInputRange() {
     return
   }
   await loadDashboard(startDateInput.value, endDateInput.value, true)
+  await centerSelectedRange()
 }
 
 function moveStart(next, commit) {
@@ -769,6 +867,7 @@ async function loadIssues() {
       startDate: startDateInput.value,
       endDate: endDateInput.value,
       groupBy: props.groupBy,
+      replayType: props.replayType,
       groupName: drawer.groupName,
       ...(drawer.matchedDeveloper ? { matchedDeveloper: drawer.matchedDeveloper } : {}),
       category: drawer.category,
@@ -790,18 +889,33 @@ function changeDrawerPage(direction) {
   loadIssues()
 }
 
-watch(() => props.open, (open) => {
-  if (open) initialize()
-  else {
+watch(() => props.windowState, async (state, previousState) => {
+  if (state === 'closed') {
     disposeSplitLayout()
-    resetSnapshotFeedback()
+    resetSession()
+    initialized.value = false
+    return
   }
+  if (state === 'minimized') {
+    savedTimelineScrollLeft.value = timelineScrollRef.value?.scrollLeft ?? savedTimelineScrollLeft.value
+    disposeSplitLayout({ preserveTimelineGutter: true })
+    return
+  }
+  if (!initialized.value || previousState === 'closed') {
+    await initialize()
+    initialized.value = true
+    return
+  }
+  await refreshPreservedSession()
 }, { immediate: true })
 
-watch(() => props.groupBy, async () => {
-  if (!props.open || !startDateInput.value || !endDateInput.value) return
+watch(() => [props.groupBy, props.replayType], async () => {
+  if (props.windowState !== 'open' || !startDateInput.value || !endDateInput.value) return
+  const scrollLeft = timelineScrollRef.value?.scrollLeft || 0
   if (!groupTabs.value.includes(activeGroupName.value)) activeGroupName.value = defaultGroupName
   await loadDashboard(startDateInput.value, endDateInput.value)
+  await nextTick()
+  if (timelineScrollRef.value) timelineScrollRef.value.scrollLeft = scrollLeft
 })
 
 onBeforeUnmount(() => {
@@ -812,16 +926,21 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .replay-completion-mask{position:fixed;inset:0;z-index:1300;display:flex;align-items:center;justify-content:center;padding:3vh 2vw;background:rgba(15,23,42,.48);backdrop-filter:blur(2px)}
+.replay-completion-mask.is-window-backdrop-restoring{animation:replay-completion-backdrop-in 220ms ease-out both}.replay-completion-mask.is-window-backdrop-minimizing{animation:replay-completion-backdrop-out 220ms ease-in forwards}
 .replay-completion-modal{position:relative;display:flex;flex-direction:column;width:96vw;max-width:none;height:94vh;max-height:none;overflow:hidden;border:1px solid #dbe3ef;border-radius:14px;background:var(--bg-card,#fff);color:var(--text-primary,#172033);box-shadow:0 24px 80px rgba(15,23,42,.28)}
+.replay-completion-modal.is-window-minimizing{animation:replay-completion-window-minimize 300ms cubic-bezier(.4,0,.2,1) forwards;transform-origin:center}.replay-completion-modal.is-window-restoring{animation:replay-completion-window-restore 300ms cubic-bezier(.2,.8,.2,1) both;transform-origin:center}
+@keyframes replay-completion-window-minimize{from{transform:translate(0,0) scale(1,1);opacity:1}to{transform:translate(var(--replay-window-x),var(--replay-window-y)) scale(var(--replay-window-scale-x),var(--replay-window-scale-y));opacity:0}}@keyframes replay-completion-window-restore{from{transform:translate(var(--replay-window-x),var(--replay-window-y)) scale(var(--replay-window-scale-x),var(--replay-window-scale-y));opacity:0}to{transform:translate(0,0) scale(1,1);opacity:1}}
+@keyframes replay-completion-backdrop-in{from{background:rgba(15,23,42,0)}to{background:rgba(15,23,42,.48)}}@keyframes replay-completion-backdrop-out{from{background:rgba(15,23,42,.48)}to{background:rgba(15,23,42,0)}}
 .replay-completion-header{display:flex;flex:0 0 auto;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid #e5eaf1;background:linear-gradient(180deg,#fff,#fbfcfe)}
 .replay-completion-header h2{margin:0;font-size:20px}.replay-completion-header p{margin:4px 0 0;color:#728096;font-size:12px}
-.replay-completion-close,.replay-completion-drawer header button{display:grid;place-items:center;width:34px;height:34px;padding:0;border:0;border-radius:8px;background:transparent;color:#667085;cursor:pointer}.replay-completion-close:hover,.replay-completion-drawer header button:hover{background:#eef3f9;color:#1e293b}
+.replay-completion-window-actions{display:flex;align-items:center;gap:4px}
+.replay-completion-close,.replay-completion-minimize,.replay-completion-drawer header button{display:grid;place-items:center;width:34px;height:34px;padding:0;border:0;border-radius:8px;background:transparent;color:#667085;cursor:pointer}.replay-completion-close:hover,.replay-completion-minimize:hover,.replay-completion-drawer header button:hover{background:#eef3f9;color:#1e293b}
 .replay-completion-body{display:flex;flex:1;min-height:0;overflow:hidden;padding:0}.replay-completion-error{padding:10px 12px;border-radius:8px;background:#fff1f0;color:#b42318;font-size:13px}.replay-completion-state{padding:36px;text-align:center;color:#718096}
 .replay-completion-split-layout{display:grid;flex:1;min-height:0;grid-template-rows:minmax(0,var(--completion-top-height)) 34px minmax(260px,1fr);padding:0 22px 20px}.replay-completion-split-layout.is-upper-collapsed{grid-template-rows:42px 34px minmax(260px,1fr)}
 .replay-completion-upper-pane{min-height:0;overflow:auto}.replay-completion-lower-pane{display:flex;min-height:0;flex-direction:column;padding-top:4px}
 .replay-completion-split-layout.is-dragging{user-select:none}.replay-completion-splitter{display:flex;align-items:center;gap:10px;color:#667085}.replay-completion-splitter-grip{flex:1;height:5px;border-radius:3px;background:linear-gradient(180deg,transparent 2px,#d7e0eb 2px,#d7e0eb 3px,transparent 3px);cursor:row-resize}.replay-completion-splitter-grip:hover{background:linear-gradient(180deg,transparent 2px,#7ca8db 2px,#7ca8db 3px,transparent 3px)}.replay-completion-splitter button{height:26px;padding:0 10px;border:1px solid #d6e0ed;border-radius:6px;background:#fff;color:#52657d;font-size:12px;cursor:pointer}.replay-completion-splitter button:hover{border-color:#9fc1ea;color:#176fd1}.replay-completion-collapsed-summary{display:flex;align-items:center;gap:18px;min-height:42px;color:#667085;font-size:13px}.replay-completion-collapsed-summary strong{color:#1e3555}
-.replay-completion-timeline-section{padding:8px 0;border-bottom:1px solid #e8edf4}.replay-completion-range-fields{display:flex;align-items:end;gap:10px;margin-bottom:8px}.replay-completion-range-fields label{display:grid;gap:5px;color:#667085;font-size:12px}.replay-completion-range-fields select{width:150px;height:34px;padding:0 30px 0 10px;border:1px solid #cfd8e6;border-radius:6px;background:var(--bg-card,#fff);color:inherit;cursor:pointer}.replay-completion-range-fields>button,.replay-completion-drawer footer button{height:34px;padding:0 14px;border:1px solid #176fd1;border-radius:6px;background:#176fd1;color:#fff;cursor:pointer}.replay-completion-grouping-switch{display:inline-flex;margin-left:auto;padding:3px;border:1px solid #d6e0ed;border-radius:7px;background:#f5f7fb}.replay-completion-grouping-switch button{height:28px;padding:0 12px;border:0;border-radius:5px;background:transparent;color:#667085;font-size:12px;cursor:pointer}.replay-completion-grouping-switch button.is-active{background:#2f6fd6;color:#fff;box-shadow:0 1px 3px rgba(47,111,214,.22)}.replay-completion-grouping-switch button:disabled{cursor:not-allowed;opacity:.55}
-.replay-completion-timeline-scroll{display:flex;overflow-x:auto;overflow-y:hidden;padding:1px 0 4px}.replay-completion-center-gutter{flex:0 0 auto;height:1px;pointer-events:none}.replay-completion-timeline{position:relative;flex:0 0 auto;width:100%;padding-bottom:28px}.replay-completion-columns{display:grid;grid-template-columns:repeat(var(--timeline-count),minmax(96px,1fr));height:120px;border-bottom:1px solid #d7dfeb;background:linear-gradient(180deg,rgba(239,245,252,.55),rgba(255,255,255,0))}
+.replay-completion-timeline-section{padding:8px 0;border-bottom:1px solid #e8edf4}.replay-completion-range-fields{display:flex;align-items:end;gap:10px;margin-bottom:8px}.replay-completion-range-fields label{display:grid;gap:5px;color:#667085;font-size:12px}.replay-completion-range-fields select{width:150px;height:34px;padding:0 30px 0 10px;border:1px solid #cfd8e6;border-radius:6px;background:var(--bg-card,#fff);color:inherit;cursor:pointer}.replay-completion-range-fields>button,.replay-completion-drawer footer button{height:34px;padding:0 14px;border:1px solid #176fd1;border-radius:6px;background:#176fd1;color:#fff;cursor:pointer}.replay-completion-grouping-switch{display:inline-flex;margin-left:auto;padding:3px;border:1px solid #d6e0ed;border-radius:7px;background:#f5f7fb}.replay-completion-replay-type-switch+.replay-completion-grouping-switch{margin-left:0}.replay-completion-grouping-switch button{height:28px;padding:0 12px;border:0;border-radius:5px;background:transparent;color:#667085;font-size:12px;cursor:pointer}.replay-completion-grouping-switch button.is-active{background:#2f6fd6;color:#fff;box-shadow:0 1px 3px rgba(47,111,214,.22)}.replay-completion-grouping-switch button:disabled{cursor:not-allowed;opacity:.55}
+.replay-completion-timeline-scroll{--completion-timeline-bg:#f7faff;display:flex;overflow-x:auto;overflow-y:hidden;padding:1px 0 4px;background:var(--completion-timeline-bg)}.replay-completion-center-gutter{align-self:stretch;flex:0 0 auto;background:var(--completion-timeline-bg);pointer-events:none}.replay-completion-timeline{position:relative;flex:0 0 auto;width:100%;padding-bottom:28px;background:var(--completion-timeline-bg)}.replay-completion-columns{display:grid;grid-template-columns:repeat(var(--timeline-count),minmax(96px,1fr));height:120px;border-bottom:1px solid #d7dfeb;background:linear-gradient(180deg,rgba(239,245,252,.55),rgba(247,250,255,0))}
 .replay-completion-column{display:grid;min-width:0;grid-template-rows:90px 10px 20px;justify-items:center;align-items:end;opacity:.28;cursor:pointer;transition:opacity .16s}.replay-completion-column:hover,.replay-completion-column:focus-visible{opacity:.72;outline:none}.replay-completion-column:focus-visible{box-shadow:inset 0 0 0 2px rgba(47,126,219,.45)}.replay-completion-column.is-selected{opacity:1}.replay-completion-bar-space{display:flex;align-items:end;justify-content:center;width:100%;height:90px}.replay-completion-bar-stack{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%}.replay-completion-count{margin-bottom:3px;color:#29476f;font-size:11px;font-weight:700;line-height:16px}.replay-completion-bar{display:block;width:30px;min-height:18px;border-radius:5px 5px 1px 1px;background:#2f7edb;box-shadow:inset 0 1px rgba(255,255,255,.28)}.replay-completion-point{align-self:center;width:7px;height:7px;border:2px solid #fff;border-radius:50%;background:#2f7edb;box-shadow:0 0 0 1px #2f7edb}.replay-completion-column time{align-self:start;color:#667085;font-size:11px;white-space:nowrap}
 .replay-completion-slider-shell{position:absolute;bottom:5px;height:18px}.replay-completion-slider-track,.replay-completion-slider-selection{position:absolute;top:8px;height:3px;border-radius:2px}.replay-completion-slider-track{left:0;right:0;background:#d9e2ef}.replay-completion-slider-selection{background:#2f7edb}.replay-completion-overlap-handle{position:absolute;top:1px;z-index:4;width:15px;height:15px;padding:0;border:3px solid #fff;border-radius:50%;background:#2f7edb;box-shadow:0 0 0 1px #2f7edb,0 2px 5px rgba(23,111,209,.25);cursor:ew-resize;transform:translateX(-50%);touch-action:none}.replay-completion-range{position:absolute;inset:0;width:100%;height:18px;margin:0;pointer-events:none;appearance:none;background:transparent}.replay-completion-range::-webkit-slider-thumb{width:15px;height:15px;border:3px solid #fff;border-radius:50%;background:#2f7edb;box-shadow:0 0 0 1px #2f7edb,0 2px 5px rgba(23,111,209,.25);pointer-events:auto;appearance:none;cursor:grab}.replay-completion-range::-moz-range-thumb{width:10px;height:10px;border:3px solid #fff;border-radius:50%;background:#2f7edb;box-shadow:0 0 0 1px #2f7edb;pointer-events:auto;cursor:grab}.replay-completion-range-start{z-index:2}.replay-completion-range-end{z-index:3}
 .replay-completion-results{padding-top:18px}.replay-completion-overview{display:grid;grid-template-columns:repeat(6,minmax(118px,1fr));gap:8px;margin:6px 0 0}.replay-completion-overview>div{display:grid;grid-template-columns:1fr auto;align-items:center;gap:5px;padding:7px 10px;border:1px solid #e2e8f1;border-radius:8px;background:#f8fafc}.replay-completion-overview span{color:#718096;font-size:12px}.replay-completion-overview strong{font-size:16px;color:#1e3555}
@@ -833,5 +952,5 @@ onBeforeUnmount(() => {
 .replay-completion-preview-body{flex:1;min-height:0;overflow:auto;padding:18px;background:#eef2f7;text-align:center}.replay-completion-preview-body img{display:block;max-width:100%;height:auto;margin:0 auto;border:1px solid #d8e0eb;background:#fff;box-shadow:0 8px 28px rgba(15,23,42,.14)}
 .replay-completion-drawer{position:absolute;top:0;right:0;bottom:0;z-index:5;display:flex;flex-direction:column;width:min(520px,42vw);border-left:1px solid #d7e0eb;background:var(--bg-card,#fff);box-shadow:-14px 0 36px rgba(15,23,42,.15)}.replay-completion-drawer>header{display:flex;align-items:start;justify-content:space-between;padding:18px;border-bottom:1px solid #e5eaf1}.replay-completion-drawer h3{margin:0;font-size:16px}.replay-completion-drawer header p{margin:5px 0 0;color:#77849a;font-size:12px}.replay-completion-drawer-body{flex:1;overflow:auto;padding:14px}.replay-completion-issue-card{padding:14px;margin-bottom:10px;border:1px solid #e0e7f0;border-radius:9px;background:#fbfcfe}.replay-completion-issue-card h4{display:flex;align-items:flex-start;justify-content:space-between;margin:0 0 10px;color:#1e4f89}.replay-completion-status-stack{display:flex;flex-direction:column;align-items:flex-end;gap:4px}.replay-completion-status-badge{padding:3px 7px;border-radius:4px;background:#edf3fa;color:#52657d;font-size:11px}.replay-completion-overdue-days{color:#667085;font-size:11px;font-weight:500;white-space:nowrap}.replay-completion-overdue-number{color:#d92d20;font-weight:800;font-variant-numeric:tabular-nums}.replay-completion-issue-card dl{display:grid;gap:7px;margin:0}.replay-completion-issue-card dl div{display:grid;grid-template-columns:92px 1fr;gap:8px}.replay-completion-issue-card dt{color:#7a879a;font-size:12px}.replay-completion-issue-card dd{min-width:0;margin:0;overflow-wrap:anywhere;font-size:12px}.replay-completion-drawer footer{display:flex;align-items:center;justify-content:center;gap:12px;padding:12px;border-top:1px solid #e5eaf1;font-size:12px}.replay-completion-drawer footer button{height:30px}.replay-completion-drawer footer button:disabled,.replay-completion-range-fields button:disabled{opacity:.45;cursor:not-allowed}
 @media(max-width:900px){.replay-completion-mask{padding:10px}.replay-completion-modal{width:calc(100vw - 20px);height:calc(100vh - 20px)}.replay-completion-body{overflow:auto}.replay-completion-split-layout,.replay-completion-split-layout.is-upper-collapsed{display:block;overflow:visible;padding:0 14px 18px}.replay-completion-upper-pane,.replay-completion-lower-pane{overflow:visible}.replay-completion-splitter{display:none}.replay-completion-collapsed-summary{min-height:46px;flex-wrap:wrap}.replay-completion-table-stage{display:block}.replay-completion-table-wrap{max-height:55vh;overflow:auto}.replay-completion-overview{grid-template-columns:repeat(3,1fr)}.replay-completion-drawer{width:min(560px,88vw)}.replay-completion-range-fields{flex-wrap:wrap}.replay-completion-grouping-switch{width:100%;margin-left:0}.replay-completion-group-toolbar{align-items:flex-start;flex-wrap:wrap}.replay-completion-group-tabs{width:100%}.replay-completion-snapshot-actions{width:100%}.replay-completion-snapshot-message{margin-right:auto;white-space:normal}}
-@media(prefers-reduced-motion:reduce){.replay-completion-snapshot-flash,.replay-completion-snapshot-shutter{animation:none;display:none}.replay-completion-snapshot-message{transition-duration:.12s}}
+@media(prefers-reduced-motion:reduce){.replay-completion-modal.is-window-minimizing,.replay-completion-modal.is-window-restoring,.replay-completion-mask.is-window-backdrop-minimizing,.replay-completion-mask.is-window-backdrop-restoring{animation-duration:.01ms}.replay-completion-snapshot-flash,.replay-completion-snapshot-shutter{animation:none;display:none}.replay-completion-snapshot-message{transition-duration:.12s}}
 </style>

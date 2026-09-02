@@ -96,7 +96,7 @@ function arrangeApi({ total = 4607, items = [fixtureRow] } = {}) {
   getReplayIssueOptions.mockResolvedValue({
     groups: ['公共组'],
     issueLevels: ['交易级'],
-    issueTypes: ['迁移问题', '防腐问题', '代码问题', '新核心下线', '参数问题', '平台问题', '规则差异问题', '合理差异', '外围问题', '其他问题'],
+    issueTypes: ['迁移问题', '防腐问题', '代码问题', '新核心下线', '参数问题', '平台问题', '规则差异问题', '合理差异', '规则性差异问题', '外围问题', '其他问题'],
     issueStatuses: ['新建', '打开', '无需处理', '延后修复', '修复待验证', '重新打开', '已修复'],
     reviewStatuses: ['待审核', '已审核'],
     coverageRounds: ['20260808-001', '20260807-001'],
@@ -169,14 +169,113 @@ async function openImport(wrapper) {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })))
   arrangeApi()
 })
 
 afterEach(() => {
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 describe('ReplayIssuePage', () => {
+  it('uses replay type as the highest priority list and statistics baseline', async () => {
+    getReplayIssueHeaderFilterOptionCounts.mockResolvedValue(countedOptions(['2026-08-26']))
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="replay-type-all-toolbar"]').attributes('aria-pressed')).toBe('true')
+    expect(listReplayIssues).toHaveBeenLastCalledWith(expect.objectContaining({ replayType: 'ALL' }))
+    expect(getReplayIssueStats).toHaveBeenLastCalledWith({ groupBy: 'issueDomain', replayType: 'ALL' })
+
+    const planDateHeader = wrapper.findAll('thead th').at(visibleColumnLabels.indexOf('计划验证日期'))
+    await planDateHeader.get('.replay-header-filter-button').trigger('click')
+    await flushPromises()
+    await wrapper.find('[data-testid="header-filter-panel"] input[type="checkbox"]').setValue(true)
+    await wrapper.find('[data-testid="header-filter-panel"] .replay-button-primary').trigger('click')
+    await wrapper.get('[data-testid="weekly-task-only"]').setValue(true)
+    await wrapper.get('[data-testid="affected-transaction-count-sort"]').trigger('click')
+    await wrapper.get('[data-testid="next-page"]').trigger('click')
+    await flushPromises()
+
+    const listCallsBeforeSwitch = listReplayIssues.mock.calls.length
+    await wrapper.get('[data-testid="replay-type-dz-toolbar"]').trigger('click')
+    await flushPromises()
+
+    const switched = listReplayIssues.mock.calls.at(-1)[0]
+    expect(listReplayIssues.mock.calls.length).toBeGreaterThan(listCallsBeforeSwitch)
+    expect(switched).toMatchObject({ replayType: 'DZ', offset: 0 })
+    expect(switched.plannedCompletionDates).toBeUndefined()
+    expect(switched.weeklyTask).toBeUndefined()
+    expect(switched.affectedTransactionCountOrder).toBeUndefined()
+    expect(getReplayIssueStats).toHaveBeenLastCalledWith({ groupBy: 'issueDomain', replayType: 'DZ' })
+
+    const listCallsBeforeRepeatedClick = listReplayIssues.mock.calls.length
+    await wrapper.get('[data-testid="replay-type-dz-toolbar"]').trigger('click')
+    await flushPromises()
+    expect(listReplayIssues.mock.calls.length).toBeGreaterThan(listCallsBeforeRepeatedClick)
+
+    await wrapper.get('[data-testid="reset-filters"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="replay-type-dz-toolbar"]').attributes('aria-pressed')).toBe('true')
+    expect(listReplayIssues).toHaveBeenLastCalledWith(expect.objectContaining({ replayType: 'DZ', offset: 0 }))
+  })
+
+  it('shows the current DZ or query batch family as selected in the occurrence filter', async () => {
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+    const occurrenceHeader = () => wrapper.findAll('thead th').at(visibleColumnLabels.indexOf('出现批次'))
+
+    getReplayIssueHeaderFilterOptionCounts.mockResolvedValueOnce(countedOptions([
+      'DZ20260815-001', 'DZ20260819-001',
+    ]))
+    await wrapper.get('[data-testid="replay-type-dz-toolbar"]').trigger('click')
+    await flushPromises()
+    await occurrenceHeader().get('.replay-header-filter-button').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="replay-type-dz-toolbar"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.findAll('[data-testid="header-filter-panel"] input[type="checkbox"]')
+      .map(checkbox => checkbox.element.checked)).toEqual([true, true])
+
+    await wrapper.get('[data-testid="header-filter-panel"] [aria-label="关闭筛选"]').trigger('click')
+    getReplayIssueHeaderFilterOptionCounts.mockResolvedValueOnce(countedOptions([
+      'RPT20260815-001', 'RPT20260819-001',
+    ]))
+    await wrapper.get('[data-testid="replay-type-query-toolbar"]').trigger('click')
+    await flushPromises()
+    await occurrenceHeader().get('.replay-header-filter-button').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="replay-type-query-toolbar"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.findAll('[data-testid="header-filter-panel"] input[type="checkbox"]')
+      .map(checkbox => checkbox.element.checked)).toEqual([true, true])
+  })
+
+  it('inherits replay type into summary modals while keeping inner switches isolated', async () => {
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+    await wrapper.get('[data-testid="replay-type-dz-toolbar"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="person-ranking-entry"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="replay-type-dz-modal"]').attributes('aria-pressed')).toBe('true')
+    expect(getReplayIssuePersonRankings).toHaveBeenLastCalledWith({ groupBy: 'issueDomain', replayType: 'DZ' })
+
+    await wrapper.get('[data-testid="replay-type-query-modal"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="replay-type-dz-toolbar"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.get('[data-testid="replay-type-query-modal"]').attributes('aria-pressed')).toBe('true')
+    expect(getReplayIssuePersonRankings).toHaveBeenLastCalledWith({ groupBy: 'issueDomain', replayType: 'QUERY' })
+
+    await wrapper.get('[data-testid="close-summary-modal"]').trigger('click')
+    await wrapper.get('[data-testid="group-summary-entry"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="replay-type-dz-modal"]').attributes('aria-pressed')).toBe('true')
+    expect(getReplayIssueGroupSummaries).toHaveBeenLastCalledWith({ groupBy: 'issueDomain', replayType: 'DZ' })
+  })
+
   it('places planned completion after the two summary entries and hides the whole action row when statistics collapse', async () => {
     const wrapper = mount(ReplayIssuePage)
     await flushPromises()
@@ -191,8 +290,8 @@ describe('ReplayIssuePage', () => {
       '问题打开总数',
       '问题重新打开总数',
       '问题延后修复总数',
-      '问题无需处理总数',
       '问题待验证总数',
+      '问题无需处理总数',
       '问题已修复总数',
     ])
     const row = wrapper.get('[data-testid="replay-summary-actions-row"]')
@@ -206,6 +305,7 @@ describe('ReplayIssuePage', () => {
       '计划完成情况',
     ])
     expect(actions.findAll('[data-testid]')).toHaveLength(2)
+    expect(actions.get('[data-testid="reset-filters"]').text()).toBe('重置筛选条件')
     expect(actions.find('[data-testid="planned-completion-entry"]').exists()).toBe(false)
     expect(actions.get('[data-testid="weekly-task-only"]').exists()).toBe(true)
     expect(actions.get('[data-testid="reset-filters"]').exists()).toBe(true)
@@ -243,6 +343,35 @@ describe('ReplayIssuePage', () => {
     expect(listReplayIssues).toHaveBeenCalledTimes(listCallsBeforeOpen)
   })
 
+  it('keeps a minimized completion window isolated from later toolbar changes and restores it', async () => {
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="planned-completion-entry"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="completion-replay-type-dz"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="completion-grouping-domain"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="minimize-completion-modal"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="planned-completion-entry"]').attributes('data-window-state')).toBe('minimized')
+    expect(wrapper.get('.replay-completion-mask').attributes('style')).toContain('display: none')
+
+    await wrapper.get('[data-testid="replay-type-query-toolbar"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="stats-group-issue-domain-toolbar"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="planned-completion-entry"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="completion-replay-type-dz"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.get('[data-testid="completion-grouping-domain"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.get('[data-testid="planned-completion-entry"]').attributes('data-window-state')).toBe('open')
+    expect(wrapper.get('.replay-completion-mask').attributes('style') || '').not.toContain('display: none')
+  })
+
   it('isolates planned completion grouping and inherits the toolbar again after reopening', async () => {
     const wrapper = mount(ReplayIssuePage)
     await flushPromises()
@@ -266,6 +395,28 @@ describe('ReplayIssuePage', () => {
 
     expect(wrapper.get('[data-testid="completion-grouping-issue-domain"]').attributes('aria-pressed')).toBe('true')
     expect(getReplayCompletionDashboard).toHaveBeenLastCalledWith(expect.objectContaining({ groupBy: 'issueDomain' }))
+  })
+
+  it('inherits replay type into planned completion and restores the outer type after reopening', async () => {
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+    await wrapper.get('[data-testid="replay-type-dz-toolbar"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="planned-completion-entry"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="completion-replay-type-dz"]').attributes('aria-pressed')).toBe('true')
+    expect(getReplayCompletionDashboard).toHaveBeenLastCalledWith(expect.objectContaining({ replayType: 'DZ' }))
+
+    await wrapper.get('[data-testid="completion-replay-type-query"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="replay-type-dz-toolbar"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.get('[data-testid="completion-replay-type-query"]').attributes('aria-pressed')).toBe('true')
+
+    await wrapper.get('.replay-completion-close').trigger('click')
+    await wrapper.get('[data-testid="planned-completion-entry"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="completion-replay-type-dz"]').attributes('aria-pressed')).toBe('true')
   })
 
   it('places planned completion date between description and defect date and applies group permissions', async () => {
@@ -359,6 +510,31 @@ describe('ReplayIssuePage', () => {
     expect(wrapper.get('[data-testid="issue-domain-select-4"]').attributes('disabled')).toBeDefined()
   })
 
+  it('lets an advanced current-domain editor transfer after three changes but still locks repaired rows', async () => {
+    arrangeApi({ items: [
+      { ...fixtureRow, id: 1, issue_domain: '贷款组', issue_domain_transfer_count: 3 },
+      { ...fixtureRow, id: 2, issue_key: 'key-2', issue_domain: '贷款组', issue_domain_transfer_count: 4, defect_repair_date: '2026-08-26' },
+    ] })
+    getReplayIssueDomainPermissions.mockResolvedValue({
+      editableDomains: ['贷款组'],
+      transferLimitBypassDomains: ['贷款组'],
+    })
+    updateReplayIssueDomain.mockResolvedValueOnce({ id: 1, issueDomain: '公共组', transferCount: 4 })
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    const editable = wrapper.get('[data-testid="issue-domain-select-1"]')
+    expect(editable.attributes('disabled')).toBeUndefined()
+    expect(editable.attributes('title')).toBe('选择后失去焦点自动保存')
+    expect(wrapper.get('[data-testid="issue-domain-select-2"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-testid="issue-domain-select-2"]').attributes('title')).toBe('已有缺陷修复日期，问题所属领域不可修改')
+
+    await editable.setValue('公共组')
+    await editable.trigger('blur')
+    await flushPromises()
+    expect(updateReplayIssueDomain).toHaveBeenCalledWith(1, '公共组')
+  })
+
   it('keeps issue-domain selectors the same fixed width with or without a transfer badge', async () => {
     arrangeApi({ items: [
       { ...fixtureRow, id: 1, issue_domain_transfer_count: 0 },
@@ -390,6 +566,25 @@ describe('ReplayIssuePage', () => {
     expect(wrapper.get('[data-testid="plan-date-error"]').text()).toBe('计划验证日期不能晚于首次出现日期后 7 个自然日（最晚 2026-08-27）')
   })
 
+  it('lets an advanced group editor save a valid date without an occurrence boundary', async () => {
+    arrangeApi({ items: [{ ...fixtureRow, first_occurrence_date: '', planned_completion_date: '' }] })
+    getReplayIssuePlanDatePermissions.mockResolvedValue({
+      editableGroups: ['贷款组'],
+      dateLimitBypassGroups: ['贷款组'],
+      editableTransactionCodes: [],
+    })
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="plan-date-edit-1"]').trigger('click')
+    await wrapper.get('[data-testid="plan-date-input-1"]').setValue('2026-09-30')
+    await wrapper.get('[data-testid="plan-date-input-1"]').trigger('blur')
+    await flushPromises()
+
+    expect(updateReplayIssuePlannedCompletionDate).toHaveBeenCalledWith(1, '2026-09-30')
+    expect(wrapper.find('[data-testid="plan-date-error"]').exists()).toBe(false)
+  })
+
   it('uses the approved list order, colors, compact widths, and date-only occurrence values', async () => {
     arrangeApi({ items: [{ ...fixtureRow, group_name: '公共组', domain: '公共组', planned_completion_date: '2026-08-30' }] })
     const wrapper = mount(ReplayIssuePage)
@@ -414,6 +609,7 @@ describe('ReplayIssuePage', () => {
     expect(columnWidths[visibleColumnLabels.indexOf('是否沙箱')]).toBe(columnWidths[visibleColumnLabels.indexOf('问题级别')])
     expect(columnWidths[visibleColumnLabels.indexOf('交易码')]).toBe(columnWidths[visibleColumnLabels.indexOf('问题级别')])
     expect(columnWidths[visibleColumnLabels.indexOf('问题所属领域')]).toContain('width: 140px')
+    expect(columnWidths[visibleColumnLabels.indexOf('计划验证日期')]).toContain('width: 160px')
     expect(columnWidths[visibleColumnLabels.indexOf('出现笔数')]).toBe(columnWidths[visibleColumnLabels.indexOf('审核状态')])
     expect(columnWidths[visibleColumnLabels.indexOf('出现笔数')]).toContain('width: 112px')
   })
@@ -794,7 +990,7 @@ describe('ReplayIssuePage', () => {
     expect(approveReplayIssue).toHaveBeenCalledWith(1)
   })
 
-  it('locks no-action review rows for non-reviewers and force-binds issue types', async () => {
+  it('locks approved no-action rows for non-reviewers and limits editable no-action types', async () => {
     getReplayIssueReviewPermissions.mockResolvedValue({ reviewableGroups: [], reviewersByGroup: { 贷款组: ['审核甲', '审核乙'] } })
     arrangeApi({ items: [{ ...fixtureRow, issue_status: '无需处理', issue_type: '合理差异', review_status: '已审核' }] })
     getReplayIssueReviewPermissions.mockResolvedValue({ reviewableGroups: [], reviewersByGroup: { 贷款组: ['审核甲', '审核乙'] } })
@@ -810,11 +1006,34 @@ describe('ReplayIssuePage', () => {
     await editable.get('[data-testid="edit-1"]').trigger('click')
     await editable.get('[data-testid="edit-status"]').setValue('无需处理')
     await flushPromises()
-    expect(editable.get('[data-testid="edit-type"]').element.value).toBe('合理差异')
-    expect(editable.get('[data-testid="edit-type"]').attributes('disabled')).toBeDefined()
+    const typeSelect = editable.get('[data-testid="edit-type"]')
+    expect(typeSelect.element.value).toBe('合理差异')
+    expect(typeSelect.attributes('disabled')).toBeUndefined()
+    expect(typeSelect.findAll('option').map(option => option.text())).toEqual([
+      '请选择问题类型', '合理差异', '规则性差异问题', '外围问题',
+    ])
     await editable.get('[data-testid="edit-status"]').setValue('延后修复')
     await flushPromises()
     expect(editable.get('[data-testid="edit-type"]').element.value).toBe('迁移问题')
+    expect(editable.get('[data-testid="edit-type"]').attributes('disabled')).toBeDefined()
+  })
+
+  it.each(['规则性差异问题', '外围问题'])('preserves %s when saving a no-action issue', async (issueType) => {
+    arrangeApi()
+    updateReplayIssue.mockResolvedValueOnce({ ...fixtureRow, issue_status: '无需处理', issue_type: issueType })
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="edit-1"]').trigger('click')
+    await wrapper.get('[data-testid="edit-status"]').setValue('无需处理')
+    await wrapper.get('[data-testid="edit-type"]').setValue(issueType)
+    await wrapper.get('[data-testid="save-edit"]').trigger('click')
+    await flushPromises()
+
+    expect(updateReplayIssue).toHaveBeenCalledWith(1, expect.objectContaining({
+      issueStatus: '无需处理',
+      issueType,
+    }))
   })
 
   it('keeps pending no-action issues editable for ordinary users', async () => {
@@ -947,6 +1166,123 @@ describe('ReplayIssuePage', () => {
     expect(wrapper.find('[data-testid="summary-modal"]').exists()).toBe(false)
   })
 
+  it('keeps a minimized group summary isolated from later toolbar filters and refreshes it on restore', async () => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })))
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="group-summary-entry"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="replay-type-dz-modal"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="minimize-summary-modal"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="summary-modal-mask"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="group-summary-entry"]').attributes('data-window-state')).toBe('minimized')
+
+    await wrapper.get('[data-testid="replay-type-query-toolbar"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="group-summary-entry"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="replay-type-dz-modal"]').attributes('aria-pressed')).toBe('true')
+    expect(getReplayIssueGroupSummaries).toHaveBeenLastCalledWith({ groupBy: 'issueDomain', replayType: 'DZ' })
+    expect(getReplayIssueGroupSummaries).toHaveBeenCalledTimes(3)
+  })
+
+  it('switches statistics windows in sequence and can leave all three minimized', async () => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })))
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="group-summary-entry"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="person-ranking-entry"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="group-summary-entry"]').attributes('data-window-state')).toBe('minimized')
+    expect(wrapper.get('[data-testid="person-ranking-entry"]').attributes('data-window-state')).toBe('open')
+
+    await wrapper.get('[data-testid="planned-completion-entry"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="person-ranking-entry"]').attributes('data-window-state')).toBe('minimized')
+    expect(wrapper.get('[data-testid="planned-completion-entry"]').attributes('data-window-state')).toBe('open')
+
+    await wrapper.get('[data-testid="minimize-completion-modal"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="group-summary-entry"]').attributes('data-window-state')).toBe('minimized')
+    expect(wrapper.get('[data-testid="person-ranking-entry"]').attributes('data-window-state')).toBe('minimized')
+    expect(wrapper.get('[data-testid="planned-completion-entry"]').attributes('data-window-state')).toBe('minimized')
+    expect(wrapper.findAll('[aria-modal="true"]')).toHaveLength(0)
+  })
+
+  it('animates the dialog and backdrop in opposite directions for restore and minimize', async () => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false })))
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="group-summary-entry"]').trigger('click')
+    await wrapper.vm.$nextTick()
+    await Promise.resolve()
+    expect(wrapper.get('[data-testid="summary-modal"]').classes()).toContain('is-window-restoring')
+    expect(wrapper.get('[data-testid="summary-modal-mask"]').classes()).toContain('is-window-backdrop-restoring')
+    wrapper.get('[data-testid="summary-modal"]').element.dispatchEvent(new Event('animationend'))
+    await flushPromises()
+
+    await wrapper.get('[data-testid="minimize-summary-modal"]').trigger('click')
+    await wrapper.vm.$nextTick()
+    expect(wrapper.get('[data-testid="summary-modal"]').classes()).toContain('is-window-minimizing')
+    expect(wrapper.get('[data-testid="summary-modal-mask"]').classes()).toContain('is-window-backdrop-minimizing')
+    wrapper.get('[data-testid="summary-modal"]').element.dispatchEvent(new Event('animationend'))
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="group-summary-entry"]').attributes('data-window-state')).toBe('minimized')
+  })
+
+  it('ignores a stale summary response after X closes the window', async () => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })))
+    let resolveFirst
+    getReplayIssueGroupSummaries
+      .mockImplementationOnce(() => new Promise(resolve => { resolveFirst = resolve }))
+      .mockResolvedValueOnce([{ groupName: '存款组', totalCount: 2 }])
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="group-summary-entry"]').trigger('click')
+    await vi.waitFor(() => expect(resolveFirst).toBeTypeOf('function'))
+    await wrapper.get('[data-testid="close-summary-modal"]').trigger('click')
+    resolveFirst([{ groupName: '贷款组', totalCount: 99 }])
+    await flushPromises()
+    await wrapper.get('[data-testid="group-summary-entry"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="summary-modal"] tbody').text()).toContain('存款组')
+    expect(wrapper.get('[data-testid="summary-modal"] tbody').text()).not.toContain('99')
+    expect(getReplayIssueGroupSummaries).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps the last successful summary rows visible when restore refresh fails', async () => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })))
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="group-summary-entry"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="summary-modal"] tbody').text()).toContain('贷款组')
+    await wrapper.get('[data-testid="minimize-summary-modal"]').trigger('click')
+    await flushPromises()
+    getReplayIssueGroupSummaries.mockRejectedValueOnce(new Error('network down'))
+
+    await wrapper.get('[data-testid="group-summary-entry"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="summary-modal"]').text()).toContain('数据刷新失败，请稍后重试：network down')
+    expect(wrapper.get('[data-testid="summary-modal"] tbody').text()).toContain('贷款组')
+    expect(wrapper.get('[data-testid="group-summary-entry"]').attributes('data-window-state')).toBe('open')
+  })
+
   it('opens the developer ranking by click without loading the group summary', async () => {
     const wrapper = mount(ReplayIssuePage)
     await flushPromises()
@@ -985,19 +1321,19 @@ describe('ReplayIssuePage', () => {
     const wrapper = mount(ReplayIssuePage)
     await flushPromises()
 
-    expect(getReplayIssueStats).toHaveBeenLastCalledWith({ groupBy: 'issueDomain' })
+    expect(getReplayIssueStats).toHaveBeenLastCalledWith({ groupBy: 'issueDomain', replayType: 'ALL' })
     expect(wrapper.get('[data-testid="stats-group-issue-domain-toolbar"]').attributes('aria-pressed')).toBe('true')
 
     await wrapper.get('[data-testid="person-ranking-entry"]').trigger('click')
     await flushPromises()
-    expect(getReplayIssuePersonRankings).toHaveBeenLastCalledWith({ groupBy: 'issueDomain' })
+    expect(getReplayIssuePersonRankings).toHaveBeenLastCalledWith({ groupBy: 'issueDomain', replayType: 'ALL' })
     const statsCallsBeforeModalSwitch = getReplayIssueStats.mock.calls.length
 
     await wrapper.get('[data-testid="stats-group-domain-modal"]').trigger('click')
     await flushPromises()
 
     expect(getReplayIssueStats).toHaveBeenCalledTimes(statsCallsBeforeModalSwitch)
-    expect(getReplayIssuePersonRankings).toHaveBeenLastCalledWith({ groupBy: 'domain' })
+    expect(getReplayIssuePersonRankings).toHaveBeenLastCalledWith({ groupBy: 'domain', replayType: 'ALL' })
     expect(wrapper.get('[data-testid="stats-group-issue-domain-toolbar"]').attributes('aria-pressed')).toBe('true')
     expect(wrapper.get('[data-testid="stats-group-domain-modal"]').attributes('aria-pressed')).toBe('true')
     expect(wrapper.findAll('[data-testid="person-ranking-group-tab"]').map(tab => tab.text())).toEqual(['存款组', '贷款组', '公共组', '结算组'])
@@ -1008,8 +1344,8 @@ describe('ReplayIssuePage', () => {
     await flushPromises()
     await wrapper.get('[data-testid="group-summary-entry"]').trigger('click')
     await flushPromises()
-    expect(getReplayIssueStats).toHaveBeenLastCalledWith({ groupBy: 'domain' })
-    expect(getReplayIssueGroupSummaries).toHaveBeenLastCalledWith({ groupBy: 'domain' })
+    expect(getReplayIssueStats).toHaveBeenLastCalledWith({ groupBy: 'domain', replayType: 'ALL' })
+    expect(getReplayIssueGroupSummaries).toHaveBeenLastCalledWith({ groupBy: 'domain', replayType: 'ALL' })
     expect(wrapper.get('[data-testid="stats-group-domain-modal"]').attributes('aria-pressed')).toBe('true')
     expect(wrapper.get('[data-testid="summary-modal"] tbody').text()).toContain('公共组')
   })
@@ -1073,11 +1409,11 @@ describe('ReplayIssuePage', () => {
     expect(wrapper.get('[data-testid="summary-modal"] tbody').text()).toContain('存款负责人')
   })
 
-  it('renumbers developer rankings from one inside the selected group', async () => {
+  it('preserves unresolved-first API order and renumbers rankings inside the selected group', async () => {
     getReplayIssuePersonRankings.mockResolvedValue([
-      { rank: 2, groupName: '存款组', developer: '存款负责人02', totalCount: 20 },
-      { rank: 6, groupName: '存款组', developer: '存款负责人06', totalCount: 18 },
-      { rank: 1, groupName: '贷款组', developer: '贷款负责人01', totalCount: 30 },
+      { rank: 2, groupName: '存款组', developer: '未修复较多', pendingTotalCount: 8, totalCount: 9 },
+      { rank: 6, groupName: '存款组', developer: '总数较多但未修复较少', pendingTotalCount: 3, totalCount: 20 },
+      { rank: 1, groupName: '贷款组', developer: '贷款负责人01', pendingTotalCount: 5, totalCount: 30 },
     ])
     const wrapper = mount(ReplayIssuePage)
     await flushPromises()
@@ -1088,6 +1424,7 @@ describe('ReplayIssuePage', () => {
     const rows = wrapper.findAll('[data-testid="summary-modal"] tbody tr')
     expect(rows).toHaveLength(2)
     expect(rows.map(row => row.findAll('td')[0].text())).toEqual(['1', '2'])
+    expect(rows.map(row => row.findAll('td')[2].text())).toEqual(['未修复较多', '总数较多但未修复较少'])
   })
 
   it('copies only the selected developer-ranking group', async () => {
@@ -1200,6 +1537,7 @@ describe('ReplayIssuePage', () => {
     await flushPromises()
     await wrapper.get('[data-testid="close-summary-modal"]').trigger('click')
     await entry.trigger('click')
+    await flushPromises()
     expect(getReplayIssuePersonRankings).toHaveBeenCalledTimes(2)
   })
 
@@ -1539,7 +1877,7 @@ describe('ReplayIssuePage', () => {
 
     const cards = wrapper.findAll('.replay-summary-card')
     expect(cards).toHaveLength(8)
-    expect(cards.map((card) => card.find('strong').text())).toEqual(['4607', '0', '1200', '0', '800', '0', '500', '2107'])
+    expect(cards.map((card) => card.find('strong').text())).toEqual(['4607', '0', '1200', '0', '800', '500', '0', '2107'])
     expect(cards[0].find('.replay-summary-tooltip').text()).toContain('公共组1000')
     const statusHeader = wrapper.findAll('thead th').at(visibleColumnLabels.indexOf('问题状态'))
     expect(statusHeader.find('.replay-header-filter-button').exists()).toBe(true)
@@ -1586,12 +1924,16 @@ describe('ReplayIssuePage', () => {
       roundId: 2, roundCode: '20260808-001', importedAt: '2026-08-08 10:00:00', appeared: true,
       statusBefore: '延后修复', statusAfter: '重新打开', actionType: '再次出现',
       manualChangeCount: 2, finalStatus: '修复待验证',
+      originalData: [
+        { field: '交易码', value: '6208' },
+        { field: '问题描述', value: 'Excel输入' },
+      ],
       inheritedEvents: [
-        { id: 3, operationType: '基础数据覆盖，人工内容继承', operationAt: '2026-08-08 10:00:00', operatorRealName: '系统', operatorUsername: 'SYSTEM', issueStatus: '打开', issueType: '代码问题', initialAnalysis: '人工分析', finalSolution: '人工方案', cooperationPersonUsername: 'alice', cooperationPersonRealName: '艾丽丝', remark: '人工备注', beforeSnapshot: '{"issueDescription":"旧基础数据"}', afterSnapshot: '{"issueDescription":"新基础数据"}', incomingSnapshot: '{"issueDescription":"Excel输入"}' },
+        { id: 3, operationType: '基础数据覆盖，人工内容继承', operationAt: '2026-08-08 10:00:00', operatorRealName: '系统', operatorUsername: 'SYSTEM', issueStatus: '打开', issueType: '代码问题', initialAnalysis: '人工分析', finalSolution: '人工方案', cooperationPersonUsername: 'alice', cooperationPersonRealName: '艾丽丝', remark: '人工备注', changes: [{ field: '问题描述', before: '旧基础数据', after: '新基础数据' }], originalData: [{ field: '问题描述', value: 'Excel输入' }], beforeSnapshot: '{"issueDescription":"旧基础数据"}', afterSnapshot: '{"issueDescription":"新基础数据"}', incomingSnapshot: '{"issueDescription":"Excel输入"}' },
       ],
       manualEvents: [
-        { id: 2, operationType: '人工保存', operationAt: '2026-08-08 12:00:00', operatorRealName: '编辑人', operatorUsername: 'editor', issueStatus: '修复待验证', issueType: '代码问题', initialAnalysis: '核对返回值', finalSolution: '修正映射', cooperationPersonUsername: 'sunhy1', cooperationPersonRealName: '孙海英', beforeSnapshot: '{}', afterSnapshot: '{}', incomingSnapshot: null },
-        { id: 1, operationType: '人工保存', operationAt: '2026-08-08 11:00:00', operatorRealName: '编辑人', operatorUsername: 'editor', issueStatus: '延后修复', issueType: '代码问题', initialAnalysis: '核对返回值', finalSolution: '修正映射', cooperationPersonUsername: 'sunhy1', cooperationPersonRealName: '孙海英', beforeSnapshot: '{}', afterSnapshot: '{}', incomingSnapshot: null },
+        { id: 2, operationType: '人工保存', operationAt: '2026-08-08 12:00:00', operatorRealName: '编辑人', operatorUsername: 'editor', issueStatus: '修复待验证', issueType: '代码问题', initialAnalysis: '核对返回值', finalSolution: '修正映射', cooperationPersonUsername: 'sunhy1', cooperationPersonRealName: '孙海英', changes: [{ field: '问题状态', before: '延后修复', after: '修复待验证' }], beforeSnapshot: '{}', afterSnapshot: '{}', incomingSnapshot: null },
+        { id: 1, operationType: '人工保存', operationAt: '2026-08-08 11:00:00', operatorRealName: '编辑人', operatorUsername: 'editor', issueStatus: '延后修复', issueType: '代码问题', initialAnalysis: '核对返回值', finalSolution: '修正映射', cooperationPersonUsername: 'sunhy1', cooperationPersonRealName: '孙海英', changes: [{ field: '最终处理方案', before: '旧方案', after: '修正映射' }], beforeSnapshot: '{}', afterSnapshot: '{}', incomingSnapshot: null },
       ],
     }])
     const wrapper = mount(ReplayIssuePage)
@@ -1612,24 +1954,48 @@ describe('ReplayIssuePage', () => {
     expect(getReplayIssueRoundTracking).toHaveBeenCalledWith(1)
     expect(wrapper.get('[data-testid="tracking-drawer"]').text()).toContain('20260808-001')
     expect(wrapper.get('[data-testid="tracking-drawer"]').text()).toContain('批次编号 20260808-001')
-    expect(wrapper.get('[data-testid="tracking-drawer"]').text()).toContain('延后修复 → 重新打开')
-    expect(wrapper.get('[data-testid="tracking-drawer"]').text()).toContain('人工修改 2 次')
-    expect(wrapper.get('[data-testid="tracking-drawer"]').text()).toContain('本批次最终状态 修复待验证')
+    expect(wrapper.get('[data-testid="tracking-drawer"]').text()).toContain('变更时间线')
+    expect(wrapper.get('[data-testid="system-events-2"]').text()).toContain('系统操作（1）')
+    expect(wrapper.get('[data-testid="manual-events-2"]').text()).toContain('本批次用户操作（2）')
     expect(wrapper.get('[data-testid="tracking-drawer"]').text()).toContain('编辑人')
     expect(wrapper.get('[data-testid="tracking-round-2"]').attributes()).toHaveProperty('open')
-    expect(wrapper.get('[data-testid="manual-events-2"]').attributes()).toHaveProperty('open')
-    const inherited = wrapper.get('[data-testid="inherited-events-2"]')
-    expect(inherited.attributes()).toHaveProperty('open')
-    expect(inherited.text()).toContain('本批次继承内容（1）')
-    expect(inherited.text()).toContain('人工分析')
-    expect(inherited.text()).toContain('人工方案')
-    expect(inherited.text()).toContain('艾丽丝(alice)')
-    expect(inherited.text()).toContain('人工备注')
-    expect(inherited.text()).toContain('旧基础数据')
-    expect(inherited.text()).toContain('新基础数据')
-    expect(inherited.text()).toContain('Excel输入')
-    expect(wrapper.findAll('.replay-manual-events details').every((details) => !('open' in details.attributes()))).toBe(true)
+    expect(wrapper.get('[data-testid="original-data-2"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="original-data-2"]').text()).not.toContain('Excel输入')
+    await wrapper.get('[data-testid="original-data-toggle-2"]').trigger('click')
+    expect(wrapper.get('[data-testid="original-data-2"]').text()).toContain('Excel输入')
+    expect(wrapper.get('[data-testid="change-table-3"]').text()).toContain('旧基础数据')
+    expect(wrapper.get('[data-testid="change-table-3"]').text()).toContain('新基础数据')
+    expect(wrapper.get('[data-testid="change-table-2"]').text()).toContain('延后修复')
+    expect(wrapper.get('[data-testid="change-table-1"]').text()).toContain('旧方案')
+    expect(wrapper.get('[data-testid="tracking-drawer"]').text()).not.toContain('完整快照')
     expect(wrapper.get('.replay-drawer-mask').exists()).toBe(true)
+  })
+
+  it('keeps an unchanged import batch visible with system attribution and raw values', async () => {
+    getReplayIssueRoundTracking.mockResolvedValueOnce([{
+      roundId: 3,
+      roundCode: '20260809-001',
+      importedAt: '2026-08-09 10:00:00',
+      actionType: '导入',
+      originalData: [{ field: '问题描述', value: '保持不变的原始值' }],
+      inheritedEvents: [],
+      manualEvents: [],
+    }])
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="tracking-1"]').trigger('click')
+    await flushPromises()
+
+    const drawer = wrapper.get('[data-testid="tracking-drawer"]')
+    expect(drawer.text()).toContain('批次编号 20260809-001')
+    expect(drawer.text()).toContain('系统')
+    expect(drawer.text()).toContain('本次导入未产生字段变化')
+    expect(drawer.text()).not.toContain('完整快照')
+    expect(wrapper.get('[data-testid="original-data-3"]').text()).not.toContain('保持不变的原始值')
+
+    await wrapper.get('[data-testid="original-data-toggle-3"]').trigger('click')
+    expect(wrapper.get('[data-testid="original-data-3"]').text()).toContain('保持不变的原始值')
   })
 
   it('requires an issue type before saving', async () => {
@@ -1650,8 +2016,9 @@ describe('ReplayIssuePage', () => {
 
     expect(wrapper.get('[data-testid="edit-status"]').findAll('option').map((option) => option.text()).slice(1))
       .toEqual(['打开', '无需处理', '延后修复', '修复待验证'])
+    await wrapper.get('[data-testid="edit-status"]').setValue('打开')
     const editTypes = wrapper.get('[data-testid="edit-type"]').findAll('option').map((option) => option.text())
-    expect(editTypes.slice(-3)).toEqual(['合理差异', '外围问题', '其他问题'])
+    expect(editTypes.slice(-4)).toEqual(['合理差异', '规则性差异问题', '外围问题', '其他问题'])
     expect(editTypes).not.toContain('esf问题')
   })
 
@@ -1834,7 +2201,7 @@ describe('ReplayIssuePage', () => {
 
     expect(getReplayIssueStats).toHaveBeenCalledTimes(2)
     expect(wrapper.findAll('.replay-summary-card')[2].find('strong').text()).toBe('1199')
-    expect(wrapper.findAll('.replay-summary-card')[6].find('strong').text()).toBe('501')
+    expect(wrapper.findAll('.replay-summary-card')[5].find('strong').text()).toBe('501')
   })
 
   it('closes the edit modal when a saved status change removes the issue from the refreshed list', async () => {

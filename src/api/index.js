@@ -95,7 +95,16 @@ export async function request(url, options = {}) {
 export async function download(url, fallbackFileName, options = {}) {
   const res = await fetch(BASE + url, options)
   if (!res.ok) {
-    const message = await res.text().catch(() => '')
+    const body = (await res.text().catch(() => '')).trim()
+    let message = body
+    if (body) {
+      try {
+        const json = JSON.parse(body)
+        if (typeof json?.message === 'string' && json.message.trim()) {
+          message = json.message.trim()
+        }
+      } catch (_) {}
+    }
     throw new Error(message || `HTTP ${res.status}: ${url}`)
   }
 

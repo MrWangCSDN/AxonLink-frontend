@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { Readable } from 'node:stream'
 import * as replayMock from './daoIndexMockServer.js'
 
 function countedOptions(query) {
@@ -37,7 +38,162 @@ function replayGet(path, params = {}) {
   return payload.data
 }
 
+function replayServer() {
+  const middlewares = []
+  replayMock.daoIndexMockPlugin().configureServer({ middlewares: { use: handler => middlewares.push(handler) } })
+  return async function request(method, path, body, headers = {}) {
+    const req = Readable.from(body === undefined ? [] : [JSON.stringify(body)])
+    req.method = method
+    req.url = `/api/ai/parallel-replay/issues${path}`
+    req.headers = headers
+    return new Promise((resolve, reject) => {
+      const headers = {}
+      const res = {
+        statusCode: 200,
+        setHeader(name, value) { headers[name.toLowerCase()] = value },
+        end(payload) {
+          const contentType = headers['content-type'] || ''
+          resolve({
+            status: this.statusCode,
+            headers,
+            data: contentType.includes('spreadsheet') ? payload : JSON.parse(String(payload)).data,
+          })
+        },
+      }
+      middlewares[0](req, res, () => reject(new Error(`replay route ${path} was not handled`)))
+    })
+  }
+}
+
 describe('replay issue counted header filter mock', () => {
+  it('serves list and counted filters from POST JSON bodies', async () => {
+    const request = replayServer()
+    const longDescription = '不存在的问题描述'.repeat(1000)
+
+    const list = (await request('POST', '', {
+      query: { limit: 50, issueDescriptions: [longDescription] },
+    })).data
+    const counts = (await request('POST', '/header-filter-option-counts', {
+      field: 'issueDescription',
+      keyword: '不存在',
+      query: { issueDescriptions: [longDescription] },
+    })).data
+
+    expect(list).toEqual({ total: 0, items: [] })
+    expect(counts).toMatchObject({
+      candidateCount: 0,
+      matchedIssueCount: 0,
+      items: [],
+    })
+  })
+
+  it('daily report snapshot remains generated after imports and issue edits', async () => {
+    const request = replayServer()
+    const initial = (await request('GET', '/daily-report/batches')).data
+    const ungenerated = initial.find(entry => entry.canGenerate && !entry.generated)
+    const initiallyGenerated = initial.find(entry => entry.generated)
+
+    expect(initial.some(entry => !entry.canGenerate)).toBe(true)
+    expect(ungenerated).toBeTruthy()
+    expect(initiallyGenerated).toBeTruthy()
+
+    const generatedDownload = await request('GET', `/daily-report?batchNo=${ungenerated.batchNo}`)
+    expect(generatedDownload.headers['content-type']).toContain('spreadsheetml.sheet')
+    expect(generatedDownload.headers['content-disposition']).toContain('.xlsx')
+    expect((await request('GET', '/daily-report/batches')).data.find(entry => entry.batchNo === ungenerated.batchNo).generated).toBe(true)
+
+    await request('GET', `/daily-report?batchNo=${ungenerated.batchNo}`)
+    await request('PATCH', '/1', {
+      issueStatus: '新建', issueType: '迁移问题', remark: '只修改备注',
+    })
+    expect((await request('GET', '/daily-report/batches')).data.some(entry => entry.generated)).toBe(true)
+
+    await request('PATCH', '/1', {
+      issueStatus: '打开', issueType: '迁移问题', remark: '修改状态',
+    })
+    expect((await request('GET', '/daily-report/batches')).data.find(entry => entry.batchNo === ungenerated.batchNo).generated).toBe(true)
+
+    await request('POST', '/import')
+    expect((await request('GET', '/daily-report/batches')).data.find(entry => entry.batchNo === ungenerated.batchNo).generated).toBe(true)
+  })
+
+  it('sends only an existing daily report with the shared token and retains mail status after edits', async () => {
+    const request = replayServer()
+    const batches = (await request('GET', '/daily-report/batches')).data
+    const generated = batches.find(entry => entry.generated)
+
+    const config = await request('GET', `/daily-report/mail-config?batchNo=${generated.batchNo}`)
+    expect(config.data).toMatchObject({
+      batchNo: generated.batchNo,
+      status: 'UNSENT',
+      toEmails: ['replay-owner@example.com'],
+      body: '各位好，附件为本批次回放问题日报，请查收。',
+    })
+
+    const payload = { batchNo: generated.batchNo, subject: '自定义标题', toEmails: ['new@example.com'], ccEmails: [], body: '日报正文' }
+    const unauthorized = await request('POST', '/daily-report/mail-send', payload)
+    expect(unauthorized.status).toBe(401)
+
+    const sent = await request('POST', '/daily-report/mail-send', payload, {
+      'x-dii-trigger-token': 'secret',
+    })
+    expect(sent.data.status).toBe('SENT')
+    expect(sent.data).toMatchObject({ subject: '自定义标题', toEmails: ['new@example.com'], ccEmails: [], body: '日报正文' })
+    expect((await request('GET', '/daily-report/batches')).data.find(entry => entry.batchNo === generated.batchNo).mailStatus).toBe('SENT')
+
+    await request('PATCH', '/1', { issueStatus: '修复待验证', issueType: '迁移问题', remark: '修改状态' })
+    const retained = (await request('GET', '/daily-report/batches')).data.find(entry => entry.batchNo === generated.batchNo)
+    expect(retained.generated).toBe(true)
+    expect(retained.mailStatus).toBe('SENT')
+  })
+
+  it('generates a permanent weekly report pair and retains its mail status', async () => {
+    const request = replayServer()
+    const options = (await request('GET', '/weekly-report/options')).data
+
+    expect(options.dailyBatches.filter(entry => entry.family === 'RPT')).toHaveLength(4)
+    expect(options.dailyBatches.filter(entry => entry.family === 'DZ')).toHaveLength(2)
+    expect(options.weeklyReports).toHaveLength(5)
+    expect(new Set(options.weeklyReports.map(entry => entry.endBatchNo)).size).toBe(5)
+    const startBatchNo = 'RPT20260818-01'
+    const endBatchNo = 'RPT20260902-01'
+
+    const generated = await request('GET', `/weekly-report?startBatchNo=${startBatchNo}&endBatchNo=${endBatchNo}`)
+    expect(generated.headers['content-disposition']).toContain(encodeURIComponent(`${endBatchNo}周报.xlsx`))
+    expect((await request('GET', '/weekly-report/options')).data.weeklyReports)
+      .toEqual(expect.arrayContaining([expect.objectContaining({ startBatchNo, endBatchNo })]))
+
+    const config = await request('GET', `/weekly-report/mail-config?startBatchNo=${startBatchNo}&endBatchNo=${endBatchNo}`)
+    expect(config.data).toMatchObject({
+      subject: '对公分布式核心回放问题周报-20260902',
+      toEmails: ['replay-owner@example.com'], status: 'UNSENT',
+    })
+    const payload = {
+      startBatchNo, endBatchNo, subject: '自定义周报',
+      toEmails: ['new@example.com'], ccEmails: [], body: '周报正文',
+    }
+    const sent = await request('POST', '/weekly-report/mail-send', payload, {
+      'x-dii-trigger-token': 'secret',
+    })
+    expect(sent.data.status).toBe('SENT')
+    expect((await request('GET', '/weekly-report/options')).data.weeklyReports
+      .find(entry => entry.startBatchNo === startBatchNo && entry.endBatchNo === endBatchNo).mailStatus).toBe('SENT')
+
+    const duplicateEnd = await request('GET', `/weekly-report?startBatchNo=RPT20260825-01&endBatchNo=${endBatchNo}`)
+    expect(duplicateEnd.status).toBe(409)
+  })
+
+  it('rejects changing a reopened issue back to open', async () => {
+    const request = replayServer()
+
+    const response = await request('PATCH', '/6', {
+      issueStatus: '打开', issueType: '代码问题', remark: '不允许回退',
+    })
+
+    expect(response.status).toBe(400)
+    expect(issueList({ limit: 50 }).items.find(issue => issue.id === 6).issue_status).toBe('重新打开')
+  })
+
   it('returns four domain groups or six issue-domain groups while keeping developer names', () => {
     const domainGroups = replayGet('/stats/groups', { groupBy: 'domain' })
     const issueDomainGroups = replayGet('/stats/groups', { groupBy: 'issueDomain' })
@@ -50,6 +206,26 @@ describe('replay issue counted header filter mock', () => {
     expect(issueDomainRankings.every(row => row.developer.length > 0)).toBe(true)
     expect(issueDomainRankings.some(row => row.developer === '张三(c-zhangs3)')).toBe(true)
     expect(new Set(Object.keys(issueDomainStats.groupCounts))).toEqual(new Set(['公共组', '存款组', '贷款组', '结算组', '迁移组', '平台组']))
+  })
+
+  it('keeps person ranking schedule counts aligned with its date detail', () => {
+    const rankings = replayGet('/stats/person-ranking', { groupBy: 'issueDomain', replayType: 'ALL' })
+    const ranking = rankings.find(row => row.scheduleTotalCount > 0 && row.schedulePlannedCount > 0)
+
+    expect(rankings.every(row => row.scheduleTotalCount === row.newCount + row.openCount + row.reopenedCount)).toBe(true)
+    expect(rankings.every(row => row.schedulePlannedCount <= row.scheduleTotalCount)).toBe(true)
+    expect(ranking).toBeTruthy()
+
+    const schedule = replayGet('/stats/person-ranking/schedule', {
+      groupBy: 'issueDomain', replayType: 'ALL', groupName: ranking.groupName, developer: ranking.developer,
+    })
+    const dates = schedule.dateCounts.map(row => row.plannedCompletionDate)
+
+    expect(schedule.scheduleTotalCount).toBe(ranking.scheduleTotalCount)
+    expect(schedule.schedulePlannedCount).toBe(ranking.schedulePlannedCount)
+    expect(schedule.schedulePlannedCount + schedule.scheduleUnplannedCount).toBe(schedule.scheduleTotalCount)
+    expect(schedule.dateCounts.reduce((sum, row) => sum + row.count, 0)).toBe(schedule.schedulePlannedCount)
+    expect(dates).toEqual([...dates].sort())
   })
 
   it('provides all six issue domains with zero-to-three transfer counts for the UI demo', () => {

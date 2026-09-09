@@ -11,13 +11,14 @@ function queryString(params) {
 }
 
 export function listReplayIssues(params = {}) {
-  const normalizedParams = {
+  const { affectedTransactionCountOrder, ...query } = {
     ...params,
     limit: Math.min(Math.max(params.limit ?? 50, 1), 200),
   }
-  const query = queryString(normalizedParams)
-
-  return request(`${PREFIX}${query ? `?${query}` : ''}`)
+  return request(PREFIX, {
+    method: 'POST',
+    body: JSON.stringify({ query, affectedTransactionCountOrder }),
+  })
 }
 
 export function getReplayIssueOptions() {
@@ -30,8 +31,11 @@ export function getReplayIssueHeaderFilterOptions(params = {}) {
 }
 
 export function getReplayIssueHeaderFilterOptionCounts(params = {}) {
-  const query = queryString(params)
-  return request(`${PREFIX}/header-filter-option-counts${query ? `?${query}` : ''}`)
+  const { field, keyword, ...query } = params
+  return request(`${PREFIX}/header-filter-option-counts`, {
+    method: 'POST',
+    body: JSON.stringify({ field, keyword, query }),
+  })
 }
 
 export function getReplayIssueStats(params = {}) {
@@ -114,6 +118,11 @@ export function getReplayIssuePersonRankings(params = {}) {
   return request(`${PREFIX}/stats/person-ranking${query ? `?${query}` : ''}`)
 }
 
+export function getReplayIssuePersonSchedule(params = {}) {
+  const query = queryString(params)
+  return request(`${PREFIX}/stats/person-ranking/schedule${query ? `?${query}` : ''}`)
+}
+
 export function getReplayImportRounds() {
   return request(`${PREFIX}/rounds`)
 }
@@ -122,15 +131,49 @@ export function getReplayIssueRoundTracking(id) {
   return request(`${PREFIX}/${encodeURIComponent(id)}/round-tracking`)
 }
 
-/** 列出可下载的日报批次（按最近出现倒序，含是否已落盘 available 字段）。 */
+/** 列出可按需生成的日报批次（含同族上一批次和 canGenerate 状态）。 */
 export function getReplayDailyReportBatches() {
   return request(`${PREFIX}/daily-report/batches`)
 }
 
-/** 下载指定 batchNo 的日报 .xlsx 快照。 */
+/** 实时从数据库生成并下载指定 batchNo 的日报 .xlsx。 */
 export function downloadReplayDailyReport(batchNo) {
   const filename = `${batchNo}批次日报.xlsx`
   return download(`${PREFIX}/daily-report?batchNo=${encodeURIComponent(batchNo)}`, filename)
+}
+
+export function getReplayDailyReportMailConfig(batchNo) {
+  return request(`${PREFIX}/daily-report/mail-config?batchNo=${encodeURIComponent(batchNo)}`)
+}
+
+export function sendReplayDailyReportMail(mail, token = '') {
+  return request(`${PREFIX}/daily-report/mail-send`, {
+    method: 'POST',
+    headers: { 'X-DII-Trigger-Token': token || '' },
+    body: JSON.stringify(mail || {}),
+  })
+}
+
+export function getReplayWeeklyReportOptions() {
+  return request(`${PREFIX}/weekly-report/options`)
+}
+
+export function downloadReplayWeeklyReport(startBatchNo, endBatchNo) {
+  const query = `startBatchNo=${encodeURIComponent(startBatchNo)}&endBatchNo=${encodeURIComponent(endBatchNo)}`
+  return download(`${PREFIX}/weekly-report?${query}`, `${endBatchNo}周报.xlsx`)
+}
+
+export function getReplayWeeklyReportMailConfig(startBatchNo, endBatchNo) {
+  const query = `startBatchNo=${encodeURIComponent(startBatchNo)}&endBatchNo=${encodeURIComponent(endBatchNo)}`
+  return request(`${PREFIX}/weekly-report/mail-config?${query}`)
+}
+
+export function sendReplayWeeklyReportMail(mail, token = '') {
+  return request(`${PREFIX}/weekly-report/mail-send`, {
+    method: 'POST',
+    headers: { 'X-DII-Trigger-Token': token || '' },
+    body: JSON.stringify(mail || {}),
+  })
 }
 
 export function exportReplayIssues(params = {}) {

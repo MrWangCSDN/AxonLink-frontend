@@ -18,7 +18,7 @@
         </div>
       </div>
       <div class="replay-toolbar-actions">
-        <div class="replay-statistics-group-switch" role="group" aria-label="回放交易类型" data-testid="replay-type-switch-toolbar">
+        <div class="replay-statistics-group-switch replay-toolbar-filter-group" role="group" aria-label="回放交易类型" data-testid="replay-type-switch-toolbar">
           <button
             v-for="option in replayTypeOptions"
             :key="option.value"
@@ -30,7 +30,7 @@
             @click="setStatisticsReplayType(option.value)"
           >{{ option.label }}</button>
         </div>
-        <div class="replay-statistics-group-switch" role="group" aria-label="统计分组口径" data-testid="statistics-group-switch-toolbar">
+        <div class="replay-statistics-group-switch replay-toolbar-filter-group" role="group" aria-label="统计分组口径" data-testid="statistics-group-switch-toolbar">
           <button type="button" data-testid="stats-group-domain-toolbar" :class="{ 'is-active': statisticsGroupBy === 'domain' }" :aria-pressed="String(statisticsGroupBy === 'domain')" :disabled="statisticsGroupingLoading" @click="setStatisticsGroupBy('domain')">按领域</button>
           <button type="button" data-testid="stats-group-issue-domain-toolbar" :class="{ 'is-active': statisticsGroupBy === 'issueDomain' }" :aria-pressed="String(statisticsGroupBy === 'issueDomain')" :disabled="statisticsGroupingLoading" @click="setStatisticsGroupBy('issueDomain')">按问题所属领域</button>
         </div>
@@ -41,6 +41,10 @@
         <button class="replay-button replay-button-secondary" type="button" data-testid="open-daily-report" @click="openDailyReport">
           <FileSpreadsheet :size="16" aria-hidden="true" />
           日报
+        </button>
+        <button class="replay-button replay-button-secondary" type="button" data-testid="open-weekly-report" @click="openWeeklyReport">
+          <CalendarRange :size="16" aria-hidden="true" />
+          周报
         </button>
         <button class="replay-button replay-button-primary" type="button" data-testid="open-import" @click="openImport">
           <Upload :size="16" aria-hidden="true" />
@@ -160,7 +164,7 @@
         <header>
           <h3>{{ activeSummaryTitle }}</h3>
           <div class="replay-summary-modal-actions">
-            <div class="replay-statistics-group-switch" role="group" aria-label="回放交易类型" data-testid="replay-type-switch-modal">
+            <div class="replay-statistics-group-switch replay-modal-filter-group" role="group" aria-label="回放交易类型" data-testid="replay-type-switch-modal">
               <button
                 v-for="option in replayTypeOptions"
                 :key="option.value"
@@ -172,7 +176,7 @@
                 @click="setSummaryModalReplayType(option.value)"
               >{{ option.label }}</button>
             </div>
-            <div class="replay-statistics-group-switch" role="group" aria-label="统计分组口径" data-testid="statistics-group-switch-modal">
+            <div class="replay-statistics-group-switch replay-modal-filter-group" role="group" aria-label="统计分组口径" data-testid="statistics-group-switch-modal">
               <button type="button" data-testid="stats-group-domain-modal" :class="{ 'is-active': summaryModalGroupBy === 'domain' }" :aria-pressed="String(summaryModalGroupBy === 'domain')" :disabled="summaryGroupingLoading" @click="setSummaryModalGroupBy('domain')">按领域</button>
               <button type="button" data-testid="stats-group-issue-domain-modal" :class="{ 'is-active': summaryModalGroupBy === 'issueDomain' }" :aria-pressed="String(summaryModalGroupBy === 'issueDomain')" :disabled="summaryGroupingLoading" @click="setSummaryModalGroupBy('issueDomain')">按问题所属领域</button>
             </div>
@@ -208,14 +212,39 @@
         </div>
         <p v-if="activeSummaryLoading" class="replay-summary-state">正在查询…</p>
         <p v-if="activeSummaryError" class="replay-summary-state replay-error">{{ activeSummaryError }}</p>
-        <div v-if="!activeSummaryLoading" class="replay-summary-table-wrap">
-          <table class="replay-summary-table" :class="{ 'replay-person-ranking-table': activeSummaryModal === 'person' }">
-            <thead><tr><th v-for="column in activeSummaryColumns" :key="column.key" scope="col" :class="summaryColumnClass(column)">{{ column.label }}</th></tr></thead>
-            <tbody>
-              <tr v-for="(row, index) in activeSummaryRows" :key="summaryRowKey(row, index)"><td v-for="column in activeSummaryColumns" :key="column.key" :class="summaryColumnClass(column)">{{ row[column.key] }}</td></tr>
-              <tr v-if="!activeSummaryRows.length"><td :colspan="activeSummaryColumns.length">暂无数据</td></tr>
-            </tbody>
-          </table>
+        <div v-if="!activeSummaryLoading" class="replay-summary-content">
+          <div class="replay-summary-table-wrap">
+            <table class="replay-summary-table" :class="{ 'replay-person-ranking-table': activeSummaryModal === 'person' }">
+              <thead><tr><th v-for="column in activeSummaryColumns" :key="column.key" scope="col" :class="summaryColumnClass(column)" :data-testid="column.key === 'schedule' ? 'person-schedule-header' : undefined"><span>{{ column.label }}</span></th></tr></thead>
+              <tbody>
+                <tr v-for="(row, index) in activeSummaryRows" :key="summaryRowKey(row, index)">
+                  <td v-for="column in activeSummaryColumns" :key="column.key" :class="summaryColumnClass(column)">
+                    <template v-if="activeSummaryModal === 'person' && column.key === 'schedule'">
+                      <button v-if="row.scheduleTotalCount > 0" class="replay-person-schedule-button" type="button" :data-testid="`person-schedule-${row.developer}`" @click="openPersonSchedule(row)">{{ personScheduleRatio(row) }}</button>
+                      <span v-else :data-testid="`person-schedule-${row.developer}`">{{ personScheduleRatio(row) }}</span>
+                    </template>
+                    <template v-else>{{ row[column.key] }}</template>
+                  </td>
+                </tr>
+                <tr v-if="!activeSummaryRows.length"><td :colspan="activeSummaryColumns.length">暂无数据</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <aside v-if="activeSummaryModal === 'person' && personScheduleState.open" class="replay-person-schedule-panel" data-testid="person-schedule-panel">
+            <header>
+              <div><small>整体排期 · 新建 + 打开 + 重新打开</small><h4>{{ personScheduleState.row?.developer }}</h4></div>
+              <button class="replay-icon-button" type="button" title="关闭排期详情" aria-label="关闭排期详情" @click="closePersonSchedule"><X :size="16" aria-hidden="true" /></button>
+            </header>
+            <p v-if="personScheduleState.loading" class="replay-summary-state">正在查询排期…</p>
+            <p v-else-if="personScheduleState.error" class="replay-summary-state replay-error">{{ personScheduleState.error }}</p>
+            <template v-else-if="personScheduleState.detail">
+              <div class="replay-person-schedule-dates">
+                <h5>按计划日期汇总</h5>
+                <div v-for="item in personScheduleState.detail.dateCounts" :key="item.plannedCompletionDate"><span>{{ item.plannedCompletionDate }}</span><strong>{{ item.count }}个</strong></div>
+                <p v-if="!personScheduleState.detail.dateCounts?.length">暂无已排期日期</p>
+              </div>
+            </template>
+          </aside>
         </div>
       </section>
     </div>
@@ -457,36 +486,174 @@
       </section>
     </div>
 
-    <div v-if="dailyReportOpen" class="replay-modal-mask" @click.self="!dailyReportLoading && closeDailyReport()">
+    <div v-if="dailyReportOpen" class="replay-modal-mask" data-testid="daily-report-mask">
       <section class="replay-import-modal replay-daily-report-modal" role="dialog" aria-modal="true" aria-labelledby="replay-daily-report-title" data-testid="daily-report-modal">
         <header>
           <div>
-            <h3 id="replay-daily-report-title">下载日报</h3>
-            <p>日报是导入时的快照，下载后状态修改不影响数据。</p>
+            <h3 id="replay-daily-report-title">生成日报</h3>
+            <p>日报首次实时从数据库生成，生成后永久保存并可直接下载。</p>
           </div>
-          <button class="replay-icon-button" type="button" title="关闭日报窗口" aria-label="关闭日报窗口" :disabled="dailyReportLoading" @click="closeDailyReport"><X :size="16" aria-hidden="true" /></button>
+          <button class="replay-icon-button" type="button" data-testid="daily-report-close" title="关闭日报窗口" aria-label="关闭日报窗口" :disabled="dailyReportLoading" @click="closeDailyReport"><X :size="16" aria-hidden="true" /></button>
         </header>
         <p v-if="dailyReportLoading" class="replay-loading-status">正在加载批次列表…</p>
         <template v-else-if="dailyReportBatches.length === 0">
-          <p class="replay-empty-tip">暂无已落盘的日报，请先导入一次 Excel。</p>
+          <small v-if="dailyReportError" class="replay-daily-report-error">{{ dailyReportError }}</small>
+          <p v-else class="replay-empty-tip">暂无可生成日报的批次，请先导入 Excel</p>
         </template>
         <template v-else>
           <label class="replay-daily-report-picker">
             <span>选择批次</span>
             <select v-model="dailyReportSelectedBatch" data-testid="daily-report-batch">
-              <option v-for="entry in dailyReportBatches" :key="entry.batchNo" :value="entry.batchNo" :disabled="!entry.available">
-                {{ entry.batchNo }}{{ entry.available ? '' : '（尚未生成）' }}
+              <option v-for="entry in dailyReportBatches" :key="entry.batchNo" :value="entry.batchNo" :disabled="!entry.canGenerate">
+                {{ entry.batchNo }}{{ !entry.canGenerate ? '（没有上批次数据）' : (entry.generated ? '（已生成）' : '') }}
               </option>
             </select>
           </label>
+          <div v-if="dailyReportSelectedEntry?.generated" class="replay-daily-report-mail-state" data-testid="daily-report-mail-status">
+            <strong>邮件：{{ dailyReportMailStatusLabel }}</strong>
+            <span v-if="dailyReportSelectedEntry.mailSentAt">{{ dailyReportSelectedEntry.mailSentAt }}</span>
+            <span v-if="dailyReportSelectedEntry.mailStatus === 'FAILED' && dailyReportSelectedEntry.mailFailureMessage">{{ dailyReportSelectedEntry.mailFailureMessage }}</span>
+          </div>
+          <small v-if="dailyReportSuccess" class="replay-daily-report-success">{{ dailyReportSuccess }}</small>
           <small v-if="dailyReportError" class="replay-daily-report-error">{{ dailyReportError }}</small>
         </template>
         <footer>
-          <button class="replay-button" type="button" :disabled="dailyReportLoading || dailyReportBatches.length === 0" @click="closeDailyReport">取消</button>
-          <button class="replay-button replay-button-primary" type="button" data-testid="download-daily-report"
+          <button v-if="dailyReportSelectedEntry?.generated" class="replay-button replay-button-secondary" type="button" data-testid="daily-report-mail-button"
+                  :disabled="dailyReportLoading || dailyReportDownloading || dailyReportSelectedEntry?.mailStatus === 'SENDING'" @click="openDailyReportMail">
+            <Mail :size="15" aria-hidden="true" />
+            {{ dailyReportSelectedEntry?.mailStatus === 'SENDING' ? '发送中…' : (dailyReportSelectedEntry?.mailStatus === 'UNSENT' || !dailyReportSelectedEntry?.mailStatus ? '邮件发送' : '重新发送') }}
+          </button>
+          <button class="replay-button replay-button-primary" type="button" data-testid="generate-daily-report"
                   :disabled="dailyReportLoading || !dailyReportSelectedBatch || dailyReportDownloading" @click="downloadSelectedDailyReport">
             <Download :size="15" aria-hidden="true" />
-            {{ dailyReportDownloading ? '下载中…' : '下载 Excel' }}
+            {{ dailyReportDownloading
+              ? (dailyReportSelectedEntry?.generated ? '下载中…' : '生成中…')
+              : (dailyReportSelectedEntry?.generated ? '下载 Excel' : '生成 Excel') }}
+          </button>
+        </footer>
+      </section>
+    </div>
+
+    <div v-if="weeklyReportOpen" class="replay-modal-mask" data-testid="weekly-report-mask">
+      <section class="replay-import-modal replay-daily-report-modal replay-weekly-report-modal" role="dialog" aria-modal="true" aria-labelledby="replay-weekly-report-title" data-testid="weekly-report-modal">
+        <header>
+          <div>
+            <h3 id="replay-weekly-report-title">生成周报</h3>
+            <p>选择两个已生成日报的同类批次，周报生成后永久保存并可直接下载。</p>
+          </div>
+          <button class="replay-icon-button" type="button" data-testid="weekly-report-close" title="关闭周报窗口" aria-label="关闭周报窗口" :disabled="weeklyReportLoading" @click="closeWeeklyReport"><X :size="16" aria-hidden="true" /></button>
+        </header>
+        <p v-if="weeklyReportLoading" class="replay-loading-status">正在加载日报批次…</p>
+        <template v-else-if="weeklyReportDailyBatches.length < 2 && weeklyReportReports.length === 0">
+          <small v-if="weeklyReportError" class="replay-daily-report-error">{{ weeklyReportError }}</small>
+          <p v-else class="replay-empty-tip">至少需要两个同类且已生成日报的批次</p>
+        </template>
+        <template v-else>
+          <label class="replay-daily-report-picker replay-weekly-report-history-picker">
+            <span>已生成周报批次</span>
+            <select v-model="weeklyReportSelectedHistoryBatch" data-testid="weekly-report-history-batch" @change="selectWeeklyReportHistory">
+              <option v-for="entry in weeklyReportReports" :key="entry.endBatchNo" :value="entry.endBatchNo">{{ entry.endBatchNo }}</option>
+              <option value="">生成新周报</option>
+            </select>
+            <small v-if="weeklyReportReports.length">共 {{ weeklyReportReports.length }} 份周报，可选择任意历史批次</small>
+          </label>
+          <div class="replay-weekly-report-picker-grid">
+            <label class="replay-daily-report-picker">
+              <span>起始日报批次</span>
+              <select v-model="weeklyReportStartBatch" data-testid="weekly-report-start-batch" :disabled="weeklyReportHistoryMode">
+                <option v-if="weeklyReportHistoryMode" :value="weeklyReportStartBatch">{{ weeklyReportStartBatch }}</option>
+                <option v-for="entry in weeklyReportHistoryMode ? [] : weeklyReportStartOptions" v-else :key="entry.batchNo" :value="entry.batchNo">{{ entry.batchNo }}</option>
+              </select>
+            </label>
+            <label class="replay-daily-report-picker">
+              <span>结束日报批次</span>
+              <select v-model="weeklyReportEndBatch" data-testid="weekly-report-end-batch" :disabled="weeklyReportHistoryMode">
+                <option v-if="weeklyReportHistoryMode" :value="weeklyReportEndBatch">{{ weeklyReportEndBatch }}</option>
+                <option v-for="entry in weeklyReportHistoryMode ? [] : weeklyReportEndOptions" v-else :key="entry.batchNo" :value="entry.batchNo">{{ entry.batchNo }}</option>
+              </select>
+            </label>
+          </div>
+          <div v-if="weeklyReportHistoryMode && weeklyReportSelectedEntry" class="replay-weekly-report-generated-card" data-testid="weekly-report-generated-card">
+            <span>当前周报批次</span>
+            <strong>{{ weeklyReportSelectedEntry.endBatchNo }}</strong>
+            <div>
+              <em>已生成</em>
+              <span data-testid="weekly-report-mail-status">邮件：{{ weeklyReportMailStatusLabel }}</span>
+              <span v-if="weeklyReportSelectedEntry.generatedAt">生成于 {{ weeklyReportSelectedEntry.generatedAt }}</span>
+              <span v-if="weeklyReportSelectedEntry.mailSentAt">发送于 {{ weeklyReportSelectedEntry.mailSentAt }}</span>
+            </div>
+            <small v-if="weeklyReportSelectedEntry.mailStatus === 'FAILED' && weeklyReportSelectedEntry.mailFailureMessage">{{ weeklyReportSelectedEntry.mailFailureMessage }}</small>
+          </div>
+          <p v-else-if="!weeklyReportStartBatch || !weeklyReportEndBatch" class="replay-empty-tip">没有可生成的新周报范围</p>
+          <small v-if="weeklyReportSuccess" class="replay-daily-report-success">{{ weeklyReportSuccess }}</small>
+          <small v-if="weeklyReportError" class="replay-daily-report-error">{{ weeklyReportError }}</small>
+        </template>
+        <footer>
+          <button v-if="weeklyReportSelectedEntry" class="replay-button replay-button-secondary" type="button" data-testid="weekly-report-mail-button"
+                  :disabled="weeklyReportLoading || weeklyReportDownloading || weeklyReportSelectedEntry?.mailStatus === 'SENDING'" @click="openWeeklyReportMail">
+            <Mail :size="15" aria-hidden="true" />
+            {{ weeklyReportSelectedEntry?.mailStatus === 'SENDING' ? '发送中…' : (weeklyReportSelectedEntry?.mailStatus === 'UNSENT' || !weeklyReportSelectedEntry?.mailStatus ? '邮件发送' : '重新发送') }}
+          </button>
+          <button class="replay-button replay-button-primary" type="button" data-testid="generate-weekly-report"
+                  :disabled="weeklyReportLoading || !weeklyReportStartBatch || !weeklyReportEndBatch || weeklyReportDownloading" @click="downloadSelectedWeeklyReport">
+            <Download :size="15" aria-hidden="true" />
+            {{ weeklyReportDownloading
+              ? (weeklyReportSelectedEntry ? '下载中…' : '生成中…')
+              : (weeklyReportSelectedEntry ? '下载 Excel' : '生成 Excel') }}
+          </button>
+        </footer>
+      </section>
+    </div>
+
+    <div v-if="dailyReportMailOpen" class="replay-modal-mask replay-daily-report-mail-mask" :data-testid="`${reportMailKind}-report-mail-mask`">
+      <section class="replay-import-modal replay-daily-report-mail-modal" role="dialog" aria-modal="true" aria-labelledby="replay-daily-report-mail-title" :data-testid="`${reportMailKind}-report-mail-modal`">
+        <header>
+          <div>
+            <h3 id="replay-daily-report-mail-title">发送{{ reportMailKind === 'weekly' ? '周报' : '日报' }}邮件</h3>
+            <p>标题、收件人、抄送和正文可编辑；已生成的{{ reportMailKind === 'weekly' ? '周报' : '日报' }} Excel 将强制作为附件。</p>
+          </div>
+          <button class="replay-icon-button" type="button" :data-testid="`${reportMailKind}-report-mail-close`" title="关闭邮件窗口" aria-label="关闭邮件窗口" :disabled="dailyReportMailSending" @click="closeDailyReportMail"><X :size="16" aria-hidden="true" /></button>
+        </header>
+        <p v-if="dailyReportMailLoading" class="replay-loading-status">正在加载邮件配置…</p>
+        <template v-else>
+          <label><span>邮件标题</span><input v-model="dailyReportMailSubject" :data-testid="`${reportMailKind}-report-mail-subject`" type="text" maxlength="255" :disabled="dailyReportMailSending" /></label>
+          <div class="replay-daily-report-mail-field">
+            <span :data-testid="`${reportMailKind}-report-mail-to-label`">收件人（{{ dailyReportMailToEmails.length }}）</span>
+            <div class="replay-mail-address-editor replay-mail-address-editor-scrollable" :data-testid="`${reportMailKind}-report-mail-to-editor`" :class="{ 'is-disabled': dailyReportMailSending }">
+              <span v-for="email in dailyReportMailToEmails" :key="email" class="replay-mail-address-chip" :data-testid="`${reportMailKind}-report-mail-to-chip`">
+                <span>{{ email }}</span>
+                <button type="button" :data-testid="`${reportMailKind}-report-mail-to-remove`" :aria-label="`删除收件人 ${email}`" :disabled="dailyReportMailSending" @click="removeDailyReportMailEmail('to', email)">×</button>
+              </span>
+              <input v-model="dailyReportMailTo" :data-testid="`${reportMailKind}-report-mail-to`" type="text" :disabled="dailyReportMailSending"
+                     placeholder="输入邮箱后按回车" @keydown="onDailyReportMailEmailKeydown($event, 'to')"
+                     @input="onDailyReportMailEmailInput($event, 'to')" @paste="onDailyReportMailEmailPaste($event, 'to')" @blur="commitDailyReportMailEmails('to')" />
+            </div>
+            <small>支持回车、逗号或分号确认，也可以一次粘贴多个邮箱</small>
+          </div>
+          <div class="replay-daily-report-mail-field">
+            <span :data-testid="`${reportMailKind}-report-mail-cc-label`">抄送（{{ dailyReportMailCcEmails.length }}）</span>
+            <div class="replay-mail-address-editor replay-mail-address-editor-scrollable" :data-testid="`${reportMailKind}-report-mail-cc-editor`" :class="{ 'is-disabled': dailyReportMailSending }">
+              <span v-for="email in dailyReportMailCcEmails" :key="email" class="replay-mail-address-chip" :data-testid="`${reportMailKind}-report-mail-cc-chip`">
+                <span>{{ email }}</span>
+                <button type="button" :data-testid="`${reportMailKind}-report-mail-cc-remove`" :aria-label="`删除抄送人 ${email}`" :disabled="dailyReportMailSending" @click="removeDailyReportMailEmail('cc', email)">×</button>
+              </span>
+              <input v-model="dailyReportMailCc" :data-testid="`${reportMailKind}-report-mail-cc`" type="text" :disabled="dailyReportMailSending"
+                     placeholder="可不填" @keydown="onDailyReportMailEmailKeydown($event, 'cc')"
+                     @input="onDailyReportMailEmailInput($event, 'cc')" @paste="onDailyReportMailEmailPaste($event, 'cc')" @blur="commitDailyReportMailEmails('cc')" />
+            </div>
+            <small>多个抄送人会分别显示，可单独删除</small>
+          </div>
+          <label><span>邮件正文</span><textarea v-model="dailyReportMailBody" :data-testid="`${reportMailKind}-report-mail-body`" rows="7" maxlength="10000" :disabled="dailyReportMailSending" placeholder="请输入邮件正文" /></label>
+          <p class="replay-daily-report-mail-attachment">附件：{{ reportMailAttachmentName }}（系统自动附加，不可删除或替换）</p>
+          <label><span>操作口令</span><input v-model="dailyReportMailToken" :data-testid="`${reportMailKind}-report-mail-token`" type="password" autocomplete="off" :disabled="dailyReportMailSending" placeholder="X-DII-Trigger-Token" /></label>
+          <small v-if="dailyReportMailError" class="replay-daily-report-error">{{ dailyReportMailError }}</small>
+        </template>
+        <footer>
+          <button class="replay-button" type="button" :data-testid="`${reportMailKind}-report-mail-cancel`" :disabled="dailyReportMailSending" @click="closeDailyReportMail">取消</button>
+          <button class="replay-button replay-button-primary" type="button" :data-testid="`${reportMailKind}-report-mail-submit`"
+                  :disabled="dailyReportMailLoading || dailyReportMailSending || !dailyReportMailSubject.trim() || (!dailyReportMailToEmails.length && !dailyReportMailTo.trim()) || !dailyReportMailBody.trim() || !dailyReportMailToken.trim()" @click="submitDailyReportMail">
+            <Mail :size="15" aria-hidden="true" />
+            {{ dailyReportMailSending ? '发送中…' : '确认发送' }}
           </button>
         </footer>
       </section>
@@ -505,7 +672,7 @@
             <span>问题状态</span>
             <select v-model="editDraft.issueStatus" data-testid="edit-status" @change="onEditStatusChange">
               <option value="" disabled>{{ editIssue && !manualStatuses.includes(editIssue.issue_status) ? `当前：${display(editIssue.issue_status)}，请选择` : '请选择状态' }}</option>
-              <option v-for="status in manualStatuses" :key="status" :value="status">{{ status }}</option>
+              <option v-for="status in editableStatuses" :key="status" :value="status">{{ status }}</option>
             </select>
           </label>
           <label>
@@ -602,9 +769,10 @@
               :data-testid="`tracking-round-${group.roundId ?? 'base'}`"
             >
               <summary class="replay-round-summary">
-                <strong>批次编号 {{ group.roundCode }}</strong>
-                <span v-if="group.roundId && groupIndex === 0" class="replay-current-batch">最新批次</span>
-                <time>{{ display(group.importedAt) }}</time>
+                <span class="replay-round-title">
+                  <strong>批次编号 {{ group.roundCode }}</strong>
+                  <span v-if="group.roundId && groupIndex === 0" class="replay-current-batch">最新批次</span>
+                </span>
                 <button
                   class="replay-original-data-toggle"
                   type="button"
@@ -621,65 +789,31 @@
                 <div v-if="isOriginalDataOpen(group)" class="replay-original-data-panel">
                   <p class="replay-round-section-title">本批次导入的原始值</p>
                   <div v-if="group.originalData?.length" class="replay-original-data-list">
+                    <div class="replay-original-data-row replay-original-data-header"><span>原始字段</span><span>原始值</span></div>
                     <div v-for="item in group.originalData" :key="`${item.field}-${item.value}`" class="replay-original-data-row">
                       <span>{{ item.field }}</span>
-                      <span class="replay-tracking-value" :title="display(item.value)">{{ display(item.value) }}</span>
+                      <ReplayTrackingValue :value="item.value" />
                     </div>
                   </div>
-                  <p v-else class="replay-no-change">本批次没有可展示的原始数据</p>
+                  <p v-else class="replay-no-change">无</p>
                 </div>
               </div>
               <p class="replay-round-section-title">变更时间线</p>
-              <details
-                open
-                class="replay-manual-events replay-system-events"
-                :data-testid="`system-events-${group.roundId ?? 'base'}`"
-              >
-                <summary>系统操作（{{ group.inheritedEvents?.length || 1 }}）</summary>
-                <ol>
-                  <li v-if="!group.inheritedEvents?.length" class="replay-system-event-fallback">
-                    <div class="replay-event-heading"><strong>{{ display(group.actionType || '导入') }}</strong><time>{{ display(group.importedAt) }}</time></div>
-                    <p class="replay-event-operator"><span>操作人</span><strong>系统</strong></p>
-                    <p class="replay-no-change">本次导入未产生字段变化</p>
-                  </li>
-                  <li v-for="event in group.inheritedEvents" :key="event.id">
-                    <div class="replay-event-heading"><strong>{{ display(event.operationType || '系统导入') }}</strong><time>{{ display(event.operationAt) }}</time></div>
-                    <p class="replay-event-operator"><span>操作人</span><strong>{{ operatorDisplay(event) }}</strong></p>
-                    <div v-if="event.changes?.length" class="replay-change-table" :data-testid="`change-table-${event.id}`" role="table" aria-label="系统字段变更">
-                      <div class="replay-change-row replay-change-header" role="row"><span role="columnheader">字段</span><span role="columnheader">变更前</span><span role="columnheader">变更后</span></div>
-                      <div v-for="change in event.changes" :key="`${event.id}-${change.field}`" class="replay-change-row" role="row">
-                        <span role="cell">{{ change.field }}</span>
-                        <span role="cell" class="replay-tracking-value" :title="display(change.before)">{{ display(change.before) }}</span>
-                        <span role="cell" class="replay-tracking-value" :title="display(change.after)">{{ display(change.after) }}</span>
-                      </div>
+              <ol class="replay-tracking-events" :data-testid="`tracking-events-${group.roundId ?? 'base'}`">
+                <li v-for="event in trackingEvents(group)" :key="event.timelineKey" :data-testid="`tracking-event-${event.timelineKey}`">
+                  <div class="replay-event-heading"><strong>{{ display(event.operationType || '导入') }}</strong><time>{{ display(event.operationAt) }}</time></div>
+                  <p class="replay-event-operator"><span>操作人</span><strong>{{ operatorDisplay(event) }}</strong></p>
+                  <div v-if="event.changes?.length" class="replay-change-table" :data-testid="`change-table-${event.id}`" role="table" aria-label="字段变更">
+                    <div class="replay-change-row replay-change-header" role="row"><span role="columnheader">字段</span><span role="columnheader">变更前</span><span role="columnheader">变更后</span></div>
+                    <div v-for="change in event.changes" :key="`${event.id}-${change.field}`" class="replay-change-row" role="row">
+                      <span role="cell">{{ change.field }}</span>
+                      <span role="cell"><ReplayTrackingValue :value="change.before" /></span>
+                      <span role="cell"><ReplayTrackingValue :value="change.after" /></span>
                     </div>
-                    <p v-else class="replay-no-change">本次导入未产生字段变化</p>
-                  </li>
-                </ol>
-              </details>
-              <details
-                v-if="group.manualEvents?.length"
-                open
-                class="replay-manual-events"
-                :data-testid="`manual-events-${group.roundId ?? 'base'}`"
-              >
-                <summary>本批次用户操作（{{ group.manualEvents.length }}）</summary>
-                <ol>
-                  <li v-for="event in group.manualEvents" :key="event.id">
-                    <div class="replay-event-heading"><strong>{{ event.operationType }}</strong><time>{{ event.operationAt }}</time></div>
-                    <p class="replay-event-operator"><span>操作人</span><strong>{{ operatorDisplay(event) }}</strong></p>
-                    <div v-if="event.changes?.length" class="replay-change-table" :data-testid="`change-table-${event.id}`" role="table" aria-label="用户字段变更">
-                      <div class="replay-change-row replay-change-header" role="row"><span role="columnheader">字段</span><span role="columnheader">变更前</span><span role="columnheader">变更后</span></div>
-                      <div v-for="change in event.changes" :key="`${event.id}-${change.field}`" class="replay-change-row" role="row">
-                        <span role="cell">{{ change.field }}</span>
-                        <span role="cell" class="replay-tracking-value" :title="display(change.before)">{{ display(change.before) }}</span>
-                        <span role="cell" class="replay-tracking-value" :title="display(change.after)">{{ display(change.after) }}</span>
-                      </div>
-                    </div>
-                    <p v-else class="replay-no-change">本次操作未产生字段变化</p>
-                  </li>
-                </ol>
-              </details>
+                  </div>
+                  <p v-else class="replay-no-change">{{ event.noChangeMessage }}</p>
+                </li>
+              </ol>
               </div>
             </details>
           </li>
@@ -703,9 +837,10 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { ArrowDownWideNarrow, ArrowUpNarrowWide, BarChart3, CalendarRange, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, Download, FileSpreadsheet, Flag, HelpCircle, History as HistoryIcon, Menu, Minus, Pencil, Save, Search, Upload, Users, X } from 'lucide-vue-next'
-import { approveReplayIssue, exportReplayIssues, getReplayImportRounds, getReplayIssueDomainPermissions, getReplayIssueDomainTransfers, getReplayIssueGroupSummaries, getReplayIssueHeaderFilterOptionCounts, getReplayIssueMailStatus, getReplayIssueOptions, getReplayIssuePersonRankings, getReplayIssueReviewPermissions, getReplayIssuePlanDatePermissions, getReplayIssuePlanDateChanges, getReplayIssueRoundTracking, getReplayIssueStats, getReplayWeeklyTask, replaceReplayWeeklyTask, getReplayDailyReportBatches, downloadReplayDailyReport, importReplayIssues, listReplayIssues, searchReplayIssueUsers, sendReplayIssueMail, updateReplayIssue, updateReplayIssueDomain, updateReplayIssuePlannedCompletionDate } from '../../api/replayIssues.js'
+import { ArrowDownWideNarrow, ArrowUpNarrowWide, BarChart3, CalendarRange, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, Download, FileSpreadsheet, Flag, HelpCircle, History as HistoryIcon, Mail, Menu, Minus, Pencil, Save, Search, Upload, Users, X } from 'lucide-vue-next'
+import { approveReplayIssue, exportReplayIssues, getReplayImportRounds, getReplayIssueDomainPermissions, getReplayIssueDomainTransfers, getReplayIssueGroupSummaries, getReplayIssueHeaderFilterOptionCounts, getReplayIssueMailStatus, getReplayIssueOptions, getReplayIssuePersonRankings, getReplayIssuePersonSchedule, getReplayIssueReviewPermissions, getReplayIssuePlanDatePermissions, getReplayIssuePlanDateChanges, getReplayIssueRoundTracking, getReplayIssueStats, getReplayWeeklyTask, replaceReplayWeeklyTask, getReplayDailyReportBatches, downloadReplayDailyReport, getReplayDailyReportMailConfig, sendReplayDailyReportMail, getReplayWeeklyReportOptions, downloadReplayWeeklyReport, getReplayWeeklyReportMailConfig, sendReplayWeeklyReportMail, importReplayIssues, listReplayIssues, searchReplayIssueUsers, sendReplayIssueMail, updateReplayIssue, updateReplayIssueDomain, updateReplayIssuePlannedCompletionDate } from '../../api/replayIssues.js'
 import ReplayPlannedCompletionModal from './ReplayPlannedCompletionModal.vue'
+import ReplayTrackingValue from './ReplayTrackingValue.vue'
 import { replayModalMotionVariables, waitForReplayModalMotion } from './replayModalMotion.js'
 
 defineEmits(['toggleNavigation'])
@@ -763,7 +898,7 @@ const headerFilterDraft = ref([])
 
 const copyableColumnKeys = new Set(['transaction_name', 'field_name', 'issue_description', 'initial_analysis', 'final_solution', 'remark', 'serial_no', 'global_serial_no', 'issue_key'])
 const manualStatuses = ['打开', '无需处理', '延后修复', '修复待验证']
-const issueTypes = ['迁移问题', '防腐问题', '代码问题', '新核心下线', '参数问题', '平台问题', '规则差异问题', '合理差异', '规则性差异问题', '外围问题', '其他问题']
+const issueTypes = ['迁移问题', '防腐问题', '代码问题', '新核心下线', '参数问题', '平台问题', '合理差异', '规则性差异问题', '外围问题', '其他问题']
 const noActionIssueTypes = ['合理差异', '规则性差异问题', '外围问题']
 const manualDisplayKeys = new Set(['issue_status', 'issue_type', 'cooperation_person_username'])
 const detailDisplayKeys = new Set(['initial_analysis', 'final_solution', 'remark'])
@@ -852,7 +987,11 @@ const summaryGroups = computed(() => summaryModalGroupBy.value === 'issueDomain'
 const personRankingGroups = computed(() => summaryModalGroupBy.value === 'issueDomain' ? issueDomainPersonRankingGroups : domainPersonRankingGroups)
 const activePersonRankingGroup = computed({
   get: () => summaryWindowSessions.person.activeGroup,
-  set: value => { summaryWindowSessions.person.activeGroup = value },
+  set: value => {
+    if (summaryWindowSessions.person.activeGroup === value) return
+    summaryWindowSessions.person.activeGroup = value
+    closePersonSchedule()
+  },
 })
 const filteredGroupSummaryRows = computed(() => {
   const rowsByGroup = new Map(summaryWindowSessions.group.rows.map((row) => [row.groupName, row]))
@@ -887,6 +1026,7 @@ const personRankingColumns = [
   { key: 'rank', label: '排名' },
   { key: 'groupName', label: '分组' },
   { key: 'developer', label: '开发负责人' },
+  { key: 'schedule', label: '排期（新建+打开+重新打开）\n已排 / 总数', copyLabel: '排期（新建+打开+重新打开）-已排/总数', segment: 'schedule' },
   { key: 'newCount', label: '新建', segment: 'pending' },
   { key: 'openCount', label: '打开', segment: 'pending' },
   { key: 'reopenedCount', label: '重新打开', segment: 'pending' },
@@ -914,6 +1054,7 @@ const activeSummaryColumns = computed(() => activeSummaryModal.value === 'person
 const activeSummaryRows = computed(() => activeSummaryModal.value === 'person' ? filteredPersonRankingRows.value : filteredGroupSummaryRows.value)
 const activeSummaryLoading = computed(() => activeSummarySession.value?.loading || false)
 const activeSummaryError = computed(() => activeSummarySession.value?.error || '')
+const personScheduleState = reactive({ open: false, row: null, loading: false, error: '', detail: null, requestVersion: 0 })
 
 const importOpen = ref(false)
 const importFile = ref(null)
@@ -941,9 +1082,69 @@ const dailyReportSelectedBatch = ref('')
 const dailyReportLoading = ref(false)
 const dailyReportDownloading = ref(false)
 const dailyReportError = ref('')
+const dailyReportSuccess = ref('')
+const dailyReportSelectedEntry = computed(() => dailyReportBatches.value.find(
+  entry => entry.batchNo === dailyReportSelectedBatch.value,
+))
+const dailyReportMailStatusLabel = computed(() => ({
+  UNSENT: '未发送', SENDING: '发送中', SENT: '已发送', FAILED: '发送失败',
+}[dailyReportSelectedEntry.value?.mailStatus] || '未发送'))
+const dailyReportMailOpen = ref(false)
+const dailyReportMailLoading = ref(false)
+const dailyReportMailSending = ref(false)
+const dailyReportMailSubject = ref('')
+const dailyReportMailTo = ref('')
+const dailyReportMailCc = ref('')
+const dailyReportMailToEmails = ref([])
+const dailyReportMailCcEmails = ref([])
+const dailyReportMailBody = ref('')
+const dailyReportMailToken = ref('')
+const dailyReportMailError = ref('')
+const reportMailKind = ref('daily')
+const weeklyReportOpen = ref(false)
+const weeklyReportDailyBatches = ref([])
+const weeklyReportReports = ref([])
+const weeklyReportSelectedHistoryBatch = ref('')
+const weeklyReportStartBatch = ref('')
+const weeklyReportEndBatch = ref('')
+const weeklyReportLoading = ref(false)
+const weeklyReportDownloading = ref(false)
+const weeklyReportError = ref('')
+const weeklyReportSuccess = ref('')
+const weeklyReportHistoryMode = computed(() => Boolean(weeklyReportSelectedHistoryBatch.value))
+const weeklyReportOccupiedEndBatches = computed(() => new Set(weeklyReportReports.value.map(entry => entry.endBatchNo)))
+const weeklyReportStartOptions = computed(() => weeklyReportDailyBatches.value.filter((entry, index, entries) =>
+  entries.some((candidate, candidateIndex) => candidateIndex > index
+    && candidate.family === entry.family
+    && (weeklyReportHistoryMode.value || !weeklyReportOccupiedEndBatches.value.has(candidate.batchNo)))))
+const weeklyReportEndOptions = computed(() => {
+  const startIndex = weeklyReportDailyBatches.value.findIndex(entry => entry.batchNo === weeklyReportStartBatch.value)
+  const start = weeklyReportDailyBatches.value[startIndex]
+  if (!start || startIndex < 0) return []
+  return weeklyReportDailyBatches.value.filter((entry, index) => index > startIndex
+    && entry.family === start.family
+    && (weeklyReportHistoryMode.value || !weeklyReportOccupiedEndBatches.value.has(entry.batchNo)))
+})
+const weeklyReportSelectedEntry = computed(() => weeklyReportReports.value.find(entry =>
+  entry.endBatchNo === weeklyReportSelectedHistoryBatch.value))
+const weeklyReportMailStatusLabel = computed(() => ({
+  UNSENT: '未发送', SENDING: '发送中', SENT: '已发送', FAILED: '发送失败',
+}[weeklyReportSelectedEntry.value?.mailStatus] || '未发送'))
+const reportMailAttachmentName = computed(() => reportMailKind.value === 'weekly'
+  ? `${weeklyReportEndBatch.value}周报.xlsx`
+  : `${dailyReportSelectedBatch.value}日报.xlsx`)
+watch(weeklyReportStartBatch, () => {
+  if (weeklyReportHistoryMode.value) return
+  if (!weeklyReportEndOptions.value.some(entry => entry.batchNo === weeklyReportEndBatch.value)) {
+    weeklyReportEndBatch.value = weeklyReportEndOptions.value[0]?.batchNo || ''
+  }
+})
 const savingId = ref(null)
 const editOpen = ref(false)
 const editIssue = ref(null)
+const editableStatuses = computed(() => editIssue.value?.issue_status === '重新打开'
+  ? manualStatuses.filter((status) => status !== '打开')
+  : manualStatuses)
 const editDraft = reactive({ issueStatus: '', issueType: '', initialAnalysis: '', finalSolution: '', cooperationPersonUsername: '', cooperationPersonDisplay: '', remark: '' })
 const editableIssueTypes = computed(() => {
   if (editDraft.issueStatus === '无需处理') return noActionIssueTypes
@@ -1185,6 +1386,7 @@ async function setSummaryModalReplayType(replayType) {
     || !session
     || session.replayType === replayType
     || session.groupingLoading) return
+  closePersonSchedule()
   session.replayType = replayType
   session.groupingLoading = true
   try {
@@ -1197,6 +1399,7 @@ async function setSummaryModalReplayType(replayType) {
 async function setSummaryModalGroupBy(groupBy) {
   const session = activeSummarySession.value
   if (!['domain', 'issueDomain'].includes(groupBy) || !session || session.groupBy === groupBy || session.groupingLoading) return
+  closePersonSchedule()
   session.groupBy = groupBy
   if (activeSummaryModal.value === 'person') {
     const allowedGroups = groupBy === 'issueDomain' ? issueDomainPersonRankingGroups : domainPersonRankingGroups
@@ -1273,6 +1476,7 @@ function resetSummaryWindowSession(type) {
     scrollTop: 0,
     requestVersion,
   })
+  if (type === 'person') closePersonSchedule()
 }
 
 function closeStatisticsWindow(id) {
@@ -1318,16 +1522,60 @@ function summaryColumnClass(column) {
   return {
     'is-pending-segment': column.segment === 'pending',
     'is-fixed-segment': column.segment === 'fixed',
+    'is-schedule-segment': column.segment === 'schedule',
     'is-segment-total': column.total === true,
   }
+}
+
+function personScheduleRatio(row) {
+  return `${Number(row?.schedulePlannedCount) || 0} / ${Number(row?.scheduleTotalCount) || 0}`
+}
+
+function closePersonSchedule() {
+  personScheduleState.requestVersion += 1
+  personScheduleState.open = false
+  personScheduleState.row = null
+  personScheduleState.loading = false
+  personScheduleState.error = ''
+  personScheduleState.detail = null
+}
+
+async function openPersonSchedule(row) {
+  if (!row || Number(row.scheduleTotalCount) <= 0) return
+  const requestVersion = personScheduleState.requestVersion + 1
+  personScheduleState.requestVersion = requestVersion
+  personScheduleState.open = true
+  personScheduleState.row = row
+  personScheduleState.loading = true
+  personScheduleState.error = ''
+  personScheduleState.detail = null
+  try {
+    const detail = await getReplayIssuePersonSchedule({
+      replayType: summaryModalReplayType.value,
+      groupBy: summaryModalGroupBy.value,
+      groupName: row.groupName,
+      developer: row.developer,
+    })
+    if (personScheduleState.requestVersion === requestVersion) personScheduleState.detail = detail
+  } catch (cause) {
+    if (personScheduleState.requestVersion === requestVersion) {
+      personScheduleState.error = `排期查询失败：${cause?.message || cause}`
+    }
+  } finally {
+    if (personScheduleState.requestVersion === requestVersion) personScheduleState.loading = false
+  }
+}
+
+function summaryCellValue(column, row) {
+  return column.key === 'schedule' ? personScheduleRatio(row) : row[column.key] ?? ''
 }
 
 async function copySummaryTable(type) {
   const columns = type === 'group' ? groupSummaryColumns : personRankingColumns
   const rows = type === 'group' ? filteredGroupSummaryRows.value : filteredPersonRankingRows.value
   const tsv = [
-    columns.map((column) => column.label).join('\t'),
-    ...rows.map((row) => columns.map((column) => row[column.key] ?? '').join('\t')),
+    columns.map((column) => column.copyLabel || column.label).join('\t'),
+    ...rows.map((row) => columns.map((column) => summaryCellValue(column, row)).join('\t')),
   ].join('\n')
   const copied = await copyText(tsv)
   showCopyMessage(copied ? '表格已复制' : '复制失败，请重试')
@@ -1965,6 +2213,51 @@ function toggleOriginalData(group) {
   originalDataOpen[key] = !isOriginalDataOpen(group)
 }
 
+function trackingEvents(group) {
+  const inherited = (group.inheritedEvents || []).map(event => ({
+    ...event,
+    timelineKey: String(event.id),
+    noChangeMessage: '本次导入未产生上述字段变化',
+  }))
+  const manual = (group.manualEvents || []).map(event => ({
+    ...event,
+    timelineKey: String(event.id),
+    noChangeMessage: '本次操作未产生字段变化',
+  }))
+  const events = [...inherited, ...manual]
+  if (!events.length) {
+    return [{
+      id: null,
+      timelineKey: `import-${group.roundId ?? 'base'}`,
+      operationType: group.actionType || '导入',
+      operationAt: group.importedAt,
+      operatorRealName: '系统',
+      operatorUsername: 'SYSTEM',
+      changes: [],
+      noChangeMessage: '本次导入未产生上述字段变化',
+    }]
+  }
+  return events.sort((left, right) => {
+    const timeDifference = trackingEventTime(right.operationAt) - trackingEventTime(left.operationAt)
+    if (timeDifference !== 0) return timeDifference
+    return trackingEventId(right.id) - trackingEventId(left.id)
+  })
+}
+
+function trackingEventTime(value) {
+  if (Array.isArray(value)) {
+    const [year, month = 1, day = 1, hour = 0, minute = 0, second = 0] = value
+    return new Date(year, month - 1, day, hour, minute, second).getTime()
+  }
+  const timestamp = Date.parse(String(value || '').replace(' ', 'T'))
+  return Number.isNaN(timestamp) ? 0 : timestamp
+}
+
+function trackingEventId(value) {
+  const id = Number(value)
+  return Number.isFinite(id) ? id : 0
+}
+
 function operatorDisplay(event) {
   if (!event) return '系统'
   if (String(event.operatorRealName || '').trim() === '系统' || String(event.operatorUsername || '').toUpperCase() === 'SYSTEM') return '系统'
@@ -2155,34 +2448,289 @@ async function openDailyReport() {
   dailyReportOpen.value = true
   dailyReportSelectedBatch.value = ''
   dailyReportError.value = ''
+  dailyReportSuccess.value = ''
+  await loadDailyReportBatches()
+}
+
+async function loadDailyReportBatches({ preserveSelection = false } = {}) {
+  const selectedBatch = preserveSelection ? dailyReportSelectedBatch.value : ''
   dailyReportLoading.value = true
   try {
     const list = await getReplayDailyReportBatches() || []
     dailyReportBatches.value = Array.isArray(list) ? list : []
-    const firstAvailable = dailyReportBatches.value.find((entry) => entry.available)
-    if (firstAvailable) dailyReportSelectedBatch.value = firstAvailable.batchNo
+    if (selectedBatch && dailyReportBatches.value.some(entry => entry.batchNo === selectedBatch)) {
+      dailyReportSelectedBatch.value = selectedBatch
+      return true
+    }
+    const firstGeneratable = dailyReportBatches.value.find((entry) => entry.canGenerate)
+    dailyReportSelectedBatch.value = firstGeneratable?.batchNo || ''
   } catch (cause) {
-    dailyReportBatches.value = []
-    dailyReportError.value = `加载日报列表失败：${cause?.message || cause}`
+    if (!preserveSelection) dailyReportBatches.value = []
+    dailyReportError.value = `${preserveSelection ? '状态刷新失败' : '加载日报列表失败'}：${cause?.message || cause}`
+    return false
   } finally {
     dailyReportLoading.value = false
   }
+  return true
 }
 
 function closeDailyReport() {
-  if (dailyReportDownloading.value) return
+  if (dailyReportDownloading.value || dailyReportMailOpen.value) return
   dailyReportOpen.value = false
+}
+
+async function openWeeklyReport() {
+  weeklyReportOpen.value = true
+  weeklyReportSelectedHistoryBatch.value = ''
+  weeklyReportStartBatch.value = ''
+  weeklyReportEndBatch.value = ''
+  weeklyReportError.value = ''
+  weeklyReportSuccess.value = ''
+  await loadWeeklyReportOptions()
+}
+
+async function loadWeeklyReportOptions({ preserveSelection = false, selectHistoryBatch = '' } = {}) {
+  const selectedHistory = selectHistoryBatch || (preserveSelection ? weeklyReportSelectedHistoryBatch.value : '')
+  const selectedStart = preserveSelection ? weeklyReportStartBatch.value : ''
+  const selectedEnd = preserveSelection ? weeklyReportEndBatch.value : ''
+  weeklyReportLoading.value = true
+  try {
+    const options = await getReplayWeeklyReportOptions() || {}
+    weeklyReportDailyBatches.value = Array.isArray(options.dailyBatches) ? options.dailyBatches : []
+    weeklyReportReports.value = Array.isArray(options.weeklyReports) ? options.weeklyReports : []
+    const historyEntry = weeklyReportReports.value.find(entry => entry.endBatchNo === selectedHistory)
+      || (!preserveSelection && weeklyReportReports.value[0])
+    weeklyReportSelectedHistoryBatch.value = historyEntry?.endBatchNo || ''
+    if (historyEntry) {
+      weeklyReportStartBatch.value = historyEntry.startBatchNo
+      weeklyReportEndBatch.value = historyEntry.endBatchNo
+      return true
+    }
+    if (selectedStart && weeklyReportDailyBatches.value.some(entry => entry.batchNo === selectedStart)) {
+      weeklyReportStartBatch.value = selectedStart
+    } else {
+      weeklyReportStartBatch.value = weeklyReportStartOptions.value[0]?.batchNo || ''
+    }
+    if (selectedEnd && weeklyReportEndOptions.value.some(entry => entry.batchNo === selectedEnd)) {
+      weeklyReportEndBatch.value = selectedEnd
+    } else {
+      weeklyReportEndBatch.value = weeklyReportEndOptions.value[0]?.batchNo || ''
+    }
+  } catch (cause) {
+    if (!preserveSelection) {
+      weeklyReportDailyBatches.value = []
+      weeklyReportReports.value = []
+    }
+    weeklyReportError.value = `${preserveSelection ? '状态刷新失败' : '加载周报列表失败'}：${cause?.message || cause}`
+    return false
+  } finally {
+    weeklyReportLoading.value = false
+  }
+  return true
+}
+
+function selectWeeklyReportHistory(event) {
+  weeklyReportError.value = ''
+  weeklyReportSuccess.value = ''
+  const selectedBatch = event?.target?.value ?? weeklyReportSelectedHistoryBatch.value
+  weeklyReportSelectedHistoryBatch.value = selectedBatch
+  const entry = weeklyReportReports.value.find(candidate => candidate.endBatchNo === selectedBatch)
+  if (entry) {
+    weeklyReportStartBatch.value = entry.startBatchNo
+    weeklyReportEndBatch.value = entry.endBatchNo
+    return
+  }
+  weeklyReportStartBatch.value = weeklyReportStartOptions.value[0]?.batchNo || ''
+  weeklyReportEndBatch.value = weeklyReportEndOptions.value[0]?.batchNo || ''
+}
+
+function closeWeeklyReport() {
+  if (weeklyReportDownloading.value || (dailyReportMailOpen.value && reportMailKind.value === 'weekly')) return
+  weeklyReportOpen.value = false
+}
+
+async function downloadSelectedWeeklyReport() {
+  const startBatchNo = weeklyReportStartBatch.value
+  const endBatchNo = weeklyReportEndBatch.value
+  if (!startBatchNo || !endBatchNo || weeklyReportDownloading.value) return
+  const generated = weeklyReportHistoryMode.value
+  weeklyReportDownloading.value = true
+  weeklyReportError.value = ''
+  weeklyReportSuccess.value = ''
+  try {
+    await downloadReplayWeeklyReport(startBatchNo, endBatchNo)
+    weeklyReportSuccess.value = generated ? '周报下载完成' : '周报已生成，可直接下载'
+    await loadWeeklyReportOptions({ preserveSelection: true, selectHistoryBatch: endBatchNo })
+  } catch (cause) {
+    weeklyReportError.value = `${generated ? '下载失败' : '生成失败'}：${cause?.message || cause}`
+  } finally {
+    weeklyReportDownloading.value = false
+  }
+}
+
+async function openDailyReportMail() {
+  const entry = dailyReportSelectedEntry.value
+  if (!entry?.generated || dailyReportMailLoading.value) return
+  reportMailKind.value = 'daily'
+  dailyReportMailOpen.value = true
+  dailyReportMailLoading.value = true
+  dailyReportMailSubject.value = ''
+  dailyReportMailTo.value = ''
+  dailyReportMailCc.value = ''
+  dailyReportMailToEmails.value = []
+  dailyReportMailCcEmails.value = []
+  dailyReportMailBody.value = ''
+  dailyReportMailToken.value = ''
+  dailyReportMailError.value = ''
+  try {
+    const config = await getReplayDailyReportMailConfig(entry.batchNo)
+    dailyReportMailSubject.value = config?.subject || ''
+    dailyReportMailToEmails.value = parseDailyReportMailEmails(config?.toEmails)
+    dailyReportMailCcEmails.value = parseDailyReportMailEmails(config?.ccEmails)
+    dailyReportMailBody.value = config?.body || ''
+  } catch (cause) {
+    dailyReportMailError.value = `加载邮件配置失败：${cause?.message || cause}`
+  } finally {
+    dailyReportMailLoading.value = false
+  }
+}
+
+async function openWeeklyReportMail() {
+  const entry = weeklyReportSelectedEntry.value
+  if (!entry || dailyReportMailLoading.value) return
+  reportMailKind.value = 'weekly'
+  dailyReportMailOpen.value = true
+  dailyReportMailLoading.value = true
+  dailyReportMailSubject.value = ''
+  dailyReportMailTo.value = ''
+  dailyReportMailCc.value = ''
+  dailyReportMailToEmails.value = []
+  dailyReportMailCcEmails.value = []
+  dailyReportMailBody.value = ''
+  dailyReportMailToken.value = ''
+  dailyReportMailError.value = ''
+  try {
+    const config = await getReplayWeeklyReportMailConfig(entry.startBatchNo, entry.endBatchNo)
+    dailyReportMailSubject.value = config?.subject || ''
+    dailyReportMailToEmails.value = parseDailyReportMailEmails(config?.toEmails)
+    dailyReportMailCcEmails.value = parseDailyReportMailEmails(config?.ccEmails)
+    dailyReportMailBody.value = config?.body || ''
+  } catch (cause) {
+    dailyReportMailError.value = `加载邮件配置失败：${cause?.message || cause}`
+  } finally {
+    dailyReportMailLoading.value = false
+  }
+}
+
+function closeDailyReportMail() {
+  if (!dailyReportMailSending.value) dailyReportMailOpen.value = false
+}
+
+async function submitDailyReportMail() {
+  const batchNo = reportMailKind.value === 'weekly' ? weeklyReportEndBatch.value : dailyReportSelectedBatch.value
+  const subject = dailyReportMailSubject.value.trim()
+  const toEmails = parseDailyReportMailEmails([...dailyReportMailToEmails.value, dailyReportMailTo.value])
+  const ccEmails = parseDailyReportMailEmails([...dailyReportMailCcEmails.value, dailyReportMailCc.value])
+  const body = dailyReportMailBody.value.trim()
+  const token = dailyReportMailToken.value.trim()
+  if (!batchNo || !subject || !toEmails.length || !body || !token || dailyReportMailSending.value) return
+  dailyReportMailToEmails.value = toEmails
+  dailyReportMailCcEmails.value = ccEmails
+  dailyReportMailTo.value = ''
+  dailyReportMailCc.value = ''
+  dailyReportMailSending.value = true
+  dailyReportMailError.value = ''
+  try {
+    if (reportMailKind.value === 'weekly') {
+      await sendReplayWeeklyReportMail({
+        startBatchNo: weeklyReportStartBatch.value,
+        endBatchNo: weeklyReportEndBatch.value,
+        subject, toEmails, ccEmails, body,
+      }, token)
+      weeklyReportSuccess.value = '周报邮件已发送'
+    } else {
+      await sendReplayDailyReportMail({ batchNo, subject, toEmails, ccEmails, body }, token)
+      dailyReportSuccess.value = '日报邮件已发送'
+    }
+    dailyReportMailOpen.value = false
+    if (reportMailKind.value === 'weekly') {
+      await loadWeeklyReportOptions({ preserveSelection: true })
+    } else {
+      await loadDailyReportBatches({ preserveSelection: true })
+    }
+  } catch (cause) {
+    dailyReportMailError.value = `发送失败：${cause?.message || cause}`
+    if (reportMailKind.value === 'weekly') {
+      await loadWeeklyReportOptions({ preserveSelection: true })
+    } else {
+      await loadDailyReportBatches({ preserveSelection: true })
+    }
+  } finally {
+    dailyReportMailSending.value = false
+  }
+}
+
+function parseDailyReportMailEmails(value) {
+  const source = Array.isArray(value) ? value.join('；') : String(value || '')
+  return [...new Set(source.split(/[;,，；\n]+/)
+    .map(email => email.trim().toLowerCase()).filter(Boolean))]
+}
+
+function dailyReportMailEmailRefs(kind) {
+  return kind === 'cc'
+    ? { emails: dailyReportMailCcEmails, draft: dailyReportMailCc }
+    : { emails: dailyReportMailToEmails, draft: dailyReportMailTo }
+}
+
+function commitDailyReportMailEmails(kind, source) {
+  const { emails, draft } = dailyReportMailEmailRefs(kind)
+  const value = source == null ? draft.value : source
+  if (!String(value || '').trim()) return
+  emails.value = parseDailyReportMailEmails([...emails.value, value])
+  draft.value = ''
+}
+
+function removeDailyReportMailEmail(kind, email) {
+  const { emails } = dailyReportMailEmailRefs(kind)
+  emails.value = emails.value.filter(item => item !== email)
+}
+
+function onDailyReportMailEmailKeydown(event, kind) {
+  if (['Enter', ',', ';', '，', '；'].includes(event.key)) {
+    event.preventDefault()
+    commitDailyReportMailEmails(kind)
+    return
+  }
+  const { emails, draft } = dailyReportMailEmailRefs(kind)
+  if (event.key === 'Backspace' && !draft.value && emails.value.length) {
+    emails.value = emails.value.slice(0, -1)
+  }
+}
+
+function onDailyReportMailEmailInput(event, kind) {
+  const value = event?.target?.value || ''
+  if (/[;,，；\n]/.test(value)) commitDailyReportMailEmails(kind, value)
+}
+
+function onDailyReportMailEmailPaste(event, kind) {
+  const value = event?.clipboardData?.getData('text') || ''
+  if (!value) return
+  event.preventDefault()
+  commitDailyReportMailEmails(kind, value)
 }
 
 async function downloadSelectedDailyReport() {
   if (!dailyReportSelectedBatch.value || dailyReportDownloading.value) return
+  const downloadingGeneratedReport = Boolean(dailyReportSelectedEntry.value?.generated)
   dailyReportDownloading.value = true
   dailyReportError.value = ''
+  dailyReportSuccess.value = ''
   try {
     await downloadReplayDailyReport(dailyReportSelectedBatch.value)
-    closeDailyReport()
+    dailyReportSuccess.value = '已生成，可直接下载'
+    await loadDailyReportBatches({ preserveSelection: true })
   } catch (cause) {
-    dailyReportError.value = `下载失败：${cause?.message || cause}`
+    dailyReportError.value = `${downloadingGeneratedReport ? '下载' : '生成'}失败：${cause?.message || cause}`
   } finally {
     dailyReportDownloading.value = false
   }
@@ -2231,6 +2779,8 @@ onBeforeUnmount(() => {
 .replay-toolbar-title { min-width: 0; display: flex; align-items: center; gap: 10px; }
 .replay-toolbar-actions { display: flex; align-items: center; gap: 8px; }
 .replay-statistics-group-switch { display: inline-flex; align-items: center; flex: 0 0 auto; gap: 2px; padding: 2px; border: 1px solid var(--border, #d7dee8); border-radius: 6px; background: var(--bg-domain-hover, #f5f7fa); }
+.replay-toolbar-filter-group, .replay-modal-filter-group { padding: 3px; border-color: #aebbd0; border-radius: 7px; background: #eef2f7; box-shadow: 0 1px 3px rgba(31, 41, 55, .12), inset 0 0 0 1px rgba(255, 255, 255, .7); }
+.replay-toolbar-filter-group + .replay-toolbar-filter-group, .replay-modal-filter-group + .replay-modal-filter-group { margin-left: 4px; }
 .replay-statistics-group-switch button { min-height: 28px; padding: 0 11px; border: 0; border-radius: 4px; color: var(--text-secondary, #4b5563); background: transparent; cursor: pointer; font: inherit; font-size: 12px; white-space: nowrap; }
 .replay-statistics-group-switch button:hover, .replay-statistics-group-switch button:focus-visible { color: var(--text-active, #3b5adb); outline: 1px solid color-mix(in srgb, var(--text-active, #3b5adb) 45%, transparent); }
 .replay-statistics-group-switch button.is-active { color: #fff; background: var(--text-active, #3b5adb); box-shadow: 0 1px 2px rgba(31, 41, 55, .16); font-weight: 600; }
@@ -2297,20 +2847,38 @@ onBeforeUnmount(() => {
 .replay-person-ranking-tabs button { min-width: 82px; min-height: 32px; padding: 0 14px; border: 1px solid var(--border, #d7dee8); border-radius: 5px; color: var(--text-secondary, #374151); background: var(--bg-card, #fff); cursor: pointer; font: inherit; white-space: nowrap; }
 .replay-person-ranking-tabs button:hover, .replay-person-ranking-tabs button:focus-visible { border-color: var(--text-active, #3b5adb); color: var(--text-active, #3b5adb); outline: none; }
 .replay-person-ranking-tabs button.is-active { border-color: var(--text-active, #3b5adb); color: var(--text-active, #3b5adb); background: color-mix(in srgb, var(--text-active, #3b5adb) 8%, var(--bg-card, #fff)); font-weight: 600; }
+.replay-summary-content { min-height: 0; flex: 1 1 auto; display: flex; overflow: hidden; }
 .replay-summary-table-wrap { min-height: 0; overflow: auto; }
+.replay-summary-content > .replay-summary-table-wrap { flex: 1 1 auto; }
 .replay-summary-table { width: 100%; border-collapse: collapse; color: var(--text-primary, #1f2937); background: var(--bg-card, #fff); font-size: 12px; font-variant-numeric: tabular-nums; }
 .replay-summary-table th, .replay-summary-table td { min-width: 88px; padding: 7px 9px; border: 1px solid var(--border, #d7dee8); text-align: right; white-space: nowrap; }
 .replay-summary-table th { position: sticky; top: 0; z-index: 1; color: #fff; background: var(--replay-teal); }
 .replay-summary-table th.is-pending-segment { background: #b86f18; }
 .replay-summary-table th.is-fixed-segment { background: #2f855a; }
+.replay-summary-table th.is-schedule-segment { min-width: 168px; background: #3158c7; white-space: pre-line; text-align: center; }
 .replay-summary-table th.is-pending-segment.is-segment-total { background: #92540f; }
 .replay-summary-table th.is-fixed-segment.is-segment-total { background: #216b45; }
 .replay-summary-table td.is-pending-segment { background: #fff8eb; }
 .replay-summary-table td.is-fixed-segment { background: #eefaf2; }
+.replay-summary-table td.is-schedule-segment { text-align: center; background: #eef3ff; }
 .replay-summary-table td.is-pending-segment.is-segment-total { color: #7a430a; background: #ffefcf; font-weight: 700; }
 .replay-summary-table td.is-fixed-segment.is-segment-total { color: #175c39; background: #dff5e8; font-weight: 700; }
 .replay-summary-table th:first-child, .replay-summary-table td:first-child { text-align: left; }
-.replay-person-ranking-table th:nth-child(3), .replay-person-ranking-table td:nth-child(3) { min-width: 250px; text-align: left; white-space: normal; overflow-wrap: anywhere; }
+.replay-person-ranking-table th, .replay-person-ranking-table td { min-width: 72px; padding-right: 7px; padding-left: 7px; }
+.replay-person-ranking-table th:nth-child(1), .replay-person-ranking-table td:nth-child(1) { width: 52px; min-width: 52px; }
+.replay-person-ranking-table th:nth-child(2), .replay-person-ranking-table td:nth-child(2) { width: 76px; min-width: 76px; }
+.replay-person-ranking-table th:nth-child(3), .replay-person-ranking-table td:nth-child(3) { width: 180px; min-width: 180px; max-width: 180px; text-align: left; white-space: normal; overflow-wrap: anywhere; }
+.replay-person-ranking-table th:nth-child(4), .replay-person-ranking-table td:nth-child(4) { width: 190px; min-width: 190px; }
+.replay-person-schedule-button { min-width: 72px; min-height: 28px; padding: 3px 9px; border: 1px solid #6f8fe0; border-radius: 5px; color: #244da8; background: #fff; cursor: pointer; font: inherit; font-weight: 700; }
+.replay-person-schedule-button:hover, .replay-person-schedule-button:focus-visible { border-color: #3158c7; outline: none; box-shadow: 0 0 0 2px rgba(49, 88, 199, .15); }
+.replay-person-schedule-panel { flex: 0 0 320px; min-width: 0; overflow: auto; padding: 14px; border-left: 1px solid var(--border, #d7dee8); background: var(--bg-page, #f7f8fa); }
+.replay-person-schedule-panel > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding-bottom: 10px; border-bottom: 1px solid var(--border, #d7dee8); }
+.replay-person-schedule-panel small, .replay-person-schedule-panel span { color: var(--text-muted, #6b7280); font-size: 11px; }
+.replay-person-schedule-panel h4 { margin: 3px 0 0; font-size: 14px; overflow-wrap: anywhere; }
+.replay-person-schedule-dates { margin-top: 12px; }
+.replay-person-schedule-dates h5 { margin: 0 0 7px; font-size: 12px; }
+.replay-person-schedule-dates > div { display: flex; justify-content: space-between; gap: 8px; margin-top: 6px; padding: 8px 9px; border: 1px solid var(--border, #d7dee8); border-radius: 5px; background: var(--bg-card, #fff); }
+.replay-person-schedule-dates > p { color: var(--text-muted, #6b7280); font-size: 12px; }
 .replay-summary-state { margin: 0; padding: 18px; color: var(--text-muted, #6b7280); text-align: center; }
 .replay-field-label { position: relative; display: flex !important; align-items: center; justify-content: flex-start !important; width: 100%; gap: 2px !important; }
 .replay-field-label > em { margin-left: auto; }
@@ -2329,6 +2897,8 @@ onBeforeUnmount(() => {
   background: var(--bg-input, #fff);
   font: inherit;
 }
+.replay-import-modal textarea { resize: vertical; min-height: 112px; border: 1px solid var(--border, #e8edf5); border-radius: 4px; padding: 8px 9px; color: var(--text-primary, #1f2937); background: var(--bg-input, #fff); font: inherit; line-height: 1.5; }
+.replay-import-modal input[readonly] { color: var(--text-muted, #6b7280); background: var(--bg-page, #f5f7fa); }
 
 .replay-button, .replay-icon-button {
   min-height: 32px;
@@ -2356,7 +2926,35 @@ onBeforeUnmount(() => {
 .replay-daily-report-picker { display: grid; gap: 6px; margin: 8px 0; color: var(--text-secondary, #374151); font-size: 12px; }
 .replay-daily-report-picker select { min-height: 32px; border: 1px solid var(--border, #e8edf5); border-radius: 4px; padding: 0 9px; background: var(--bg-input, #fff); font: inherit; }
 .replay-daily-report-error { color: #b42318; font-size: 12px; }
+.replay-daily-report-success { color: #15803d; font-size: 12px; }
 .replay-daily-report-modal { max-width: 480px; }
+.replay-weekly-report-modal { max-width: 560px; }
+.replay-weekly-report-picker-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.replay-weekly-report-history-picker { margin-bottom: 12px; }
+.replay-weekly-report-history-picker small { color: var(--text-muted, #6b7280); font-size: 11px; }
+.replay-weekly-report-generated-card { display: grid; gap: 4px; margin: 8px 0; padding: 12px; border: 1px solid #cdd8f6; border-radius: 6px; background: #f3f6ff; }
+.replay-weekly-report-generated-card > span { color: var(--text-muted, #6b7280); font-size: 11px; }
+.replay-weekly-report-generated-card > strong { color: #29458f; font-size: 18px; }
+.replay-weekly-report-generated-card > div { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--text-muted, #6b7280); font-size: 12px; }
+.replay-weekly-report-generated-card em { color: #15803d; font-style: normal; font-weight: 650; }
+.replay-weekly-report-generated-card small { color: #b42318; font-size: 11px; }
+.replay-daily-report-mail-state { display: grid; gap: 3px; margin: 6px 0; padding: 8px 10px; border: 1px solid var(--border, #d7dee8); border-radius: 4px; color: var(--text-muted, #6b7280); background: var(--bg-page, #f7f9fc); font-size: 12px; }
+.replay-daily-report-mail-state strong { color: var(--text-secondary, #374151); }
+.replay-daily-report-mail-mask { z-index: 80; }
+.replay-daily-report-mail-modal { width: min(560px, calc(100vw - 32px)); max-width: 560px; }
+.replay-daily-report-mail-field { display: grid; gap: 6px; color: var(--text-secondary, #374151); font-size: 12px; }
+.replay-daily-report-mail-field > small { color: var(--text-muted, #6b7280); font-size: 11px; }
+.replay-mail-address-editor { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 38px; padding: 5px 7px; border: 1px solid var(--border, #d7dee8); border-radius: 4px; background: var(--bg-input, #fff); transition: border-color .15s ease, box-shadow .15s ease; }
+.replay-mail-address-editor-scrollable { align-content: flex-start; max-height: 92px; overflow-x: hidden; overflow-y: auto; scrollbar-gutter: stable; }
+.replay-mail-address-editor:focus-within { border-color: #5777d7; box-shadow: 0 0 0 2px rgba(87, 119, 215, .12); }
+.replay-mail-address-editor.is-disabled { background: var(--bg-page, #f7f9fc); opacity: .72; }
+.replay-mail-address-editor input { flex: 1 1 180px; min-width: 150px; height: 26px; padding: 0 3px; border: 0; outline: 0; background: transparent; font: inherit; color: inherit; }
+.replay-mail-address-chip { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; min-height: 26px; padding: 2px 5px 2px 8px; border: 1px solid #cdd8f6; border-radius: 4px; background: #eef3ff; color: #29458f; }
+.replay-mail-address-chip > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.replay-mail-address-chip button { display: grid; place-items: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 3px; background: transparent; color: #6b7db4; cursor: pointer; font-size: 16px; line-height: 1; }
+.replay-mail-address-chip button:hover:not(:disabled) { background: #dce6ff; color: #1f3d8f; }
+.replay-mail-address-chip button:disabled { cursor: not-allowed; }
+.replay-daily-report-mail-attachment { margin: 0; padding: 8px 10px; border: 1px solid var(--border, #d7dee8); border-radius: 4px; color: var(--text-muted, #6b7280); background: var(--bg-page, #f7f9fc); font-size: 12px; }
 .replay-button:disabled, .replay-icon-button:disabled { cursor: not-allowed; opacity: .48; }
 
 .replay-table-viewport {
@@ -2496,10 +3094,10 @@ button.replay-review-badge { cursor: pointer; }
 .replay-timeline { min-height: 0; flex: 1 1 auto; overflow: auto; margin: 0; padding: 18px 20px 28px 34px; list-style: none; }
 .replay-timeline > li { position: relative; padding: 0 0 16px 18px; border-left: 1px solid var(--border, #d7dee8); }
 .replay-timeline-marker { position: absolute; top: 2px; left: -5px; width: 9px; height: 9px; border: 2px solid var(--text-active, #3b5adb); border-radius: 50%; background: var(--bg-card, #fff); }
-.replay-round-group { margin-top: 0 !important; border: 1px solid var(--border, #e8edf5); border-radius: 5px; background: var(--bg-card, #fff); }
-.replay-round-summary { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; align-items: center; gap: 8px; padding: 10px; color: var(--text-primary, #1f2937) !important; }
-.replay-round-summary strong { min-width: 0; overflow-wrap: anywhere; }
-.replay-round-summary time { color: var(--text-muted, #6b7280); font-size: 11px; white-space: nowrap; }
+.replay-batch-group { margin-top: 0 !important; border: 1px solid var(--border, #e8edf5); border-radius: 5px; background: var(--bg-card, #fff); }
+.replay-round-summary { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px 8px; padding: 10px; color: var(--text-primary, #1f2937) !important; }
+.replay-round-title { min-width: 0; display: flex; align-items: center; gap: 6px; }
+.replay-round-title strong { min-width: 0; overflow-wrap: anywhere; }
 .replay-current-batch { padding: 2px 6px; border-radius: 3px; color: var(--text-active, #3b5adb); background: var(--bg-active, #edf1ff); font-size: 10px; white-space: nowrap; }
 .replay-original-data-toggle { display: inline-flex; align-items: center; gap: 3px; min-height: 26px; padding: 3px 7px; border: 1px solid var(--border, #d7dee8); border-radius: 4px; color: var(--text-active, #3b5adb); background: var(--bg-card, #fff); font: inherit; font-size: 11px; cursor: pointer; white-space: nowrap; }
 .replay-original-data-toggle:hover { border-color: var(--text-active, #3b5adb); background: var(--bg-active, #f5f7ff); }
@@ -2511,7 +3109,8 @@ button.replay-review-badge { cursor: pointer; }
 .replay-original-data-list { display: grid; gap: 1px; border: 1px solid var(--border, #d7dee8); background: var(--border, #d7dee8); }
 .replay-original-data-row { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 8px; min-width: 0; padding: 7px 8px; color: var(--text-secondary, #374151); background: var(--bg-page, #f7f8fa); font-size: 11px; }
 .replay-original-data-row > span:first-child { color: var(--text-muted, #6b7280); }
-.replay-tracking-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: help; }
+.replay-original-data-header { color: var(--text-muted, #6b7280); background: var(--bg-page, #f0f2f7); font-size: 10px; }
+.replay-original-data-header > span:first-child { color: inherit; }
 .replay-event-heading { display: flex; justify-content: space-between; gap: 8px; }
 .replay-event-heading time { color: var(--text-muted, #6b7280); font-size: 11px; white-space: nowrap; }
 .replay-round-body > p { margin: 5px 0 9px; color: var(--text-secondary, #374151); font-size: 12px; }
@@ -2531,9 +3130,9 @@ button.replay-review-badge { cursor: pointer; }
 .replay-timeline summary { color: var(--text-active, #3b5adb); cursor: pointer; }
 .replay-timeline pre { max-height: 180px; overflow: auto; margin: 7px 0 0; padding: 7px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-secondary, #374151); background: var(--bg-page, #f0f2f7); font: 11px/16px ui-monospace, SFMono-Regular, Menlo, monospace; }
 .replay-base-description { margin-bottom: 0 !important; }
-.replay-manual-events > ol { display: grid; gap: 10px; margin: 9px 0 0; padding: 0; list-style: none; }
-.replay-manual-events > ol > li { padding: 9px; border-left: 2px solid var(--border, #d7dee8); background: var(--bg-page, #f7f8fa); }
-.replay-manual-events > ol > li > p { margin: 4px 0 8px; color: var(--text-muted, #6b7280); font-size: 11px; }
+.replay-tracking-events { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.replay-tracking-events > li { padding: 9px; border-left: 2px solid var(--border, #d7dee8); background: var(--bg-page, #f7f8fa); }
+.replay-tracking-events > li > p { margin: 4px 0 8px; color: var(--text-muted, #6b7280); font-size: 11px; }
 .replay-drawer-state { padding: 20px; color: var(--text-muted, #6b7280); }
 .replay-copy-toast { position: fixed; z-index: 1200; left: 50%; bottom: 48px; transform: translateX(-50%); margin: 0; padding: 8px 18px; border: 1px solid var(--text-active, #3b5adb); border-radius: 5px; color: var(--text-active, #3b5adb); background: var(--bg-card, #fff); box-shadow: 0 4px 16px rgba(0, 0, 0, .15); font-size: 12px; }
 
@@ -2598,6 +3197,7 @@ button.replay-review-badge { cursor: pointer; }
   .replay-toolbar, .replay-pager { padding-left: 12px; padding-right: 12px; }
   .replay-toolbar { min-height: auto; align-items: flex-start; flex-wrap: wrap; }
   .replay-toolbar-actions { width: 100%; justify-content: flex-end; }
+  .replay-weekly-report-picker-grid { grid-template-columns: 1fr; gap: 0; }
   .replay-toolbar-title { width: 100%; }
   .replay-icon-button.replay-mobile-navigation { flex: 0 0 auto; display: inline-grid; }
   .replay-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -2607,12 +3207,11 @@ button.replay-review-badge { cursor: pointer; }
   .replay-summary-modal, .replay-summary-modal-group, .replay-summary-modal-person { width: calc(100vw - 24px); max-height: calc(100vh - 24px); }
   .replay-summary-modal-group { height: auto; }
   .replay-summary-modal-person { height: min(70vh, 640px); }
+  .replay-summary-modal-person .replay-summary-content { flex-direction: column; }
+  .replay-summary-modal-person .replay-person-schedule-panel { flex: 0 0 auto; max-height: 42%; border-top: 1px solid var(--border, #d7dee8); border-left: 0; }
   .replay-edit-grid { grid-template-columns: 1fr; }
   .replay-edit-wide { grid-column: auto; }
   .replay-pager { justify-content: space-between; gap: 8px; flex-wrap: wrap; }
-  .replay-round-summary { grid-template-columns: minmax(0, 1fr) auto; }
-  .replay-round-summary time { grid-column: 1; }
-  .replay-original-data-toggle { grid-column: 2; grid-row: 2; }
   .replay-change-row { grid-template-columns: 70px minmax(0, 1fr) minmax(0, 1fr); }
   .replay-tracking-drawer { width: 100%; }
 }

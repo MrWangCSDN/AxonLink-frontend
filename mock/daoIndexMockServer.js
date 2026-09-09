@@ -464,7 +464,7 @@ const REPLAY_GROUPS = ['公共组', '存款组', '贷款组', '结算组']
 const REPLAY_ISSUE_DOMAINS = ['存款组', '贷款组', '公共组', '结算组', '迁移组', '平台组']
 const REPLAY_STATISTICS_ISSUE_DOMAINS = [...REPLAY_GROUPS, '迁移组', '平台组']
 const REPLAY_LEVELS = ['交易级', '字段级', '系统级']
-const REPLAY_TYPES = ['迁移问题', '防腐问题', '代码问题', '新核心下线', '参数问题', '平台问题', '规则差异问题', '合理差异', '规则性差异问题', '外围问题', '其他问题']
+const REPLAY_TYPES = ['迁移问题', '防腐问题', '代码问题', '新核心下线', '参数问题', '平台问题', '合理差异', '规则性差异问题', '外围问题', '其他问题']
 const REPLAY_STATUSES = ['新建', '打开', '无需处理', '延后修复', '修复待验证', '重新打开', '已修复']
 const REPLAY_NO_ACTION_TYPES = new Set(['合理差异', '规则性差异问题', '外围问题'])
 const REPLAY_DEVELOPERS = ['张三(c-zhangs3)', '李四(c-lisi)', '王五(c-wangw5)', '赵六(c-zhaol6)']
@@ -679,6 +679,114 @@ let replayPlanDateChangeSequence = 0
 const REPLAY_MAIL_STATUS = new Map()
 let REPLAY_WEEKLY_TASK_BATCHES = ['RPT20260819-001']
 const REPLAY_AVAILABLE_BATCHES = ['DZ20260815-001', 'DZ20260819-001', 'MOCK-20260808', 'MOCK-20260812', 'RPT20260815-001', 'RPT20260819-001']
+const REPLAY_DAILY_REPORT_BATCHES = [
+  { batchNo: 'RPT20260903-01', family: 'RPT', importedAt: '2026-09-03T10:00:00', previousBatchNo: 'RPT20260902-01', canGenerate: true },
+  { batchNo: 'RPT20260902-01', family: 'RPT', importedAt: '2026-09-02T10:00:00', previousBatchNo: 'RPT20260901-01', canGenerate: true },
+  { batchNo: 'RPT20260901-01', family: 'RPT', importedAt: '2026-09-01T10:00:00', previousBatchNo: null, canGenerate: false },
+  { batchNo: 'RPT20260825-01', family: 'RPT', importedAt: '2026-08-25T10:00:00', previousBatchNo: 'RPT20260818-01', canGenerate: true },
+  { batchNo: 'RPT20260818-01', family: 'RPT', importedAt: '2026-08-18T10:00:00', previousBatchNo: null, canGenerate: false },
+  { batchNo: 'DZ20260902-01', family: 'DZ', importedAt: '2026-09-02T11:00:00', previousBatchNo: 'DZ20260820-01', canGenerate: true },
+  { batchNo: 'DZ20260820-01', family: 'DZ', importedAt: '2026-08-20T11:00:00', previousBatchNo: null, canGenerate: false },
+]
+
+function replayIssueRoundTracking(issueId) {
+  const issue = REPLAY_ISSUES.find(item => item.id === issueId) || REPLAY_ISSUES[0]
+  const longValue = 'responseBody.accountDetailList[*].multiCurrencyBalance.availableAmountAndFrozenAmountAndOverdraftLimitAndCashRemittanceFlag'
+  const originalData = [
+    { field: 'issue_id', value: issue.issue_id || '000845' },
+    { field: '是否沙箱', value: issue.sandbox ? '是' : '否' },
+    { field: '交易码', value: issue.transaction_code || '6208' },
+    { field: '交易名称', value: issue.transaction_name || '对公贷款还款计划查询' },
+    { field: '问题级别', value: issue.issue_level || '交易级' },
+    { field: '字段名', value: longValue },
+    { field: '流水号', value: issue.serial_no || '001012213710102' },
+    { field: '全局流水号', value: issue.global_serial_no || 'GS-00000059' },
+    { field: '问题描述', value: '本批次导入内容与当前记录一致' },
+    { field: '领域', value: issue.group_name || '贷款组' },
+    { field: '出现笔数', value: '58' },
+    { field: 'issue_key', value: issue.issue_key || 'TRAN|6208|响应码' },
+    { field: '首次出现日期', value: '2026-07-28' },
+  ]
+  return [
+    {
+      roundId: 4,
+      roundCode: 'RPT20260820-001',
+      importedAt: '2026-08-20 10:00:00',
+      appeared: false,
+      statusBefore: '修复待验证',
+      statusAfter: '已修复',
+      actionType: '问题自动修复',
+      manualChangeCount: 0,
+      finalStatus: '已修复',
+      originalData: [],
+      inheritedEvents: [{
+        id: 401,
+        operationType: '问题自动修复',
+        operationAt: '2026-08-20 10:00:00',
+        operatorRealName: '系统',
+        operatorUsername: 'SYSTEM',
+        changes: [{ field: '问题状态', before: '修复待验证', after: '已修复' }],
+      }],
+      manualEvents: [],
+    },
+    {
+      roundId: 3,
+      roundCode: 'RPT20260819-001',
+      importedAt: '2026-08-19 10:00:00',
+      appeared: true,
+      statusBefore: '修复待验证',
+      statusAfter: '修复待验证',
+      actionType: '导入',
+      manualChangeCount: 0,
+      finalStatus: '修复待验证',
+      originalData,
+      inheritedEvents: [],
+      manualEvents: [],
+    },
+    {
+      roundId: 2,
+      roundCode: 'MOCK-20260812',
+      importedAt: '2026-08-12 10:00:00',
+      appeared: true,
+      statusBefore: '打开',
+      statusAfter: '修复待验证',
+      actionType: '基础数据覆盖，人工内容继承',
+      manualChangeCount: 1,
+      finalStatus: '已修复',
+      originalData,
+      inheritedEvents: [],
+      manualEvents: [{
+        id: 301,
+        operationType: '人工保存',
+        operationAt: '2026-08-12 14:30:00',
+        operatorRealName: '当前Mock用户',
+        operatorUsername: 'c-mock-current',
+        changes: [{ field: '问题状态', before: '修复待验证', after: '已修复' }],
+      }],
+    },
+    {
+      roundId: 1,
+      roundCode: 'MOCK-20260808',
+      importedAt: '2026-08-08 09:00:00',
+      appeared: true,
+      statusBefore: '新建',
+      statusAfter: '打开',
+      actionType: '导入',
+      manualChangeCount: 0,
+      finalStatus: '打开',
+      originalData,
+      inheritedEvents: [{
+        id: 101,
+        operationType: '导入',
+        operationAt: '2026-08-08 09:00:00',
+        operatorRealName: '系统',
+        operatorUsername: 'SYSTEM',
+        changes: [{ field: '问题状态', before: '新建', after: '打开' }],
+      }],
+      manualEvents: [],
+    },
+  ]
+}
 
 const REPLAY_COMPLETION_DEVELOPERS = Array.from(
   { length: 50 },
@@ -696,7 +804,7 @@ const REPLAY_COMPLETION_DATES = Array.from(
     ? `2026-08-${String(index + 1).padStart(2, '0')}`
     : `2026-09-${String(index - 30).padStart(2, '0')}`,
 )
-const REPLAY_COMPLETION_TODAY = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(new Date())
+const REPLAY_COMPLETION_TODAY = '2026-09-02'
 const REPLAY_COMPLETION_ISSUES = REPLAY_GROUPS.flatMap((groupName, groupIndex) =>
   Array.from({ length: REPLAY_COMPLETION_DEVELOPER_INDEXES.length }, (_, index) => {
     const categoryIndex = index % 4
@@ -945,6 +1053,34 @@ function replayIssuePersonRankings(query = {}) {
   })
 }
 
+function replayIssuePersonSchedule(query = {}) {
+  const groupField = query.groupBy === 'issueDomain' ? 'issue_domain' : 'group_name'
+  const scheduleRows = replayFilterRows({ replayType: query.replayType }).filter((row) => {
+    const groupName = row[groupField] || row.group_name
+    const developer = String(row.matched_developer || '').trim() || '未匹配负责人'
+    return groupName === query.groupName
+      && developer === query.developer
+      && ['新建', '打开', '重新打开'].includes(row.issue_status)
+  })
+  const dateCountMap = new Map()
+  scheduleRows.forEach((row) => {
+    const date = String(row.planned_completion_date || '').trim()
+    if (date) dateCountMap.set(date, (dateCountMap.get(date) || 0) + 1)
+  })
+  const dateCounts = [...dateCountMap.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([plannedCompletionDate, count]) => ({ plannedCompletionDate, count }))
+  const schedulePlannedCount = dateCounts.reduce((sum, row) => sum + row.count, 0)
+  return {
+    groupName: query.groupName,
+    developer: query.developer,
+    scheduleTotalCount: scheduleRows.length,
+    schedulePlannedCount,
+    scheduleUnplannedCount: scheduleRows.length - schedulePlannedCount,
+    dateCounts,
+  }
+}
+
 function replayIssueGroupSummariesForRows(groupName, rows) {
   const count = status => rows.filter(row => row.issue_status === status).length
   const newCount = count('新建')
@@ -954,8 +1090,11 @@ function replayIssueGroupSummariesForRows(groupName, rows) {
   const pendingVerificationCount = count('修复待验证')
   const noActionCount = count('无需处理')
   const fixedCount = count('已修复')
+  const scheduleRows = rows.filter(row => ['新建', '打开', '重新打开'].includes(row.issue_status))
+  const schedulePlannedCount = scheduleRows.filter(row => String(row.planned_completion_date || '').trim()).length
   return { newCount, openCount, reopenedCount, deferredCount, pendingVerificationCount,
     pendingTotalCount: newCount + openCount + reopenedCount + deferredCount + pendingVerificationCount,
+    schedulePlannedCount, scheduleTotalCount: scheduleRows.length,
     noActionCount, fixedCount, fixedTotalCount: noActionCount + fixedCount, totalCount: rows.length }
 }
 
@@ -1031,6 +1170,26 @@ export function replayHeaderFilterOptions(query = {}) {
 // ────────────── Vite 插件 ──────────────
 
 export function daoIndexMockPlugin() {
+  const generatedDailyReports = new Map([
+    ['RPT20260818-01', '2026-08-18T11:00:00'],
+    ['RPT20260825-01', '2026-08-25T11:00:00'],
+    ['RPT20260901-01', '2026-09-01T11:00:00'],
+    ['RPT20260902-01', '2026-09-02T11:00:00'],
+    ['DZ20260820-01', '2026-08-20T12:00:00'],
+    ['DZ20260902-01', '2026-09-02T12:00:00'],
+  ])
+  const dailyReportMailStatuses = new Map()
+  const generatedWeeklyReports = new Map([
+    ['RPT20260825-01|RPT20260903-01', '2026-09-03T12:00:00'],
+    ['DZ20260820-01|DZ20260902-01', '2026-09-02T14:00:00'],
+    ['RPT20260818-01|RPT20260902-01', '2026-09-02T13:00:00'],
+    ['RPT20260818-01|RPT20260901-01', '2026-09-01T12:00:00'],
+    ['RPT20260818-01|RPT20260825-01', '2026-08-25T12:00:00'],
+  ])
+  const weeklyReportMailStatuses = new Map([
+    ['RPT20260825-01|RPT20260903-01', { status: 'SENT', sentAt: '2026-09-03T12:20:00', failureMessage: null }],
+    ['RPT20260818-01|RPT20260901-01', { status: 'FAILED', sentAt: null, failureMessage: 'Mock：邮件服务器暂不可用' }],
+  ])
   return {
     name: 'dao-index-mock',
     configureServer(server) {
@@ -1038,10 +1197,208 @@ export function daoIndexMockPlugin() {
         const url = req.url || ''
         const path = url.split('?')[0]
         if (url.startsWith('/api/ai/parallel-replay/issues')) {
+          if (req.method === 'POST' && (path === '/api/ai/parallel-replay/issues'
+              || path.endsWith('/header-filter-option-counts'))) {
+            return readJsonBody(req).then((body) => {
+              const q = {
+                ...(body.query || {}),
+                affectedTransactionCountOrder: body.affectedTransactionCountOrder,
+              }
+              if (q.replayType && !['ALL', 'DZ', 'QUERY'].includes(q.replayType)) {
+                res.statusCode = 400
+                return res.end(JSON.stringify({ code: 400, message: '回放交易类型不合法' }))
+              }
+              if (path.endsWith('/header-filter-option-counts')) {
+                return ok(res, replayHeaderFilterOptionCounts({ ...q, field: body.field, keyword: body.keyword }))
+              }
+              const rows = replaySortRows(replayFilterRows(q), q)
+              const offset = Number(q.offset || 0); const limit = Number(q.limit || 50)
+              return ok(res, { total: rows.length, items: rows.slice(offset, offset + limit).map(row => ({ ...row, weekly_task: isReplayWeeklyTask(row) })) })
+            })
+          }
           const q = parseQuery(url)
           if (q.replayType && !['ALL', 'DZ', 'QUERY'].includes(q.replayType)) {
             res.statusCode = 400
             return res.end(JSON.stringify({ code: 400, message: '回放交易类型不合法' }))
+          }
+          if (req.method === 'GET' && path.endsWith('/daily-report/batches')) {
+            return ok(res, REPLAY_DAILY_REPORT_BATCHES.map(entry => ({
+              ...entry,
+              generated: generatedDailyReports.has(entry.batchNo),
+              generatedAt: generatedDailyReports.get(entry.batchNo) || null,
+              mailStatus: dailyReportMailStatuses.get(entry.batchNo)?.status || 'UNSENT',
+              mailSentAt: dailyReportMailStatuses.get(entry.batchNo)?.sentAt || null,
+              mailFailureMessage: dailyReportMailStatuses.get(entry.batchNo)?.failureMessage || null,
+            })))
+          }
+          if (req.method === 'GET' && path.endsWith('/weekly-report/options')) {
+            const dailyBatches = REPLAY_DAILY_REPORT_BATCHES
+              .filter(entry => generatedDailyReports.has(entry.batchNo))
+              .sort((left, right) => left.family.localeCompare(right.family)
+                || left.importedAt.localeCompare(right.importedAt)
+                || left.batchNo.localeCompare(right.batchNo))
+              .map(entry => ({ ...entry, generated: true, generatedAt: generatedDailyReports.get(entry.batchNo) }))
+            const weeklyReports = [...generatedWeeklyReports.entries()].map(([pair, generatedAt]) => {
+              const [startBatchNo, endBatchNo] = pair.split('|')
+              const mail = weeklyReportMailStatuses.get(pair) || {}
+              return {
+                startBatchNo, endBatchNo, family: endBatchNo.startsWith('DZ') ? 'DZ' : 'RPT', generatedAt,
+                mailStatus: mail.status || 'UNSENT', mailSentAt: mail.sentAt || null,
+                mailFailureMessage: mail.failureMessage || null,
+              }
+            })
+            return ok(res, { dailyBatches, weeklyReports })
+          }
+          if (req.method === 'GET' && path.endsWith('/weekly-report/mail-config')) {
+            const pair = `${q.startBatchNo}|${q.endBatchNo}`
+            if (!generatedWeeklyReports.has(pair)) {
+              res.statusCode = 404
+              return res.end(JSON.stringify({ code: 404, message: '周报尚未生成' }))
+            }
+            const status = weeklyReportMailStatuses.get(pair) || { status: 'UNSENT', sentAt: null, failureMessage: null }
+            const reportDate = q.endBatchNo.match(/^(?:RPT|DZ)(\d{8})/)?.[1] || ''
+            return ok(res, {
+              startBatchNo: q.startBatchNo,
+              endBatchNo: q.endBatchNo,
+              subject: `对公分布式核心回放问题周报-${reportDate}`,
+              toEmails: ['replay-owner@example.com'],
+              ccEmails: ['replay-leader@example.com'],
+              body: '各位好，附件为本周期回放问题周报，请查收。',
+              ...status,
+            })
+          }
+          if (req.method === 'POST' && path.endsWith('/weekly-report/mail-send')) {
+            if (req.headers['x-dii-trigger-token'] !== 'secret') {
+              res.statusCode = 401
+              return res.end(JSON.stringify({ code: 401, message: '口令错误' }))
+            }
+            return readJsonBody(req).then((body) => {
+              const pair = `${body.startBatchNo}|${body.endBatchNo}`
+              if (!generatedWeeklyReports.has(pair)) {
+                res.statusCode = 404
+                return res.end(JSON.stringify({ code: 404, message: '周报尚未生成' }))
+              }
+              if (!String(body.subject || '').trim() || !Array.isArray(body.toEmails)
+                  || !body.toEmails.length || !String(body.body || '').trim()) {
+                res.statusCode = 400
+                return res.end(JSON.stringify({ code: 400, message: '周报邮件内容不完整' }))
+              }
+              const status = { status: 'SENT', sentAt: new Date().toISOString().slice(0, 19), failureMessage: null }
+              weeklyReportMailStatuses.set(pair, status)
+              return ok(res, {
+                startBatchNo: body.startBatchNo, endBatchNo: body.endBatchNo,
+                subject: String(body.subject).trim(), toEmails: body.toEmails,
+                ccEmails: Array.isArray(body.ccEmails) ? body.ccEmails : [], body: String(body.body), ...status,
+              })
+            })
+          }
+          if (req.method === 'GET' && path.endsWith('/weekly-report')) {
+            const candidates = REPLAY_DAILY_REPORT_BATCHES
+              .filter(entry => generatedDailyReports.has(entry.batchNo))
+              .sort((left, right) => left.family.localeCompare(right.family)
+                || left.importedAt.localeCompare(right.importedAt)
+                || left.batchNo.localeCompare(right.batchNo))
+            const startIndex = candidates.findIndex(entry => entry.batchNo === q.startBatchNo)
+            const endIndex = candidates.findIndex(entry => entry.batchNo === q.endBatchNo)
+            if (startIndex < 0 || endIndex < 0) {
+              res.statusCode = 409
+              return res.end(JSON.stringify({ code: 409, message: '所选批次日报尚未生成' }))
+            }
+            if (startIndex >= endIndex || candidates[startIndex].family !== candidates[endIndex].family) {
+              res.statusCode = 400
+              return res.end(JSON.stringify({ code: 400, message: '周报起止批次范围错误' }))
+            }
+            const pair = `${q.startBatchNo}|${q.endBatchNo}`
+            if (!generatedWeeklyReports.has(pair)) {
+              const occupied = [...generatedWeeklyReports.keys()]
+                .some(existingPair => existingPair.split('|')[1] === q.endBatchNo)
+              if (occupied) {
+                res.statusCode = 409
+                return res.end(JSON.stringify({ code: 409, message: '结束批次周报已生成' }))
+              }
+              generatedWeeklyReports.set(pair, new Date().toISOString().slice(0, 19))
+            }
+            res.statusCode = 200
+            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+            res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(`${q.endBatchNo}周报.xlsx`)}`)
+            return res.end(Buffer.from('PK\u0003\u0004mock-weekly-xlsx'))
+          }
+          if (req.method === 'GET' && path.endsWith('/daily-report/mail-config')) {
+            const batch = REPLAY_DAILY_REPORT_BATCHES.find(entry => entry.batchNo === q.batchNo)
+            if (!batch || !generatedDailyReports.has(q.batchNo)) {
+              res.statusCode = 404
+              return res.end(JSON.stringify({ code: 404, message: '日报尚未生成' }))
+            }
+            const status = dailyReportMailStatuses.get(q.batchNo) || { status: 'UNSENT', sentAt: null, failureMessage: null }
+            const reportDate = q.batchNo.match(/^(?:RPT|DZ)(\d{8})/)?.[1] || ''
+            return ok(res, {
+              batchNo: q.batchNo,
+              subject: `对公分布式核心回放问题日报-${reportDate}`,
+              toEmails: ['replay-owner@example.com'],
+              ccEmails: ['replay-leader@example.com'],
+              body: '各位好，附件为本批次回放问题日报，请查收。',
+              ...status,
+            })
+          }
+          if (req.method === 'POST' && path.endsWith('/daily-report/mail-send')) {
+            if (req.headers['x-dii-trigger-token'] !== 'secret') {
+              res.statusCode = 401
+              return res.end(JSON.stringify({ code: 401, message: '口令错误' }))
+            }
+            return readJsonBody(req).then((body) => {
+              if (!String(body.subject || '').trim()) {
+                res.statusCode = 400
+                return res.end(JSON.stringify({ code: 400, message: '邮件标题不能为空' }))
+              }
+              if (!Array.isArray(body.toEmails) || !body.toEmails.length) {
+                res.statusCode = 400
+                return res.end(JSON.stringify({ code: 400, message: '邮件收件人不能为空' }))
+              }
+              if (!String(body.body || '').trim()) {
+                res.statusCode = 400
+                return res.end(JSON.stringify({ code: 400, message: '邮件正文不能为空' }))
+              }
+              if (!generatedDailyReports.has(body.batchNo)) {
+                res.statusCode = 404
+                return res.end(JSON.stringify({ code: 404, message: '日报尚未生成' }))
+              }
+              const status = { status: 'SENT', sentAt: new Date().toISOString().slice(0, 19), failureMessage: null }
+              dailyReportMailStatuses.set(body.batchNo, status)
+              const reportDate = body.batchNo.match(/^(?:RPT|DZ)(\d{8})/)?.[1] || ''
+              return ok(res, {
+                batchNo: body.batchNo,
+                subject: String(body.subject).trim(),
+                toEmails: body.toEmails,
+                ccEmails: Array.isArray(body.ccEmails) ? body.ccEmails : [],
+                body: String(body.body),
+                ...status,
+              })
+            })
+          }
+          if (req.method === 'GET' && path.endsWith('/daily-report')) {
+            const batch = REPLAY_DAILY_REPORT_BATCHES.find(entry => entry.batchNo === q.batchNo)
+            if (!/^(RPT|DZ).+/.test(q.batchNo || '')) {
+              res.statusCode = 400
+              return res.end(JSON.stringify({ code: 400, message: '批次号格式错误' }))
+            }
+            if (!batch) {
+              res.statusCode = 404
+              return res.end(JSON.stringify({ code: 404, message: '批次数据不存在' }))
+            }
+            if (!batch.canGenerate) {
+              res.statusCode = 409
+              return res.end(JSON.stringify({ code: 409, message: '没有上批次数据' }))
+            }
+            if (!generatedDailyReports.has(batch.batchNo)) {
+              generatedDailyReports.set(batch.batchNo, new Date().toISOString().slice(0, 19))
+            }
+            res.statusCode = 200
+            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+            res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(`${batch.batchNo}日报.xlsx`)}`)
+            return res.end(Buffer.from('PK\u0003\u0004mock-xlsx'))
+          }
+          if (req.method === 'POST' && (path.endsWith('/import') || path.endsWith('/full-refresh'))) {
+            return ok(res, { totalRows: 8, inputRows: 8, createdRows: 0, updatedRows: 8, ignoredRows: 0 })
           }
           if (url.endsWith('/weekly-task')) {
             if (req.method === 'PUT') {
@@ -1134,6 +1491,10 @@ export function daoIndexMockPlugin() {
               return ok(res, { id: issueId, issueDomain: target, transferCount: items.length })
             })
           }
+          if (req.method === 'GET' && url.includes('/round-tracking')) {
+            const issueId = Number(url.match(/issues\/(\d+)/)?.[1] || 0)
+            return ok(res, replayIssueRoundTracking(issueId))
+          }
           if (req.method === 'PATCH' && url.includes('/planned-completion-date')) {
             const issueId = Number(url.match(/issues\/(\d+)/)?.[1] || 0)
             return readJsonBody(req).then((body) => {
@@ -1199,6 +1560,10 @@ export function daoIndexMockPlugin() {
               }
               const issueStatus = String(body.issueStatus || issue.issue_status || '').trim()
               let issueType = String(body.issueType || issue.issue_type || '').trim()
+              if (issue.issue_status === '重新打开' && issueStatus === '打开') {
+                res.statusCode = 400
+                return res.end(JSON.stringify({ code: 400, message: '重新打开的问题不能改回打开状态' }))
+              }
               if (issueStatus === '无需处理' && !REPLAY_NO_ACTION_TYPES.has(issueType)) {
                 res.statusCode = 400
                 return res.end(JSON.stringify({ code: 400, message: '无需处理的问题类型只能选择：合理差异、规则性差异问题、外围问题' }))
@@ -1242,6 +1607,7 @@ export function daoIndexMockPlugin() {
           }
           if (url.includes('/stats/planned-completion')) return ok(res, replayCompletionDashboard(q))
           if (path.endsWith('/stats/groups')) return ok(res, replayIssueGroupSummaries(q))
+          if (path.endsWith('/stats/person-ranking/schedule')) return ok(res, replayIssuePersonSchedule(q))
           if (path.endsWith('/stats/person-ranking')) return ok(res, replayIssuePersonRankings(q))
           if (url.includes('/mail-status')) {
             const issueId = Number(url.match(/issues\/(\d+)\//)?.[1] || 0)

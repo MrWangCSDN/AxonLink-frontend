@@ -7,9 +7,11 @@ import {
   getReplayIssueHeaderFilterOptionCounts,
   getReplayIssueMailStatus,
   getReplayImportRounds,
+  getReplayDailyReportBatches,
   getReplayIssueRoundTracking,
   getReplayIssueGroupSummaries,
   getReplayIssuePersonRankings,
+  getReplayIssuePersonSchedule,
   getReplayIssueStats,
   getReplayCompletionDatePoints,
   getReplayCompletionDashboard,
@@ -22,6 +24,13 @@ import {
   approveReplayIssue,
   getReplayWeeklyTask,
   replaceReplayWeeklyTask,
+  downloadReplayDailyReport,
+  getReplayDailyReportMailConfig,
+  sendReplayDailyReportMail,
+  getReplayWeeklyReportOptions,
+  downloadReplayWeeklyReport,
+  getReplayWeeklyReportMailConfig,
+  sendReplayWeeklyReportMail,
   importReplayIssues,
   listReplayIssues,
   searchReplayIssueUsers,
@@ -37,9 +46,11 @@ vi.mock('../../api/replayIssues.js', () => ({
   getReplayIssueHeaderFilterOptionCounts: vi.fn(),
   getReplayIssueMailStatus: vi.fn(),
   getReplayImportRounds: vi.fn(),
+  getReplayDailyReportBatches: vi.fn(),
   getReplayIssueRoundTracking: vi.fn(),
   getReplayIssueGroupSummaries: vi.fn(),
   getReplayIssuePersonRankings: vi.fn(),
+  getReplayIssuePersonSchedule: vi.fn(),
   getReplayIssueStats: vi.fn(),
   getReplayCompletionDatePoints: vi.fn(),
   getReplayCompletionDashboard: vi.fn(),
@@ -52,6 +63,13 @@ vi.mock('../../api/replayIssues.js', () => ({
   approveReplayIssue: vi.fn(),
   getReplayWeeklyTask: vi.fn(),
   replaceReplayWeeklyTask: vi.fn(),
+  downloadReplayDailyReport: vi.fn(),
+  getReplayDailyReportMailConfig: vi.fn(),
+  sendReplayDailyReportMail: vi.fn(),
+  getReplayWeeklyReportOptions: vi.fn(),
+  downloadReplayWeeklyReport: vi.fn(),
+  getReplayWeeklyReportMailConfig: vi.fn(),
+  sendReplayWeeklyReportMail: vi.fn(),
   importReplayIssues: vi.fn(),
   listReplayIssues: vi.fn(),
   searchReplayIssueUsers: vi.fn(),
@@ -96,7 +114,7 @@ function arrangeApi({ total = 4607, items = [fixtureRow] } = {}) {
   getReplayIssueOptions.mockResolvedValue({
     groups: ['公共组'],
     issueLevels: ['交易级'],
-    issueTypes: ['迁移问题', '防腐问题', '代码问题', '新核心下线', '参数问题', '平台问题', '规则差异问题', '合理差异', '规则性差异问题', '外围问题', '其他问题'],
+    issueTypes: ['迁移问题', '防腐问题', '代码问题', '新核心下线', '参数问题', '平台问题', '合理差异', '规则性差异问题', '外围问题', '其他问题'],
     issueStatuses: ['新建', '打开', '无需处理', '延后修复', '修复待验证', '重新打开', '已修复'],
     reviewStatuses: ['待审核', '已审核'],
     coverageRounds: ['20260808-001', '20260807-001'],
@@ -116,6 +134,28 @@ function arrangeApi({ total = 4607, items = [fixtureRow] } = {}) {
     { id: 2, roundCode: '20260808-001', inputRows: 3000 },
     { id: 1, roundCode: '20260807-001', inputRows: 2300 },
   ])
+  getReplayDailyReportBatches.mockResolvedValue([])
+  downloadReplayDailyReport.mockResolvedValue({ fileName: 'RPT20260808-001批次日报.xlsx' })
+  getReplayDailyReportMailConfig.mockResolvedValue({
+    batchNo: 'RPT20260903-01',
+    subject: '对公分布式核心回放问题日报-20260903',
+    toEmails: ['owner@example.com'],
+    ccEmails: ['leader@example.com'],
+    body: '各位好，附件为本批次回放问题日报，请查收。',
+    status: 'UNSENT',
+    sentAt: null,
+    failureMessage: null,
+  })
+  sendReplayDailyReportMail.mockResolvedValue({ status: 'SENT', sentAt: '2026-09-08T12:00:00' })
+  getReplayWeeklyReportOptions.mockResolvedValue({ dailyBatches: [], weeklyReports: [] })
+  downloadReplayWeeklyReport.mockResolvedValue({ fileName: 'RPT20260908-01周报.xlsx' })
+  getReplayWeeklyReportMailConfig.mockResolvedValue({
+    startBatchNo: 'RPT20260901-01', endBatchNo: 'RPT20260908-01',
+    subject: '对公分布式核心回放问题周报-20260908',
+    toEmails: ['owner@example.com'], ccEmails: ['leader@example.com'],
+    body: '各位好，附件为本周期回放问题周报，请查收。', status: 'UNSENT',
+  })
+  sendReplayWeeklyReportMail.mockResolvedValue({ status: 'SENT', sentAt: '2026-09-08T12:00:00' })
   getReplayIssueStats.mockResolvedValue({
     total,
     newTotal: 0,
@@ -151,8 +191,12 @@ function arrangeApi({ total = 4607, items = [fixtureRow] } = {}) {
     { groupName: '贷款组', newCount: 1, openCount: 8, reopenedCount: 2, deferredCount: 3, pendingVerificationCount: 1, pendingTotalCount: 15, noActionCount: 2, fixedCount: 4, fixedTotalCount: 6, totalCount: 21 },
   ])
   getReplayIssuePersonRankings.mockResolvedValue([
-    { rank: 1, groupName: '贷款组', developer: '张三(c-zhangs3)、李四(c-lisi)', newCount: 1, openCount: 5, reopenedCount: 1, deferredCount: 2, pendingVerificationCount: 1, pendingTotalCount: 10, noActionCount: 2, fixedCount: 3, fixedTotalCount: 5, totalCount: 15 },
+    { rank: 1, groupName: '贷款组', developer: '张三(c-zhangs3)、李四(c-lisi)', newCount: 1, openCount: 5, reopenedCount: 1, schedulePlannedCount: 5, scheduleTotalCount: 7, deferredCount: 2, pendingVerificationCount: 1, pendingTotalCount: 10, noActionCount: 2, fixedCount: 3, fixedTotalCount: 5, totalCount: 15 },
   ])
+  getReplayIssuePersonSchedule.mockResolvedValue({
+    groupName: '贷款组', developer: '张三(c-zhangs3)、李四(c-lisi)',
+    scheduleTotalCount: 7, schedulePlannedCount: 5, scheduleUnplannedCount: 2, dateCounts: [],
+  })
   importReplayIssues.mockResolvedValue({ totalRows: 16, sandboxRows: 8, nonSandboxRows: 8, rowsBySheet: {} })
   exportReplayIssues.mockResolvedValue({ fileName: '回放问题清单.xlsx' })
 }
@@ -179,6 +223,25 @@ afterEach(() => {
 })
 
 describe('ReplayIssuePage', () => {
+  it('visually separates the two toolbar filter groups', async () => {
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="replay-type-switch-toolbar"]').classes()).toContain('replay-toolbar-filter-group')
+    expect(wrapper.get('[data-testid="statistics-group-switch-toolbar"]').classes()).toContain('replay-toolbar-filter-group')
+
+    await wrapper.get('[data-testid="group-summary-entry"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="replay-type-switch-modal"]').classes()).toContain('replay-modal-filter-group')
+    expect(wrapper.get('[data-testid="statistics-group-switch-modal"]').classes()).toContain('replay-modal-filter-group')
+
+    await wrapper.get('[data-testid="close-summary-modal"]').trigger('click')
+    await wrapper.get('[data-testid="planned-completion-entry"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="completion-replay-type-switch"]').classes()).toContain('replay-completion-filter-group')
+    expect(wrapper.get('[data-testid="completion-grouping-switch"]').classes()).toContain('replay-completion-filter-group')
+  })
+
   it('uses replay type as the highest priority list and statistics baseline', async () => {
     getReplayIssueHeaderFilterOptionCounts.mockResolvedValue(countedOptions(['2026-08-26']))
     const wrapper = mount(ReplayIssuePage)
@@ -1143,6 +1206,469 @@ describe('ReplayIssuePage', () => {
     expect(wrapper.find('[data-testid="daily-report-import-modal"]').exists()).toBe(false)
   })
 
+  it('places weekly report after daily report and filters the end batch by family and order', async () => {
+    getReplayWeeklyReportOptions.mockResolvedValue({
+      dailyBatches: [
+        { batchNo: 'RPT20260901-01', family: 'RPT', generated: true },
+        { batchNo: 'RPT20260903-01', family: 'RPT', generated: true },
+        { batchNo: 'RPT20260908-01', family: 'RPT', generated: true },
+        { batchNo: 'DZ20260902-01', family: 'DZ', generated: true },
+        { batchNo: 'DZ20260909-01', family: 'DZ', generated: true },
+      ],
+      weeklyReports: [],
+    })
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    const actions = wrapper.find('.replay-toolbar-actions').text()
+    expect(actions.indexOf('日报')).toBeLessThan(actions.indexOf('周报'))
+    await wrapper.get('[data-testid="open-weekly-report"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="weekly-report-start-batch"]').element.value).toBe('RPT20260901-01')
+    expect(wrapper.get('[data-testid="weekly-report-end-batch"]').findAll('option').map(option => option.attributes('value')))
+      .toEqual(['RPT20260903-01', 'RPT20260908-01'])
+
+    await wrapper.get('[data-testid="weekly-report-start-batch"]').setValue('DZ20260902-01')
+    expect(wrapper.get('[data-testid="weekly-report-end-batch"]').findAll('option').map(option => option.attributes('value')))
+      .toEqual(['DZ20260909-01'])
+  })
+
+  it('lists every generated weekly batch and restores its original daily range', async () => {
+    const dailyBatches = [1, 8, 15, 22, 29].flatMap((day, index) => [
+      { batchNo: `RPT202609${String(day).padStart(2, '0')}-01`, family: 'RPT', generated: true },
+      ...(index === 0 ? [] : [{ batchNo: `RPT202609${String(day - 1).padStart(2, '0')}-01`, family: 'RPT', generated: true }]),
+    ])
+    const weeklyReports = [29, 22, 15, 8, 1].map((day, index) => ({
+      startBatchNo: index === 4 ? 'RPT20260825-01' : `RPT202609${String(day - 7).padStart(2, '0')}-01`,
+      endBatchNo: `RPT202609${String(day).padStart(2, '0')}-01`,
+      family: 'RPT', generatedAt: `2026-09-${String(day).padStart(2, '0')}T18:00:00`,
+      mailStatus: index === 0 ? 'SENT' : 'UNSENT',
+    }))
+    dailyBatches.unshift({ batchNo: 'RPT20260825-01', family: 'RPT', generated: true })
+    getReplayWeeklyReportOptions.mockResolvedValue({ dailyBatches, weeklyReports })
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="open-weekly-report"]').trigger('click')
+    await flushPromises()
+
+    const history = wrapper.get('[data-testid="weekly-report-history-batch"]')
+    expect(history.findAll('option').map(option => option.attributes('value')))
+      .toEqual(['RPT20260929-01', 'RPT20260922-01', 'RPT20260915-01', 'RPT20260908-01', 'RPT20260901-01', ''])
+    await history.setValue('RPT20260915-01')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="weekly-report-start-batch"]').element.value).toBe('RPT20260908-01')
+    expect(wrapper.get('[data-testid="weekly-report-end-batch"]').element.value).toBe('RPT20260915-01')
+    expect(wrapper.get('[data-testid="weekly-report-start-batch"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-testid="weekly-report-end-batch"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-testid="weekly-report-generated-card"]').text())
+      .toContain('当前周报批次RPT20260915-01')
+    expect(wrapper.get('[data-testid="weekly-report-generated-card"]').text()).toContain('2026-09-15T18:00:00')
+    expect(wrapper.get('[data-testid="weekly-report-mail-button"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="generate-weekly-report"]').text()).toContain('下载 Excel')
+  })
+
+  it('keeps permanent weekly reports selectable when daily source batches are unavailable', async () => {
+    getReplayWeeklyReportOptions.mockResolvedValue({
+      dailyBatches: [],
+      weeklyReports: [{
+        startBatchNo: 'RPT20260901-01', endBatchNo: 'RPT20260908-01', family: 'RPT',
+        generatedAt: '2026-09-08T18:00:00', mailStatus: 'UNSENT',
+      }],
+    })
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="open-weekly-report"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="weekly-report-history-batch"]').element.value).toBe('RPT20260908-01')
+    expect(wrapper.get('[data-testid="weekly-report-generated-card"]').text()).toContain('RPT20260908-01')
+    expect(wrapper.get('[data-testid="generate-weekly-report"]').text()).toContain('下载 Excel')
+  })
+
+  it('switches from a generated weekly batch to a new range and excludes occupied endings', async () => {
+    const dailyBatches = [
+      { batchNo: 'RPT20260901-01', family: 'RPT', generated: true },
+      { batchNo: 'RPT20260903-01', family: 'RPT', generated: true },
+      { batchNo: 'RPT20260908-01', family: 'RPT', generated: true },
+    ]
+    getReplayWeeklyReportOptions
+      .mockResolvedValueOnce({ dailyBatches, weeklyReports: [] })
+      .mockResolvedValueOnce({
+        dailyBatches,
+        weeklyReports: [{
+          startBatchNo: 'RPT20260901-01', endBatchNo: 'RPT20260903-01', family: 'RPT',
+          generatedAt: '2026-09-08T12:00:00', mailStatus: 'UNSENT',
+        }],
+      })
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="open-weekly-report"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="generate-weekly-report"]').text()).toContain('生成 Excel')
+    await wrapper.get('[data-testid="generate-weekly-report"]').trigger('click')
+    await flushPromises()
+
+    expect(downloadReplayWeeklyReport).toHaveBeenCalledWith('RPT20260901-01', 'RPT20260903-01')
+    expect(wrapper.get('[data-testid="weekly-report-modal"]').text()).toContain('已生成，可直接下载')
+    expect(wrapper.get('[data-testid="weekly-report-history-batch"]').element.value).toBe('RPT20260903-01')
+    expect(wrapper.get('[data-testid="weekly-report-generated-card"]').text()).toContain('RPT20260903-01')
+    expect(wrapper.get('[data-testid="generate-weekly-report"]').text()).toContain('下载 Excel')
+
+    await wrapper.get('[data-testid="weekly-report-history-batch"]').setValue('')
+    expect(wrapper.get('[data-testid="weekly-report-start-batch"]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.get('[data-testid="weekly-report-end-batch"]').findAll('option').map(option => option.attributes('value')))
+      .toEqual(['RPT20260908-01'])
+    expect(wrapper.get('[data-testid="generate-weekly-report"]').text()).toContain('生成 Excel')
+  })
+
+  it('sends an editable weekly report email with the generated workbook attachment', async () => {
+    getReplayWeeklyReportOptions.mockResolvedValue({
+      dailyBatches: [
+        { batchNo: 'RPT20260901-01', family: 'RPT', generated: true },
+        { batchNo: 'RPT20260908-01', family: 'RPT', generated: true },
+      ],
+      weeklyReports: [{
+        startBatchNo: 'RPT20260901-01', endBatchNo: 'RPT20260908-01', family: 'RPT',
+        generatedAt: '2026-09-08T12:00:00', mailStatus: 'UNSENT',
+      }],
+    })
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="open-weekly-report"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="weekly-report-mail-button"]').trigger('click')
+    await flushPromises()
+
+    expect(getReplayWeeklyReportMailConfig).toHaveBeenCalledWith('RPT20260901-01', 'RPT20260908-01')
+    expect(wrapper.get('[data-testid="weekly-report-mail-modal"]').text()).toContain('RPT20260908-01周报.xlsx')
+    await wrapper.get('[data-testid="weekly-report-mail-subject"]').setValue('自定义周报标题')
+    await wrapper.get('[data-testid="weekly-report-mail-body"]').setValue('请查收周报')
+    await wrapper.get('[data-testid="weekly-report-mail-token"]').setValue('secret')
+    await wrapper.get('[data-testid="weekly-report-mail-submit"]').trigger('click')
+    await flushPromises()
+
+    expect(sendReplayWeeklyReportMail).toHaveBeenCalledWith({
+      startBatchNo: 'RPT20260901-01', endBatchNo: 'RPT20260908-01',
+      subject: '自定义周报标题', toEmails: ['owner@example.com'],
+      ccEmails: ['leader@example.com'], body: '请查收周报',
+    }, 'secret')
+    expect(wrapper.find('[data-testid="weekly-report-mail-modal"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="weekly-report-modal"]').text()).toContain('已发送')
+  })
+
+  it('presents database-driven daily report generation and selects the first generatable batch', async () => {
+    getReplayDailyReportBatches.mockResolvedValue([
+      { batchNo: 'RPT20260901-01', family: 'RPT', importedAt: '2026-09-01T10:00:00', previousBatchNo: null, canGenerate: false, generated: false, generatedAt: null },
+      { batchNo: 'RPT20260902-01', family: 'RPT', importedAt: '2026-09-02T10:00:00', previousBatchNo: 'RPT20260901-01', canGenerate: true, generated: false, generatedAt: null },
+      { batchNo: 'RPT20260903-01', family: 'RPT', importedAt: '2026-09-03T10:00:00', previousBatchNo: 'RPT20260902-01', canGenerate: true, generated: true, generatedAt: '2026-09-03T11:00:00' },
+    ])
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="open-daily-report"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="daily-report-modal"]').text()).toContain('生成日报')
+    expect(wrapper.text()).toContain('实时从数据库生成')
+    expect(wrapper.text()).not.toContain('导入时的快照')
+    expect(wrapper.get('[data-testid="daily-report-batch"]').element.value).toBe('RPT20260902-01')
+    expect(wrapper.get('[data-testid="daily-report-batch"]').text()).toContain('RPT20260901-01（没有上批次数据）')
+    expect(wrapper.get('[data-testid="generate-daily-report"]').text()).toContain('生成 Excel')
+  })
+
+  it('only closes the daily report dialog from the top-right close button', async () => {
+    getReplayDailyReportBatches.mockResolvedValue([
+      { batchNo: 'RPT20260903-01', previousBatchNo: 'RPT20260902-01', canGenerate: true, generated: true },
+    ])
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="open-daily-report"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="daily-report-cancel"]').exists()).toBe(false)
+    await wrapper.get('[data-testid="daily-report-mask"]').trigger('click')
+    expect(wrapper.find('[data-testid="daily-report-modal"]').exists()).toBe(true)
+
+    await wrapper.get('[data-testid="daily-report-close"]').trigger('click')
+    expect(wrapper.find('[data-testid="daily-report-modal"]').exists()).toBe(false)
+  })
+
+  it('shows generated batches as direct downloads', async () => {
+    getReplayDailyReportBatches.mockResolvedValue([
+      { batchNo: 'RPT20260903-01', family: 'RPT', importedAt: '2026-09-03T10:00:00', previousBatchNo: 'RPT20260902-01', canGenerate: true, generated: true, generatedAt: '2026-09-03T11:00:00' },
+    ])
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="open-daily-report"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="daily-report-batch"]').text()).toContain('RPT20260903-01（已生成）')
+    expect(wrapper.get('[data-testid="generate-daily-report"]').text()).toContain('下载 Excel')
+  })
+
+  it('shows mail actions only for generated reports and exposes failed status for retry', async () => {
+    getReplayDailyReportBatches.mockResolvedValue([
+      { batchNo: 'RPT20260902-01', previousBatchNo: 'RPT20260901-01', canGenerate: true, generated: false, mailStatus: 'UNSENT' },
+      { batchNo: 'RPT20260903-01', previousBatchNo: 'RPT20260902-01', canGenerate: true, generated: true, mailStatus: 'FAILED', mailFailureMessage: 'SMTP 连接失败' },
+    ])
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="open-daily-report"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="daily-report-mail-button"]').exists()).toBe(false)
+
+    await wrapper.get('[data-testid="daily-report-batch"]').setValue('RPT20260903-01')
+    expect(wrapper.get('[data-testid="daily-report-mail-status"]').text()).toContain('发送失败')
+    expect(wrapper.get('[data-testid="daily-report-mail-status"]').text()).toContain('SMTP 连接失败')
+    expect(wrapper.get('[data-testid="daily-report-mail-button"]').text()).toContain('重新发送')
+  })
+
+  it('sends a generated report with editable configured defaults and refreshes its status', async () => {
+    getReplayDailyReportBatches
+      .mockResolvedValueOnce([
+        { batchNo: 'RPT20260903-01', previousBatchNo: 'RPT20260902-01', canGenerate: true, generated: true, mailStatus: 'UNSENT' },
+      ])
+      .mockResolvedValueOnce([
+        { batchNo: 'RPT20260903-01', previousBatchNo: 'RPT20260902-01', canGenerate: true, generated: true, mailStatus: 'SENT', mailSentAt: '2026-09-08T12:00:00' },
+      ])
+    let finishSend
+    sendReplayDailyReportMail.mockImplementation(() => new Promise(resolve => { finishSend = resolve }))
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="open-daily-report"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="daily-report-mail-button"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="daily-report-mail-modal"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="daily-report-mail-subject"]').element.value).toBe('对公分布式核心回放问题日报-20260903')
+    expect(wrapper.get('[data-testid="daily-report-mail-to-chip"]').text()).toContain('owner@example.com')
+    expect(wrapper.get('[data-testid="daily-report-mail-cc-chip"]').text()).toContain('leader@example.com')
+    expect(wrapper.get('[data-testid="daily-report-mail-to"]').element.value).toBe('')
+    expect(wrapper.get('[data-testid="daily-report-mail-cc"]').element.value).toBe('')
+    expect(wrapper.get('[data-testid="daily-report-mail-submit"]').attributes('disabled')).toBeDefined()
+
+    await wrapper.get('[data-testid="daily-report-mail-subject"]').setValue('自定义日报标题')
+    await wrapper.get('[data-testid="daily-report-mail-to"]').setValue('owner@example.com；new@example.com')
+    await wrapper.get('[data-testid="daily-report-mail-cc"]').setValue('copy@example.com')
+    expect(wrapper.get('[data-testid="daily-report-mail-body"]').element.value).toBe('各位好，附件为本批次回放问题日报，请查收。')
+    await wrapper.get('[data-testid="daily-report-mail-body"]').setValue('各位好，请查收日报。')
+    await wrapper.get('[data-testid="daily-report-mail-token"]').setValue('secret')
+    await wrapper.get('[data-testid="daily-report-mail-submit"]').trigger('click')
+
+    expect(sendReplayDailyReportMail).toHaveBeenCalledWith({
+      batchNo: 'RPT20260903-01', subject: '自定义日报标题',
+      toEmails: ['owner@example.com', 'new@example.com'], ccEmails: ['leader@example.com', 'copy@example.com'],
+      body: '各位好，请查收日报。',
+    }, 'secret')
+    expect(wrapper.get('[data-testid="daily-report-mail-submit"]').text()).toContain('发送中')
+
+    finishSend({ status: 'SENT', sentAt: '2026-09-08T12:00:00' })
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="daily-report-mail-modal"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="daily-report-modal"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="daily-report-mail-status"]').text()).toContain('已发送')
+    expect(wrapper.get('[data-testid="daily-report-mail-button"]').text()).toContain('重新发送')
+  })
+
+  it('renders configured mail recipients as removable tags and accepts pasted addresses', async () => {
+    getReplayDailyReportBatches.mockResolvedValue([
+      { batchNo: 'RPT20260903-01', previousBatchNo: 'RPT20260902-01', canGenerate: true, generated: true, mailStatus: 'UNSENT' },
+    ])
+    getReplayDailyReportMailConfig.mockResolvedValue({
+      batchNo: 'RPT20260903-01', subject: '对公分布式核心回放问题日报-20260903',
+      toEmails: ['owner@example.com', 'second@example.com'], ccEmails: ['leader@example.com'],
+      body: '默认正文', status: 'UNSENT',
+    })
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="open-daily-report"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="daily-report-mail-button"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.findAll('[data-testid="daily-report-mail-to-chip"]')).toHaveLength(2)
+    expect(wrapper.findAll('[data-testid="daily-report-mail-cc-chip"]')).toHaveLength(1)
+    await wrapper.get('[data-testid="daily-report-mail-to"]').trigger('paste', {
+      clipboardData: { getData: () => 'new@example.com；OWNER@example.com,third@example.com' },
+    })
+    expect(wrapper.findAll('[data-testid="daily-report-mail-to-chip"]')).toHaveLength(4)
+
+    await wrapper.findAll('[data-testid="daily-report-mail-to-remove"]')[1].trigger('click')
+    expect(wrapper.findAll('[data-testid="daily-report-mail-to-chip"]')).toHaveLength(3)
+    await wrapper.get('[data-testid="daily-report-mail-token"]').setValue('secret')
+    await wrapper.get('[data-testid="daily-report-mail-submit"]').trigger('click')
+    await flushPromises()
+
+    expect(sendReplayDailyReportMail).toHaveBeenCalledWith(expect.objectContaining({
+      toEmails: ['owner@example.com', 'new@example.com', 'third@example.com'],
+      ccEmails: ['leader@example.com'],
+    }), 'secret')
+  })
+
+  it('shows recipient counts and keeps large address lists in scrollable editors', async () => {
+    const toEmails = Array.from({ length: 23 }, (_, index) => `recipient-${index + 1}@example.com`)
+    const ccEmails = Array.from({ length: 21 }, (_, index) => `copy-${index + 1}@example.com`)
+    getReplayDailyReportBatches.mockResolvedValue([
+      { batchNo: 'RPT20260903-01', previousBatchNo: 'RPT20260902-01', canGenerate: true, generated: true, mailStatus: 'UNSENT' },
+    ])
+    getReplayDailyReportMailConfig.mockResolvedValue({
+      batchNo: 'RPT20260903-01', subject: '对公分布式核心回放问题日报-20260903',
+      toEmails, ccEmails, body: '默认正文', status: 'UNSENT',
+    })
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="open-daily-report"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="daily-report-mail-button"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="daily-report-mail-to-label"]').text()).toBe('收件人（23）')
+    expect(wrapper.get('[data-testid="daily-report-mail-cc-label"]').text()).toBe('抄送（21）')
+    expect(wrapper.get('[data-testid="daily-report-mail-to-editor"]').classes()).toContain('replay-mail-address-editor-scrollable')
+    expect(wrapper.get('[data-testid="daily-report-mail-cc-editor"]').classes()).toContain('replay-mail-address-editor-scrollable')
+  })
+
+  it('keeps the mail dialog open on backdrop clicks and closes it from cancel or the top-right button', async () => {
+    getReplayDailyReportBatches.mockResolvedValue([
+      { batchNo: 'RPT20260903-01', previousBatchNo: 'RPT20260902-01', canGenerate: true, generated: true, mailStatus: 'UNSENT' },
+    ])
+    getReplayDailyReportMailConfig.mockResolvedValue({
+      batchNo: 'RPT20260903-01', subject: '对公分布式核心回放问题日报-20260903',
+      toEmails: ['owner@example.com'], ccEmails: [], body: '默认正文', status: 'UNSENT',
+    })
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="open-daily-report"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="daily-report-mail-button"]').trigger('click')
+    await flushPromises()
+
+    await wrapper.get('[data-testid="daily-report-mail-mask"]').trigger('click')
+    expect(wrapper.find('[data-testid="daily-report-mail-modal"]').exists()).toBe(true)
+    await wrapper.get('[data-testid="daily-report-mail-cancel"]').trigger('click')
+    expect(wrapper.find('[data-testid="daily-report-mail-modal"]').exists()).toBe(false)
+
+    await wrapper.get('[data-testid="daily-report-mail-button"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="daily-report-mail-close"]').trigger('click')
+    expect(wrapper.find('[data-testid="daily-report-mail-modal"]').exists()).toBe(false)
+  })
+
+  it('keeps the mail dialog open and displays a synchronous send failure', async () => {
+    getReplayDailyReportBatches.mockResolvedValue([
+      { batchNo: 'DZ20260908-01', previousBatchNo: 'DZ20260907-01', canGenerate: true, generated: true, mailStatus: 'UNSENT' },
+    ])
+    getReplayDailyReportMailConfig.mockResolvedValue({
+      batchNo: 'DZ20260908-01', subject: '对公分布式核心回放问题日报-20260908',
+      toEmails: ['owner@example.com'], ccEmails: [], body: '默认正文', status: 'UNSENT',
+    })
+    sendReplayDailyReportMail.mockRejectedValue(new Error('邮件服务器不可用'))
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="open-daily-report"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="daily-report-mail-button"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="daily-report-mail-body"]').setValue('日报正文')
+    await wrapper.get('[data-testid="daily-report-mail-token"]').setValue('secret')
+    await wrapper.get('[data-testid="daily-report-mail-submit"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="daily-report-mail-modal"]').text()).toContain('发送失败：邮件服务器不可用')
+    expect(wrapper.get('[data-testid="daily-report-mail-body"]').element.value).toBe('日报正文')
+  })
+
+  it('shows the batch-list load error instead of the empty-data state', async () => {
+    getReplayDailyReportBatches.mockRejectedValue(new Error('服务暂不可用'))
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="open-daily-report"]').trigger('click')
+    await flushPromises()
+
+    const modal = wrapper.get('[data-testid="daily-report-modal"]')
+    expect(modal.text()).toContain('加载日报列表失败：服务暂不可用')
+    expect(modal.text()).not.toContain('暂无可生成日报的批次')
+  })
+
+  it('keeps the daily report modal open when generation reports no previous batch data', async () => {
+    getReplayDailyReportBatches.mockResolvedValue([
+      { batchNo: 'RPT20260902-01', family: 'RPT', importedAt: '2026-09-02T10:00:00', previousBatchNo: 'RPT20260901-01', canGenerate: true },
+    ])
+    downloadReplayDailyReport.mockRejectedValue(new Error('没有上批次数据'))
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="open-daily-report"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="generate-daily-report"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="daily-report-modal"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('生成失败：没有上批次数据')
+  })
+
+  it('keeps the modal open and switches to download after first generation', async () => {
+    getReplayDailyReportBatches
+      .mockResolvedValueOnce([
+        { batchNo: 'RPT20260902-01', family: 'RPT', importedAt: '2026-09-02T10:00:00', previousBatchNo: 'RPT20260901-01', canGenerate: true, generated: false, generatedAt: null },
+      ])
+      .mockResolvedValueOnce([
+        { batchNo: 'RPT20260902-01', family: 'RPT', importedAt: '2026-09-02T10:00:00', previousBatchNo: 'RPT20260901-01', canGenerate: true, generated: true, generatedAt: '2026-09-02T11:00:00' },
+      ])
+    downloadReplayDailyReport.mockResolvedValue({ fileName: 'RPT20260902-01批次日报.xlsx' })
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="open-daily-report"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="generate-daily-report"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="daily-report-modal"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="daily-report-modal"]').text()).toContain('已生成，可直接下载')
+    expect(wrapper.get('[data-testid="daily-report-batch"]').element.value).toBe('RPT20260902-01')
+    expect(wrapper.get('[data-testid="daily-report-batch"]').text()).toContain('RPT20260902-01（已生成）')
+    expect(wrapper.get('[data-testid="generate-daily-report"]').text()).toContain('下载 Excel')
+  })
+
+  it('shows generation progress while the database report is being created', async () => {
+    getReplayDailyReportBatches.mockResolvedValue([
+      { batchNo: 'RPT20260902-01', family: 'RPT', importedAt: '2026-09-02T10:00:00', previousBatchNo: 'RPT20260901-01', canGenerate: true },
+    ])
+    let finishGeneration
+    downloadReplayDailyReport.mockImplementation(() => new Promise((resolve) => {
+      finishGeneration = resolve
+    }))
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="open-daily-report"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="generate-daily-report"]').trigger('click')
+
+    expect(wrapper.get('[data-testid="generate-daily-report"]').text()).toContain('生成中…')
+
+    finishGeneration({ fileName: 'RPT20260902-01批次日报.xlsx' })
+    await flushPromises()
+  })
+
   it('opens the group summary by click and closes it only from the explicit X button', async () => {
     const wrapper = mount(ReplayIssuePage)
     await flushPromises()
@@ -1297,6 +1823,42 @@ describe('ReplayIssuePage', () => {
     expect(wrapper.get('[data-testid="summary-modal"] tbody').text()).toContain('张三(c-zhangs3)、李四(c-lisi)')
   })
 
+  it('shows the three-status schedule ratio and loads date counts in the ranking side panel', async () => {
+    getReplayIssuePersonRankings.mockResolvedValueOnce([
+      { rank: 1, groupName: '存款组', developer: '张三(c-zhangs3)', newCount: 1, openCount: 1, reopenedCount: 1, schedulePlannedCount: 2, scheduleTotalCount: 3, pendingTotalCount: 3, totalCount: 3 },
+    ])
+    getReplayIssuePersonSchedule.mockResolvedValueOnce({
+      groupName: '存款组', developer: '张三(c-zhangs3)', scheduleTotalCount: 3,
+      schedulePlannedCount: 2, scheduleUnplannedCount: 1,
+      dateCounts: [
+        { plannedCompletionDate: '2026-07-01', count: 1 },
+        { plannedCompletionDate: '2026-07-02', count: 1 },
+      ],
+    })
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="person-ranking-entry"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="person-schedule-header"]').text())
+      .toContain('排期（新建+打开+重新打开）')
+    expect(wrapper.get('[data-testid="person-schedule-张三(c-zhangs3)"]').text()).toBe('2 / 3')
+    await wrapper.get('[data-testid="person-schedule-张三(c-zhangs3)"]').trigger('click')
+    await flushPromises()
+
+    expect(getReplayIssuePersonSchedule).toHaveBeenCalledWith({
+      replayType: 'ALL', groupBy: 'issueDomain', groupName: '存款组', developer: '张三(c-zhangs3)',
+    })
+    const panel = wrapper.get('[data-testid="person-schedule-panel"]')
+    expect(panel.text()).not.toContain('三状态总数')
+    expect(panel.text()).not.toContain('已排期')
+    expect(panel.text()).not.toContain('未排期')
+    expect(panel.text()).toContain('按计划日期汇总')
+    expect(panel.text()).toContain('2026-07-01')
+    expect(panel.text()).toContain('2026-07-02')
+  })
+
   it('defaults statistics to issue domain and keeps summary modal grouping isolated from the toolbar', async () => {
     getReplayIssueStats.mockImplementation(({ groupBy } = {}) => Promise.resolve({
       total: 2,
@@ -1371,10 +1933,11 @@ describe('ReplayIssuePage', () => {
     await flushPromises()
     const personHeaders = wrapper.findAll('[data-testid="summary-modal"] thead th')
     expect(personHeaders.map(header => header.text())).toEqual([
-      '排名', '分组', '开发负责人', '新建', '打开', '重新打开', '延后修复', '修复待验证', '未修复总数', '无需处理', '已修复', '已修复总数',
+      '排名', '分组', '开发负责人', '排期（新建+打开+重新打开）\n已排 / 总数', '新建', '打开', '重新打开', '延后修复', '修复待验证', '未修复总数', '无需处理', '已修复', '已修复总数',
     ])
-    expect(personHeaders.slice(3, 9).every(header => header.classes('is-pending-segment'))).toBe(true)
-    expect(personHeaders.slice(9).every(header => header.classes('is-fixed-segment'))).toBe(true)
+    expect(personHeaders[3].classes()).toContain('is-schedule-segment')
+    expect(personHeaders.slice(4, 10).every(header => header.classes('is-pending-segment'))).toBe(true)
+    expect(personHeaders.slice(10).every(header => header.classes('is-fixed-segment'))).toBe(true)
   })
 
   it('defaults developer rankings to deposit, switches among issue-domain groups, and resets after reopening', async () => {
@@ -1429,8 +1992,8 @@ describe('ReplayIssuePage', () => {
 
   it('copies only the selected developer-ranking group', async () => {
     getReplayIssuePersonRankings.mockResolvedValue([
-      { rank: 1, groupName: '存款组', developer: '存款负责人', newCount: 1, openCount: 2, reopenedCount: 0, deferredCount: 0, pendingVerificationCount: 0, pendingTotalCount: 3, noActionCount: 0, fixedCount: 1, fixedTotalCount: 1, totalCount: 4 },
-      { rank: 1, groupName: '贷款组', developer: '贷款负责人', newCount: 2, openCount: 3, reopenedCount: 5, deferredCount: 4, pendingVerificationCount: 6, pendingTotalCount: 20, noActionCount: 1, fixedCount: 7, fixedTotalCount: 8, totalCount: 28 },
+      { rank: 1, groupName: '存款组', developer: '存款负责人', newCount: 1, openCount: 2, reopenedCount: 0, schedulePlannedCount: 2, scheduleTotalCount: 3, deferredCount: 0, pendingVerificationCount: 0, pendingTotalCount: 3, noActionCount: 0, fixedCount: 1, fixedTotalCount: 1, totalCount: 4 },
+      { rank: 1, groupName: '贷款组', developer: '贷款负责人', newCount: 2, openCount: 3, reopenedCount: 5, schedulePlannedCount: 7, scheduleTotalCount: 10, deferredCount: 4, pendingVerificationCount: 6, pendingTotalCount: 20, noActionCount: 1, fixedCount: 7, fixedTotalCount: 8, totalCount: 28 },
     ])
     const clipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
     const secureContextDescriptor = Object.getOwnPropertyDescriptor(window, 'isSecureContext')
@@ -1448,7 +2011,7 @@ describe('ReplayIssuePage', () => {
       await flushPromises()
 
       expect(writeText).toHaveBeenCalledWith(
-        '排名\t分组\t开发负责人\t新建\t打开\t重新打开\t延后修复\t修复待验证\t未修复总数\t无需处理\t已修复\t已修复总数\n1\t贷款组\t贷款负责人\t2\t3\t5\t4\t6\t20\t1\t7\t8',
+        '排名\t分组\t开发负责人\t排期（新建+打开+重新打开）-已排/总数\t新建\t打开\t重新打开\t延后修复\t修复待验证\t未修复总数\t无需处理\t已修复\t已修复总数\n1\t贷款组\t贷款负责人\t7 / 10\t2\t3\t5\t4\t6\t20\t1\t7\t8',
       )
       expect(writeText.mock.calls[0][0]).not.toContain('存款负责人')
     } finally {
@@ -1570,7 +2133,7 @@ describe('ReplayIssuePage', () => {
       await wrapper.get('[data-testid="copy-person-ranking"]').trigger('click')
       await flushPromises()
       expect(writeText).toHaveBeenLastCalledWith(
-        '排名\t分组\t开发负责人\t新建\t打开\t重新打开\t延后修复\t修复待验证\t未修复总数\t无需处理\t已修复\t已修复总数\n1\t贷款组\t张三(c-zhangs3)、李四(c-lisi)\t1\t5\t1\t2\t1\t10\t2\t3\t5',
+        '排名\t分组\t开发负责人\t排期（新建+打开+重新打开）-已排/总数\t新建\t打开\t重新打开\t延后修复\t修复待验证\t未修复总数\t无需处理\t已修复\t已修复总数\n1\t贷款组\t张三(c-zhangs3)、李四(c-lisi)\t5 / 7\t1\t5\t1\t2\t1\t10\t2\t3\t5',
       )
     } finally {
       if (clipboardDescriptor) Object.defineProperty(navigator, 'clipboard', clipboardDescriptor)
@@ -1955,14 +2518,25 @@ describe('ReplayIssuePage', () => {
     expect(wrapper.get('[data-testid="tracking-drawer"]').text()).toContain('20260808-001')
     expect(wrapper.get('[data-testid="tracking-drawer"]').text()).toContain('批次编号 20260808-001')
     expect(wrapper.get('[data-testid="tracking-drawer"]').text()).toContain('变更时间线')
-    expect(wrapper.get('[data-testid="system-events-2"]').text()).toContain('系统操作（1）')
-    expect(wrapper.get('[data-testid="manual-events-2"]').text()).toContain('本批次用户操作（2）')
+    expect(wrapper.find('[data-testid="system-events-2"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="manual-events-2"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="tracking-round-2"]').text()).not.toContain('系统操作（')
+    expect(wrapper.get('[data-testid="tracking-round-2"]').text()).not.toContain('本批次用户操作（')
     expect(wrapper.get('[data-testid="tracking-drawer"]').text()).toContain('编辑人')
     expect(wrapper.get('[data-testid="tracking-round-2"]').attributes()).toHaveProperty('open')
+    expect(wrapper.get('[data-testid="tracking-round-2"]').get('summary').find('time').exists()).toBe(false)
+    const timelineEvents = wrapper.findAll('[data-testid^="tracking-event-"]')
+    expect(timelineEvents.map(event => event.attributes('data-testid'))).toEqual([
+      'tracking-event-2',
+      'tracking-event-1',
+      'tracking-event-3',
+    ])
     expect(wrapper.get('[data-testid="original-data-2"]').exists()).toBe(true)
     expect(wrapper.get('[data-testid="original-data-2"]').text()).not.toContain('Excel输入')
     await wrapper.get('[data-testid="original-data-toggle-2"]').trigger('click')
     expect(wrapper.get('[data-testid="original-data-2"]').text()).toContain('Excel输入')
+    expect(wrapper.findAll('[data-testid="tracking-value"]').length).toBeGreaterThan(0)
+    expect(wrapper.findAll('[data-testid="tracking-value"]').every(value => value.attributes('title') === undefined)).toBe(true)
     expect(wrapper.get('[data-testid="change-table-3"]').text()).toContain('旧基础数据')
     expect(wrapper.get('[data-testid="change-table-3"]').text()).toContain('新基础数据')
     expect(wrapper.get('[data-testid="change-table-2"]').text()).toContain('延后修复')
@@ -1990,12 +2564,35 @@ describe('ReplayIssuePage', () => {
     const drawer = wrapper.get('[data-testid="tracking-drawer"]')
     expect(drawer.text()).toContain('批次编号 20260809-001')
     expect(drawer.text()).toContain('系统')
-    expect(drawer.text()).toContain('本次导入未产生字段变化')
+    expect(drawer.text()).toContain('本次导入未产生上述字段变化')
+    expect(wrapper.get('[data-testid="tracking-event-import-3"]').exists()).toBe(true)
     expect(drawer.text()).not.toContain('完整快照')
     expect(wrapper.get('[data-testid="original-data-3"]').text()).not.toContain('保持不变的原始值')
 
     await wrapper.get('[data-testid="original-data-toggle-3"]').trigger('click')
     expect(wrapper.get('[data-testid="original-data-3"]').text()).toContain('保持不变的原始值')
+  })
+
+  it('shows no original data when the issue key was absent from the batch', async () => {
+    getReplayIssueRoundTracking.mockResolvedValueOnce([{
+      roundId: 4,
+      roundCode: '20260810-001',
+      importedAt: '2026-08-10 10:00:00',
+      appeared: false,
+      actionType: '问题自动修复',
+      originalData: [],
+      inheritedEvents: [{ id: 4, operationType: '问题自动修复', operationAt: '2026-08-10 10:00:00', changes: [{ field: '问题状态', before: '打开', after: '已修复' }] }],
+      manualEvents: [],
+    }])
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="tracking-1"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="original-data-toggle-4"]').trigger('click')
+
+    expect(wrapper.get('[data-testid="original-data-4"]').text()).toContain('无')
+    expect(wrapper.get('[data-testid="original-data-4"]').text()).not.toContain('本批次没有可展示的原始数据')
   })
 
   it('requires an issue type before saving', async () => {
@@ -2009,7 +2606,7 @@ describe('ReplayIssuePage', () => {
     expect(wrapper.get('[data-testid="edit-modal"]').text()).toContain('问题类型为必填项')
   })
 
-  it('offers open as an editable status and places the new issue types before other issues', async () => {
+  it('offers open as an editable status and excludes the legacy rule difference type', async () => {
     const wrapper = mount(ReplayIssuePage)
     await flushPromises()
     await wrapper.get('[data-testid="edit-1"]').trigger('click')
@@ -2019,7 +2616,18 @@ describe('ReplayIssuePage', () => {
     await wrapper.get('[data-testid="edit-status"]').setValue('打开')
     const editTypes = wrapper.get('[data-testid="edit-type"]').findAll('option').map((option) => option.text())
     expect(editTypes.slice(-4)).toEqual(['合理差异', '规则性差异问题', '外围问题', '其他问题'])
+    expect(editTypes).not.toContain('规则差异问题')
     expect(editTypes).not.toContain('esf问题')
+  })
+
+  it('does not offer open when editing a reopened issue', async () => {
+    arrangeApi({ items: [{ ...fixtureRow, issue_status: '重新打开' }] })
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+    await wrapper.get('[data-testid="edit-1"]').trigger('click')
+
+    expect(wrapper.get('[data-testid="edit-status"]').findAll('option').map((option) => option.text()).slice(1))
+      .toEqual(['无需处理', '延后修复', '修复待验证'])
   })
 
   it('shows unsent immediately after selecting a collaborator', async () => {

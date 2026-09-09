@@ -6,6 +6,7 @@ import {
   getReplayIssueRoundTracking,
   getReplayIssueGroupSummaries,
   getReplayIssuePersonRankings,
+  getReplayIssuePersonSchedule,
   getReplayIssueStats,
   getReplayCompletionDatePoints,
   getReplayCompletionDashboard,
@@ -20,6 +21,13 @@ import {
   approveReplayIssue,
   getReplayWeeklyTask,
   replaceReplayWeeklyTask,
+  downloadReplayDailyReport,
+  getReplayDailyReportMailConfig,
+  sendReplayDailyReportMail,
+  getReplayWeeklyReportOptions,
+  downloadReplayWeeklyReport,
+  getReplayWeeklyReportMailConfig,
+  sendReplayWeeklyReportMail,
   importReplayIssues,
   listReplayIssues,
   updateReplayIssue,
@@ -37,19 +45,45 @@ afterEach(() => {
 })
 
 describe('replay issues API', () => {
-  it('encodes list filters and paging', async () => {
+  it('sends long list and header filters in JSON request bodies', async () => {
+    const longDescription = '超长问题描述'.repeat(2000)
+    global.fetch = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ code: 200, data: { total: 0, items: [] } }))
+      .mockResolvedValueOnce(jsonResponse({ code: 200, data: { candidateCount: 0, matchedIssueCount: 0, truncated: false, items: [] } }))
+
+    await listReplayIssues({ limit: 50, issueDescriptions: [longDescription] })
+    await getReplayIssueHeaderFilterOptionCounts({ field: 'issueDescription', keyword: '错误码', issueDescriptions: [longDescription] })
+
+    expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues')
+    expect(fetch.mock.calls[0][1]).toMatchObject({ method: 'POST' })
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toMatchObject({
+      query: { limit: 50, issueDescriptions: [longDescription] },
+    })
+    expect(fetch.mock.calls[1][0]).toBe('/api/ai/parallel-replay/issues/header-filter-option-counts')
+    expect(fetch.mock.calls[1][1]).toMatchObject({ method: 'POST' })
+    expect(JSON.parse(fetch.mock.calls[1][1].body)).toMatchObject({
+      field: 'issueDescription', keyword: '错误码', query: { issueDescriptions: [longDescription] },
+    })
+  })
+
+  it('sends list filters and paging in JSON', async () => {
     global.fetch = vi.fn().mockResolvedValue(jsonResponse({ code: 200, data: { total: 0, items: [] } }))
 
     await listReplayIssues({ limit: 50, offset: 100, groupName: '贷款组', sandbox: false, issueId: 'ISSUE 001', groupNames: ['公共组', '贷款组'], sandboxes: ['是', '否'], keyword: 'CCBS 响应' })
 
-    expect(fetch.mock.calls[0][0]).toContain('limit=50')
-    expect(fetch.mock.calls[0][0]).toContain('offset=100')
-    expect(fetch.mock.calls[0][0]).toContain('groupName=%E8%B4%B7%E6%AC%BE%E7%BB%84')
-    expect(fetch.mock.calls[0][0]).toContain('sandbox=false')
-    expect(fetch.mock.calls[0][0]).toContain('issueId=ISSUE%20001')
-    expect(fetch.mock.calls[0][0]).toContain('groupNames=%E5%85%AC%E5%85%B1%E7%BB%84&groupNames=%E8%B4%B7%E6%AC%BE%E7%BB%84')
-    expect(fetch.mock.calls[0][0]).toContain('sandboxes=%E6%98%AF&sandboxes=%E5%90%A6')
-    expect(fetch.mock.calls[0][0]).toContain('keyword=CCBS%20%E5%93%8D%E5%BA%94')
+    expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues')
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({
+      query: {
+        limit: 50,
+        offset: 100,
+        groupName: '贷款组',
+        sandbox: false,
+        issueId: 'ISSUE 001',
+        groupNames: ['公共组', '贷款组'],
+        sandboxes: ['是', '否'],
+        keyword: 'CCBS 响应',
+      },
+    })
   })
 
   it('defaults an omitted list limit to 50', async () => {
@@ -57,8 +91,7 @@ describe('replay issues API', () => {
 
     await listReplayIssues({ offset: 100 })
 
-    expect(fetch.mock.calls[0][0]).toContain('limit=50')
-    expect(fetch.mock.calls[0][0]).toContain('offset=100')
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ query: { limit: 50, offset: 100 } })
   })
 
   it.each([
@@ -69,8 +102,7 @@ describe('replay issues API', () => {
 
     await listReplayIssues({ limit, offset: 100 })
 
-    expect(fetch.mock.calls[0][0]).toContain(`limit=${expectedLimit}`)
-    expect(fetch.mock.calls[0][0]).toContain('offset=100')
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ query: { limit: expectedLimit, offset: 100 } })
   })
 
   it('gets replay issue filter options', async () => {
@@ -89,7 +121,12 @@ describe('replay issues API', () => {
       field: 'transactionName', keyword: '账户', groupNames: ['公共组', '贷款组'],
     })
 
-    expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues/header-filter-option-counts?field=transactionName&keyword=%E8%B4%A6%E6%88%B7&groupNames=%E5%85%AC%E5%85%B1%E7%BB%84&groupNames=%E8%B4%B7%E6%AC%BE%E7%BB%84')
+    expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues/header-filter-option-counts')
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({
+      field: 'transactionName',
+      keyword: '账户',
+      query: { groupNames: ['公共组', '贷款组'] },
+    })
     expect(result).toEqual(payload)
   })
 
@@ -99,6 +136,16 @@ describe('replay issues API', () => {
     await getReplayIssueStats({ groupBy: 'issueDomain' })
 
     expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues/stats?groupBy=issueDomain')
+  })
+
+  it('encodes the person ranking schedule context', async () => {
+    global.fetch = vi.fn().mockResolvedValue(jsonResponse({ code: 200, data: { dateCounts: [] } }))
+
+    await getReplayIssuePersonSchedule({
+      replayType: 'DZ', groupBy: 'issueDomain', groupName: '存款组', developer: '张三(c-zhangs3)',
+    })
+
+    expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues/stats/person-ranking/schedule?replayType=DZ&groupBy=issueDomain&groupName=%E5%AD%98%E6%AC%BE%E7%BB%84&developer=%E5%BC%A0%E4%B8%89(c-zhangs3)')
   })
 
   it('gets planned completion date points and dashboard through the dedicated statistics paths', async () => {
@@ -231,6 +278,89 @@ describe('replay issues API', () => {
 
     expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues/rounds')
     expect(fetch.mock.calls[1][0]).toBe('/api/ai/parallel-replay/issues/16960/round-tracking')
+  })
+
+  it('uses the backend JSON message when a daily report download fails', async () => {
+    global.fetch = vi.fn().mockResolvedValue(jsonResponse({
+      code: 409,
+      message: '没有上批次数据',
+      data: null,
+    }, 409))
+
+    await expect(downloadReplayDailyReport('RPT20260902-01'))
+      .rejects.toMatchObject({ message: '没有上批次数据' })
+  })
+
+  it('loads defaults and sends edited daily report mail fields with the token', async () => {
+    global.fetch = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ code: 200, data: { subject: '对公分布式核心回放问题日报-20260908' } }))
+      .mockResolvedValueOnce(jsonResponse({ code: 200, data: { status: 'SENT' } }))
+
+    await getReplayDailyReportMailConfig('RPT20260908-01')
+    await sendReplayDailyReportMail({
+      batchNo: 'RPT20260908-01', subject: '自定义标题',
+      toEmails: ['to@example.com'], ccEmails: ['cc@example.com'], body: '日报正文',
+    }, 'secret')
+
+    expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues/daily-report/mail-config?batchNo=RPT20260908-01')
+    expect(fetch.mock.calls[1][0]).toBe('/api/ai/parallel-replay/issues/daily-report/mail-send')
+    expect(fetch.mock.calls[1][1]).toMatchObject({
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-DII-Trigger-Token': 'secret',
+      },
+    })
+    expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({
+      batchNo: 'RPT20260908-01', subject: '自定义标题',
+      toEmails: ['to@example.com'], ccEmails: ['cc@example.com'], body: '日报正文',
+    })
+  })
+
+  it('loads weekly options and sends edited weekly report mail fields with the token', async () => {
+    global.fetch = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ code: 200, data: { dailyBatches: [], weeklyReports: [] } }))
+      .mockResolvedValueOnce(jsonResponse({ code: 200, data: { subject: '对公分布式核心回放问题周报-20260908' } }))
+      .mockResolvedValueOnce(jsonResponse({ code: 200, data: { status: 'SENT' } }))
+
+    await getReplayWeeklyReportOptions()
+    await getReplayWeeklyReportMailConfig('RPT20260901-01', 'RPT20260908-01')
+    await sendReplayWeeklyReportMail({
+      startBatchNo: 'RPT20260901-01', endBatchNo: 'RPT20260908-01', subject: '自定义周报',
+      toEmails: ['to@example.com'], ccEmails: ['cc@example.com'], body: '周报正文',
+    }, 'secret')
+
+    expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues/weekly-report/options')
+    expect(fetch.mock.calls[1][0]).toBe('/api/ai/parallel-replay/issues/weekly-report/mail-config?startBatchNo=RPT20260901-01&endBatchNo=RPT20260908-01')
+    expect(fetch.mock.calls[2][0]).toBe('/api/ai/parallel-replay/issues/weekly-report/mail-send')
+    expect(fetch.mock.calls[2][1]).toMatchObject({
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-DII-Trigger-Token': 'secret' },
+    })
+  })
+
+  it('uses the backend JSON message when a weekly report download fails', async () => {
+    global.fetch = vi.fn().mockResolvedValue(jsonResponse({
+      code: 400, message: '周报起止批次范围错误', data: null,
+    }, 400))
+
+    await expect(downloadReplayWeeklyReport('RPT20260908-01', 'RPT20260901-01'))
+      .rejects.toMatchObject({ message: '周报起止批次范围错误' })
+    expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues/weekly-report?startBatchNo=RPT20260908-01&endBatchNo=RPT20260901-01')
+  })
+
+  it('falls back to plain text for a non-JSON download failure', async () => {
+    global.fetch = vi.fn().mockResolvedValue(new Response('网关暂不可用', { status: 502 }))
+
+    await expect(downloadReplayDailyReport('RPT20260902-01'))
+      .rejects.toThrow('网关暂不可用')
+  })
+
+  it('falls back to HTTP status for an empty download failure', async () => {
+    global.fetch = vi.fn().mockResolvedValue(new Response('', { status: 500 }))
+
+    await expect(downloadReplayDailyReport('RPT20260902-01'))
+      .rejects.toThrow('HTTP 500')
   })
 
   it('preserves the backend validation message for an update HTTP 400 response', async () => {

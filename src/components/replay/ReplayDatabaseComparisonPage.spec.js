@@ -18,7 +18,8 @@ describe('ReplayDatabaseComparisonPage', () => {
     expect(wrapper.text()).toContain('fzn_cntl_id(冻结控制编号)')
     expect(wrapper.text()).toContain('lglpern_cd')
     expect(wrapper.text()).not.toContain('lglpern_cd()')
-    expect(wrapper.text()).toContain('共 327 张表 · 2,846 个比对字段')
+    expect(wrapper.text()).toContain('共 200 张表')
+    expect(wrapper.findAll('[data-testid="registration-row"]')).toHaveLength(20)
   })
 
   it('expands one row to show and copy every formatted field', async () => {
@@ -46,5 +47,48 @@ describe('ReplayDatabaseComparisonPage', () => {
     expect(writeText).toHaveBeenCalledWith(
       'fzn_cntl_id(冻结控制编号)、lglpern_cd、fzn_cntl_amt(冻结金额)、currency_cd(币种)、effective_dt(生效日期)、acct_status(账户状态)',
     )
+  })
+
+  it('paginates all 200 mock registrations and changes page size', async () => {
+    const wrapper = mount(ReplayDatabaseComparisonPage)
+    const firstTable = wrapper.findAll('[data-testid="registration-row"]')[0].text()
+
+    expect(wrapper.get('[data-testid="page-summary"]').text()).toContain('第 1 / 10 页')
+    await wrapper.get('[data-testid="next-page"]').trigger('click')
+    expect(wrapper.get('[data-testid="page-summary"]').text()).toContain('第 2 / 10 页')
+    expect(wrapper.findAll('[data-testid="registration-row"]')[0].text()).not.toBe(firstTable)
+
+    await wrapper.get('[data-testid="page-size"]').setValue('50')
+    expect(wrapper.findAll('[data-testid="registration-row"]')).toHaveLength(50)
+    expect(wrapper.get('[data-testid="page-summary"]').text()).toContain('第 1 / 4 页')
+  })
+
+  it('applies header filters and resets the filtered result', async () => {
+    const wrapper = mount(ReplayDatabaseComparisonPage)
+
+    await wrapper.get('[data-filter-key="domain"]').trigger('click')
+    expect(wrapper.get('[data-testid="header-filter-panel"]').exists()).toBe(true)
+    const loanOption = wrapper.findAll('[data-testid="header-filter-option"]')
+      .find(option => option.text().includes('贷款'))
+    await loanOption.get('input').setValue(true)
+    await wrapper.get('[data-testid="apply-header-filter"]').trigger('click')
+
+    expect(wrapper.findAll('[data-testid="domain-cell"]')
+      .every(cell => cell.text() === '贷款')).toBe(true)
+    expect(wrapper.get('[data-testid="page-summary"]').text()).toContain('共 50 条')
+
+    await wrapper.get('[data-testid="reset-filters"]').trigger('click')
+    expect(wrapper.get('[data-testid="page-summary"]').text()).toContain('共 200 条')
+  })
+
+  it('opens a working option panel for every filterable header', async () => {
+    const wrapper = mount(ReplayDatabaseComparisonPage)
+
+    for (const button of wrapper.findAll('[data-testid="database-comparison-header-filter"]')) {
+      await button.trigger('click')
+      expect(wrapper.get('[data-testid="header-filter-panel"]').text()).toContain(`筛选${button.text().replace(' ▼', '')}`)
+      expect(wrapper.findAll('[data-testid="header-filter-option"]').length).toBeGreaterThan(0)
+      await wrapper.get('[aria-label="关闭筛选"]').trigger('click')
+    }
   })
 })

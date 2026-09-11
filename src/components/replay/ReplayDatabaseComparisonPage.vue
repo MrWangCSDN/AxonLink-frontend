@@ -17,9 +17,8 @@
       <table class="is-fixed-layout">
         <thead data-testid="database-comparison-table-head" class="is-sticky">
           <tr>
-            <th>序号</th>
+            <th class="primary-column"><button data-testid="database-comparison-header-filter">表英文名 / 中文名 ▼</button></th>
             <th><button data-testid="database-comparison-header-filter">领域 ▼</button></th>
-            <th><button data-testid="database-comparison-header-filter">表英文名 / 中文名 ▼</button></th>
             <th><button data-testid="database-comparison-header-filter">比对字段 ▼</button></th>
             <th><button data-testid="database-comparison-header-filter">负责人 ▼</button></th>
             <th><button data-testid="database-comparison-header-filter">归属大组 ▼</button></th>
@@ -28,10 +27,9 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="(row, index) in rows" :key="row.tableName">
-            <td>{{ index + 1 }}</td>
+          <tr v-for="row in rows" :key="row.tableName">
+            <td class="primary-column"><strong>{{ row.tableName }}</strong><small>{{ row.tableComment }}</small></td>
             <td>{{ row.domain }}</td>
-            <td><strong>{{ row.tableName }}</strong><small>{{ row.tableComment }}</small></td>
             <td
               class="fields"
               :class="{ 'is-expanded': isExpanded(row.tableName) }"
@@ -130,17 +128,20 @@ table { width: 100%; min-width: 1120px; border-collapse: collapse; font-size: 13
 table.is-fixed-layout { table-layout: fixed; }
 thead.is-sticky { position: sticky; top: 0; z-index: 2; color: #fff; background: #176f74; }
 th { padding: 0; text-align: left; white-space: nowrap; }
-th:first-child, td:first-child { width: 54px; text-align: center; }
+th:nth-child(1) { width: 260px; }
 th:nth-child(2) { width: 70px; }
-th:nth-child(3) { width: 240px; }
-th:nth-child(4) { width: 430px; }
-th:nth-child(5) { width: 110px; }
-th:nth-child(6) { width: 130px; }
-th:nth-child(7) { width: 145px; }
-th:nth-child(8) { width: 130px; }
+th:nth-child(3) { width: 430px; }
+th:nth-child(4) { width: 110px; }
+th:nth-child(5) { width: 130px; }
+th:nth-child(6) { width: 145px; }
+th:nth-child(7) { width: 130px; }
 th button { width: 100%; padding: 12px 10px; border: 0; color: inherit; background: transparent; text-align: left; font-weight: 600; }
 td { padding: 12px 10px; border-right: 1px solid #e2e8ee; border-bottom: 1px solid #e2e8ee; }
 tbody tr:nth-child(even) { background: #edf7fb; }
+.primary-column { position: sticky; left: 0; z-index: 1; }
+thead .primary-column { z-index: 3; background: #176f74; }
+tbody .primary-column { background: #fff; }
+tbody tr:nth-child(even) .primary-column { background: #edf7fb; }
 td strong, td small { display: block; }
 td small { margin-top: 4px; color: #7b8795; }
 .fields, .link { color: #1769aa; }

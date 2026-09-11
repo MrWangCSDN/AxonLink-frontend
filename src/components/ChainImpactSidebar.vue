@@ -307,14 +307,14 @@ defineEmits(['selectDomain', 'selectImpactMode', 'selectDiiPage', 'selectReplayP
 const chainOpen = ref(props.currentPage === 'chain')
 const impactOpen = ref(props.currentPage === 'impact')
 const diiOpen = ref((props.currentPage || '').startsWith('dii-'))
-const replayOpen = ref(props.currentPage === 'replay-issues' || props.currentPage === 'replay-transaction-persons')
+const replayOpen = ref(isReplayPageKey(props.currentPage))
 const codeOpen = ref(props.currentPage === 'code-dashboard')
 
 watch(() => props.currentPage, (currentPage) => {
   if (currentPage === 'chain') chainOpen.value = true
   if (currentPage === 'impact') impactOpen.value = true
   if ((currentPage || '').startsWith('dii-')) diiOpen.value = true
-  if (currentPage === 'replay-issues' || currentPage === 'replay-transaction-persons') replayOpen.value = true
+  if (isReplayPageKey(currentPage)) replayOpen.value = true
   if (currentPage === 'code-dashboard') codeOpen.value = true
 })
 // 各分区的 accent 统一为 Sourcegraph 蓝；不再每区一个颜色
@@ -325,7 +325,7 @@ const CODE_SECTION_ACCENT = '#0b70db'
 
 // 当 currentPage 命中 dii-* 任意页时视为 DAO 模块激活
 const isDiiPage = computed(() => (props.currentPage || '').startsWith('dii-'))
-const isReplayPage = computed(() => props.currentPage === 'replay-issues' || props.currentPage === 'replay-transaction-persons')
+const isReplayPage = computed(() => isReplayPageKey(props.currentPage))
 // 代码提交分区激活判定
 const isCodePage = computed(() => props.currentPage === 'code-dashboard')
 
@@ -594,6 +594,7 @@ const codeMenu = [
 const replayMenu = [
   { key: 'replay-transaction-persons', label: '全量交易人员清单', desc: '全量导入与导出', testId: 'replay-transaction-persons-menu' },
   { key: 'replay-issues', label: '回放问题清单', desc: '导入与分页查询', testId: 'replay-issues-menu' },
+  { key: 'replay-database-comparison-fields', label: '回放数据库比对字段登记', desc: '母库表与字段登记', testId: 'replay-database-comparison-fields-menu' },
 ]
 
 const IconDatabaseLg = iconLucide(
@@ -633,6 +634,11 @@ const codeIconMap = {
 const replayIconMap = {
   'replay-transaction-persons': IconList,
   'replay-issues': PlaySquare,
+  'replay-database-comparison-fields': IconDatabaseLg,
+}
+
+function isReplayPageKey(pageKey) {
+  return ['replay-transaction-persons', 'replay-issues', 'replay-database-comparison-fields'].includes(pageKey)
 }
 
 function diiActive(m) { return props.currentPage === m.key }

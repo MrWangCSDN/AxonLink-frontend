@@ -19,7 +19,10 @@ describe('ReplayDatabaseComparisonPage', () => {
     expect(wrapper.text()).toContain('lglpern_cd')
     expect(wrapper.text()).not.toContain('lglpern_cd()')
     expect(wrapper.text()).toContain('共 200 张表')
-    expect(wrapper.findAll('[data-testid="registration-row"]')).toHaveLength(20)
+    expect(wrapper.findAll('[data-testid="registration-row"]')).toHaveLength(50)
+    expect(wrapper.classes()).toContain('is-fixed-page')
+    expect(wrapper.get('[data-testid="table-viewport"]').classes()).toContain('is-scroll-viewport')
+    expect(wrapper.get('[data-testid="fixed-pager"]').classes()).toContain('is-fixed-pager')
   })
 
   it('expands one row to show and copy every formatted field', async () => {
@@ -53,14 +56,15 @@ describe('ReplayDatabaseComparisonPage', () => {
     const wrapper = mount(ReplayDatabaseComparisonPage)
     const firstTable = wrapper.findAll('[data-testid="registration-row"]')[0].text()
 
-    expect(wrapper.get('[data-testid="page-summary"]').text()).toContain('第 1 / 10 页')
+    expect(wrapper.get('[data-testid="page-summary"]').text()).toContain('第 1 / 4 页')
     await wrapper.get('[data-testid="next-page"]').trigger('click')
-    expect(wrapper.get('[data-testid="page-summary"]').text()).toContain('第 2 / 10 页')
+    expect(wrapper.get('[data-testid="page-summary"]').text()).toContain('第 2 / 4 页')
     expect(wrapper.findAll('[data-testid="registration-row"]')[0].text()).not.toBe(firstTable)
 
-    await wrapper.get('[data-testid="page-size"]').setValue('50')
-    expect(wrapper.findAll('[data-testid="registration-row"]')).toHaveLength(50)
-    expect(wrapper.get('[data-testid="page-summary"]').text()).toContain('第 1 / 4 页')
+    await wrapper.get('[data-testid="page-size"]').setValue('100')
+    expect(wrapper.findAll('[data-testid="registration-row"]')).toHaveLength(100)
+    expect(wrapper.get('[data-testid="page-summary"]').text()).toContain('第 1 / 2 页')
+    expect(wrapper.findAll('[data-testid="page-number"]')).toHaveLength(0)
   })
 
   it('applies header filters and resets the filtered result', async () => {

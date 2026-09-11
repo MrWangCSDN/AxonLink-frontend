@@ -1,5 +1,5 @@
 <template>
-  <main class="db-compare-page">
+  <main class="db-compare-page is-fixed-page">
     <header class="page-toolbar">
       <button class="nav-button" type="button" aria-label="打开导航" @click="$emit('toggleNavigation')">☰</button>
       <div>
@@ -13,7 +13,7 @@
       </div>
     </header>
 
-    <section class="table-shell">
+    <section class="table-shell is-scroll-viewport" data-testid="table-viewport">
       <table class="is-fixed-layout">
         <thead data-testid="database-comparison-table-head" class="is-sticky">
           <tr>
@@ -87,12 +87,13 @@
       <footer><button type="button" @click="clearActiveFilter">清空筛选</button><span></span><button type="button" @click="closeFilter">取消</button><button type="button" data-testid="apply-header-filter" class="primary" @click="applyFilter">确定</button></footer>
     </section>
 
-    <footer class="pager">
-      <button type="button" data-testid="previous-page" :disabled="page === 1" @click="goToPage(page - 1)">‹</button>
-      <button v-for="pageNumber in pageNumbers" :key="pageNumber" type="button" :class="{ active: pageNumber === page }" @click="goToPage(pageNumber)">{{ pageNumber }}</button>
-      <button type="button" data-testid="next-page" :disabled="page === pageCount" @click="goToPage(page + 1)">›</button>
-      <select v-model.number="pageSize" data-testid="page-size" @change="page = 1"><option :value="20">20</option><option :value="50">50</option><option :value="100">100</option></select>
-      <span data-testid="page-summary">每页 {{ pageSize }} 条，第 {{ page }} / {{ pageCount }} 页，共 {{ filteredRows.length }} 条</span>
+    <footer class="pager is-fixed-pager" data-testid="fixed-pager">
+      <span data-testid="page-summary">共 {{ filteredRows.length }} 条，第 {{ page }} / {{ pageCount }} 页</span>
+      <label>每页 <select v-model.number="pageSize" data-testid="page-size" @change="page = 1"><option :value="50">50</option><option :value="100">100</option><option :value="200">200</option></select> 条</label>
+      <div class="page-actions">
+        <button type="button" data-testid="previous-page" title="上一页" :disabled="page === 1" @click="goToPage(page - 1)">‹</button>
+        <button type="button" data-testid="next-page" title="下一页" :disabled="page === pageCount" @click="goToPage(page + 1)">›</button>
+      </div>
     </footer>
   </main>
 </template>
@@ -149,7 +150,7 @@ const activeFilterKey = ref('')
 const filterSearch = ref('')
 const filterDraft = ref([])
 const page = ref(1)
-const pageSize = ref(20)
+const pageSize = ref(50)
 
 const expandedTables = ref(new Set())
 const copiedTable = ref('')
@@ -177,10 +178,6 @@ const pageCount = computed(() => Math.max(1, Math.ceil(filteredRows.value.length
 const pagedRows = computed(() => {
   const start = (page.value - 1) * pageSize.value
   return filteredRows.value.slice(start, start + pageSize.value)
-})
-const pageNumbers = computed(() => {
-  const start = Math.max(1, Math.min(page.value - 2, pageCount.value - 4))
-  return Array.from({ length: Math.min(5, pageCount.value) }, (_, index) => start + index)
 })
 const activeFilterLabel = computed(() => filterColumns.find(column => column.key === activeFilterKey.value)?.label || '')
 const filterOptions = computed(() => {
@@ -263,8 +260,9 @@ const goToPage = nextPage => {
 </script>
 
 <style scoped>
-.db-compare-page { flex: 1; min-width: 0; padding: 20px 22px; overflow: auto; background: #f4f6f9; color: #303947; }
+.db-compare-page { flex: 1; min-width: 0; min-height: 0; height: 100%; display: flex; flex-direction: column; overflow: hidden; background: #f4f6f9; color: #303947; }
 .page-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.page-toolbar { flex: 0 0 auto; padding: 20px 22px 0; }
 .page-toolbar h2 { margin: 0 0 4px; font-size: 21px; }
 .page-toolbar p { margin: 0; color: #778291; font-size: 13px; }
 .page-toolbar p span { margin-left: 8px; padding: 2px 7px; border-radius: 10px; color: #a36b00; background: #fff4ce; }
@@ -273,7 +271,7 @@ const goToPage = nextPage => {
 .toolbar-actions button, .pager button { padding: 7px 11px; border: 1px solid #d4dce5; border-radius: 4px; background: #fff; color: #44505e; }
 .toolbar-actions .outlined { border-color: #168478; color: #107267; }
 .toolbar-actions .primary, .pager .active { border-color: #168478; color: #fff; background: #168478; }
-.table-shell { overflow: auto; border: 1px solid #dbe2e9; border-radius: 5px; background: #fff; box-shadow: 0 3px 12px rgba(25, 42, 60, .06); }
+.table-shell { min-width: 0; min-height: 0; height: 0; flex: 1 1 auto; margin: 0 22px; overflow: auto; overscroll-behavior: contain; border: 1px solid #dbe2e9; border-radius: 5px; background: #fff; box-shadow: 0 3px 12px rgba(25, 42, 60, .06); scrollbar-gutter: stable; }
 table { width: 100%; min-width: 1120px; border-collapse: collapse; font-size: 13px; }
 table.is-fixed-layout { table-layout: fixed; }
 thead.is-sticky { position: sticky; top: 0; z-index: 2; color: #fff; background: #176f74; }
@@ -322,7 +320,10 @@ td small { margin-top: 4px; color: #7b8795; }
 .header-filter-panel > footer span { flex: 1; }
 .header-filter-panel > footer button { padding: 5px 10px; border: 1px solid #737b7e; border-radius: 3px; color: #eee; background: #555d60; cursor: pointer; }
 .header-filter-panel > footer .primary { border-color: #168478; background: #168478; }
-.pager { display: flex; justify-content: flex-end; align-items: center; gap: 7px; margin-top: 12px; font-size: 12px; color: #687381; }
-.pager select { height: 31px; padding: 0 7px; border: 1px solid #d4dce5; border-radius: 4px; color: #44505e; background: #fff; }
-@media (max-width: 760px) { .db-compare-page { padding: 12px; } .nav-button { display: inline-block; } .page-toolbar { align-items: flex-start; flex-wrap: wrap; } .toolbar-actions { width: 100%; margin-left: 0; } }
+.pager { flex: 0 0 auto; min-height: 52px; display: flex; justify-content: flex-end; align-items: center; gap: 14px; padding: 10px 22px; border-top: 1px solid #e2e8ee; background: #fff; font-size: 12px; color: #687381; }
+.pager label { display: inline-flex; align-items: center; gap: 6px; }
+.pager select { width: 66px; height: 31px; padding: 0 7px; border: 1px solid #d4dce5; border-radius: 4px; color: #44505e; background: #fff; }
+.page-actions { display: flex; gap: 6px; }
+.page-actions button { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; font-size: 20px; line-height: 1; }
+@media (max-width: 760px) { .page-toolbar { align-items: flex-start; flex-wrap: wrap; padding: 12px 12px 0; } .table-shell { margin: 0 12px; } .pager { padding: 8px 12px; justify-content: space-between; } .nav-button { display: inline-block; } .toolbar-actions { width: 100%; margin-left: 0; } }
 </style>

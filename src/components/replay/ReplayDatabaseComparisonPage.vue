@@ -36,9 +36,12 @@
               class="fields"
               :class="{ 'is-expanded': isExpanded(row.tableName) }"
               :data-testid="`fields-${row.tableName}`"
+              :title="allFields(row)"
             >
               <div v-if="isExpanded(row.tableName)" class="field-list">
-                <span v-for="field in row.fields" :key="field.name" class="field-item">{{ formatField(field) }}</span>
+                <span v-for="(field, fieldIndex) in row.fields" :key="field.name" class="field-item">
+                  {{ formatField(field) }}<span v-if="fieldIndex < row.fields.length - 1" class="field-separator">、</span>
+                </span>
               </div>
               <div v-else class="field-content">{{ displayedFields(row) }}</div>
               <div class="field-actions">
@@ -142,8 +145,9 @@ td strong, td small { display: block; }
 td small { margin-top: 4px; color: #7b8795; }
 .fields, .link { color: #1769aa; }
 .field-content { overflow: hidden; line-height: 1.65; text-overflow: ellipsis; }
-.field-list { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: flex-start; }
+.field-list { display: flex; flex-wrap: wrap; gap: 6px 0; align-items: flex-start; }
 .field-item { max-width: 100%; color: #1769aa; line-height: 1.65; overflow-wrap: anywhere; }
+.field-separator { margin-right: 6px; }
 .field-actions { display: flex; gap: 10px; margin-top: 5px; }
 .field-action { padding: 0; border: 0; color: #168478; background: transparent; font-size: 12px; cursor: pointer; }
 .fields:not(.is-expanded) .field-content { white-space: nowrap; }

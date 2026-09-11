@@ -14,7 +14,7 @@
     </header>
 
     <section class="table-shell">
-      <table>
+      <table class="is-fixed-layout">
         <thead data-testid="database-comparison-table-head" class="is-sticky">
           <tr>
             <th>序号</th>
@@ -37,7 +37,10 @@
               :class="{ 'is-expanded': isExpanded(row.tableName) }"
               :data-testid="`fields-${row.tableName}`"
             >
-              <div class="field-content">{{ displayedFields(row) }}</div>
+              <div v-if="isExpanded(row.tableName)" class="field-list">
+                <span v-for="field in row.fields" :key="field.name" class="field-item">{{ formatField(field) }}</span>
+              </div>
+              <div v-else class="field-content">{{ displayedFields(row) }}</div>
               <div class="field-actions">
                 <button
                   class="field-action"
@@ -121,16 +124,26 @@ const copyFields = async row => {
 .toolbar-actions .primary, .pager .active { border-color: #168478; color: #fff; background: #168478; }
 .table-shell { overflow: auto; border: 1px solid #dbe2e9; border-radius: 5px; background: #fff; box-shadow: 0 3px 12px rgba(25, 42, 60, .06); }
 table { width: 100%; min-width: 1120px; border-collapse: collapse; font-size: 13px; }
+table.is-fixed-layout { table-layout: fixed; }
 thead.is-sticky { position: sticky; top: 0; z-index: 2; color: #fff; background: #176f74; }
 th { padding: 0; text-align: left; white-space: nowrap; }
 th:first-child, td:first-child { width: 54px; text-align: center; }
+th:nth-child(2) { width: 70px; }
+th:nth-child(3) { width: 240px; }
+th:nth-child(4) { width: 430px; }
+th:nth-child(5) { width: 110px; }
+th:nth-child(6) { width: 130px; }
+th:nth-child(7) { width: 145px; }
+th:nth-child(8) { width: 130px; }
 th button { width: 100%; padding: 12px 10px; border: 0; color: inherit; background: transparent; text-align: left; font-weight: 600; }
 td { padding: 12px 10px; border-right: 1px solid #e2e8ee; border-bottom: 1px solid #e2e8ee; }
 tbody tr:nth-child(even) { background: #edf7fb; }
 td strong, td small { display: block; }
 td small { margin-top: 4px; color: #7b8795; }
 .fields, .link { color: #1769aa; }
-.field-content { line-height: 1.65; overflow-wrap: anywhere; }
+.field-content { overflow: hidden; line-height: 1.65; text-overflow: ellipsis; }
+.field-list { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: flex-start; }
+.field-item { max-width: 100%; color: #1769aa; line-height: 1.65; overflow-wrap: anywhere; }
 .field-actions { display: flex; gap: 10px; margin-top: 5px; }
 .field-action { padding: 0; border: 0; color: #168478; background: transparent; font-size: 12px; cursor: pointer; }
 .fields:not(.is-expanded) .field-content { white-space: nowrap; }

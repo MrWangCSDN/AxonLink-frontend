@@ -29,6 +29,8 @@ describe('ReplayDatabaseComparisonPage', () => {
 
     const fieldCell = wrapper.get('[data-testid="fields-kdpa_cb_acct_fzn_cntl_inf"]')
     expect(fieldCell.text()).toContain('acct_status(账户状态)')
+    expect(wrapper.get('table').classes()).toContain('is-fixed-layout')
+    expect(fieldCell.findAll('.field-item')).toHaveLength(6)
     expect(fieldCell.text()).toContain('收起')
     expect(fieldCell.text()).toContain('复制全部字段')
 

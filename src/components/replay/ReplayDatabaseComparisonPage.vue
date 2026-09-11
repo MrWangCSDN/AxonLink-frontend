@@ -32,7 +32,28 @@
             <td>{{ index + 1 }}</td>
             <td>{{ row.domain }}</td>
             <td><strong>{{ row.tableName }}</strong><small>{{ row.tableComment }}</small></td>
-            <td class="fields">{{ row.fields }}</td>
+            <td
+              class="fields"
+              :class="{ 'is-expanded': isExpanded(row.tableName) }"
+              :data-testid="`fields-${row.tableName}`"
+            >
+              <div class="field-content">{{ displayedFields(row) }}</div>
+              <div class="field-actions">
+                <button
+                  class="field-action"
+                  type="button"
+                  :data-testid="`expand-fields-${row.tableName}`"
+                  @click="toggleFields(row.tableName)"
+                >{{ isExpanded(row.tableName) ? '收起' : '展开' }}</button>
+                <button
+                  v-if="isExpanded(row.tableName)"
+                  class="field-action"
+                  type="button"
+                  :data-testid="`copy-fields-${row.tableName}`"
+                  @click="copyFields(row)"
+                >{{ copiedTable === row.tableName ? '已复制' : '复制全部字段' }}</button>
+              </div>
+            </td>
             <td>{{ row.owner }}</td>
             <td>{{ row.group }}</td>
             <td>{{ row.date }}</td>
@@ -46,13 +67,45 @@
 </template>
 
 <script setup>
+import { ref } from 'vue'
+
 defineEmits(['toggleNavigation'])
 
 const rows = [
-  { domain: '存款', tableName: 'kdpa_cb_acct_fzn_cntl_inf', tableComment: '对公存款账户冻结控制信息', fields: 'fzn_cntl_id、lglpern_cd、fzn_cntl_amt…（6）', owner: '周皓', group: '存款组', date: '2026-09-07' },
-  { domain: '存款', tableName: 'kdpl_cb_acct_fzn_cntl_oprn_detl', tableComment: '对公存款账户冻结控制操作明细', fields: 'fzn_cntl_oprn_sn、txn_dt、cncl_fzn_dectrl_amt…（15）', owner: '周皓', group: '存款组', date: '2026-09-07' },
-  { domain: '贷款', tableName: 'klna_ln_acct_base_info', tableComment: '贷款账户基础信息', fields: 'loan_acct_no、customer_no、product_code…（9）', owner: '李明', group: '贷款组', date: '2026-09-08' },
+  { domain: '存款', tableName: 'kdpa_cb_acct_fzn_cntl_inf', tableComment: '对公存款账户冻结控制信息', fields: [{ name: 'fzn_cntl_id', comment: '冻结控制编号' }, { name: 'lglpern_cd', comment: '' }, { name: 'fzn_cntl_amt', comment: '冻结金额' }, { name: 'currency_cd', comment: '币种' }, { name: 'effective_dt', comment: '生效日期' }, { name: 'acct_status', comment: '账户状态' }], owner: '周皓', group: '存款组', date: '2026-09-07' },
+  { domain: '存款', tableName: 'kdpl_cb_acct_fzn_cntl_oprn_detl', tableComment: '对公存款账户冻结控制操作明细', fields: [{ name: 'fzn_cntl_oprn_sn', comment: '冻结操作序号' }, { name: 'txn_dt', comment: '交易日期' }, { name: 'cncl_fzn_dectrl_amt', comment: '取消冻结金额' }, { name: 'operator_id', comment: '' }], owner: '周皓', group: '存款组', date: '2026-09-07' },
+  { domain: '贷款', tableName: 'klna_ln_acct_base_info', tableComment: '贷款账户基础信息', fields: [{ name: 'loan_acct_no', comment: '贷款账号' }, { name: 'customer_no', comment: '客户号' }, { name: 'product_code', comment: '' }, { name: 'loan_status', comment: '贷款状态' }], owner: '李明', group: '贷款组', date: '2026-09-08' },
 ]
+
+const expandedTables = ref(new Set())
+const copiedTable = ref('')
+
+const formatField = field => field.comment?.trim()
+  ? `${field.name}(${field.comment.trim()})`
+  : field.name
+
+const allFields = row => row.fields.map(formatField).join('、')
+
+const displayedFields = row => {
+  if (isExpanded(row.tableName)) return allFields(row)
+  const preview = row.fields.slice(0, 3).map(formatField).join('、')
+  return row.fields.length > 3 ? `${preview}…（${row.fields.length}）` : preview
+}
+
+const isExpanded = tableName => expandedTables.value.has(tableName)
+
+const toggleFields = tableName => {
+  const next = new Set(expandedTables.value)
+  if (next.has(tableName)) next.delete(tableName)
+  else next.add(tableName)
+  expandedTables.value = next
+  copiedTable.value = ''
+}
+
+const copyFields = async row => {
+  await navigator.clipboard.writeText(allFields(row))
+  copiedTable.value = row.tableName
+}
 </script>
 
 <style scoped>
@@ -77,6 +130,10 @@ tbody tr:nth-child(even) { background: #edf7fb; }
 td strong, td small { display: block; }
 td small { margin-top: 4px; color: #7b8795; }
 .fields, .link { color: #1769aa; }
+.field-content { line-height: 1.65; overflow-wrap: anywhere; }
+.field-actions { display: flex; gap: 10px; margin-top: 5px; }
+.field-action { padding: 0; border: 0; color: #168478; background: transparent; font-size: 12px; cursor: pointer; }
+.fields:not(.is-expanded) .field-content { white-space: nowrap; }
 .link { padding: 0 5px; border: 0; background: transparent; }
 .pager { display: flex; justify-content: flex-end; align-items: center; gap: 7px; margin-top: 12px; font-size: 12px; color: #687381; }
 @media (max-width: 760px) { .db-compare-page { padding: 12px; } .nav-button { display: inline-block; } .page-toolbar { align-items: flex-start; flex-wrap: wrap; } .toolbar-actions { width: 100%; margin-left: 0; } }

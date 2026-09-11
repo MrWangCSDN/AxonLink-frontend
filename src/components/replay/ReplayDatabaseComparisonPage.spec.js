@@ -1,5 +1,5 @@
 import { mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import ReplayDatabaseComparisonPage from './ReplayDatabaseComparisonPage.vue'
 
 describe('ReplayDatabaseComparisonPage', () => {
@@ -11,7 +11,30 @@ describe('ReplayDatabaseComparisonPage', () => {
     expect(wrapper.get('[data-testid="database-comparison-table-head"]').classes()).toContain('is-sticky')
     expect(wrapper.findAll('[data-testid="database-comparison-header-filter"]')).toHaveLength(6)
     expect(wrapper.text()).toContain('kdpa_cb_acct_fzn_cntl_inf')
-    expect(wrapper.text()).toContain('fzn_cntl_id、lglpern_cd、fzn_cntl_amt…（6）')
+    expect(wrapper.text()).toContain('fzn_cntl_id(冻结控制编号)')
+    expect(wrapper.text()).toContain('lglpern_cd')
+    expect(wrapper.text()).not.toContain('lglpern_cd()')
     expect(wrapper.text()).toContain('共 327 张表 · 2,846 个比对字段')
+  })
+
+  it('expands one row to show and copy every formatted field', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    })
+    const wrapper = mount(ReplayDatabaseComparisonPage)
+
+    await wrapper.get('[data-testid="expand-fields-kdpa_cb_acct_fzn_cntl_inf"]').trigger('click')
+
+    const fieldCell = wrapper.get('[data-testid="fields-kdpa_cb_acct_fzn_cntl_inf"]')
+    expect(fieldCell.text()).toContain('acct_status(账户状态)')
+    expect(fieldCell.text()).toContain('收起')
+    expect(fieldCell.text()).toContain('复制全部字段')
+
+    await wrapper.get('[data-testid="copy-fields-kdpa_cb_acct_fzn_cntl_inf"]').trigger('click')
+    expect(writeText).toHaveBeenCalledWith(
+      'fzn_cntl_id(冻结控制编号)、lglpern_cd、fzn_cntl_amt(冻结金额)、currency_cd(币种)、effective_dt(生效日期)、acct_status(账户状态)',
+    )
   })
 })

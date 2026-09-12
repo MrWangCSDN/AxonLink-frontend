@@ -17,7 +17,8 @@
 - Keep the page on the existing `replay-database-comparison-fields` route; editor opens as a 92vw × 88vh modal.
 - Clicking the backdrop must not close the editor; only Cancel, Save/Delete, or the top-right Close button may close it.
 - Preserve existing list filter and paging behavior.
-- Use `归属小组` as the visible label while keeping the current internal `group`/`groupName` field names.
+- The editor exposes only `领域` and searchable `小组负责人`; it must not expose editable 登记人、登记日期或备注 controls.
+- The list keeps `负责人` and `登记日期` as audit columns and renames `归属小组` to `小组负责人`.
 - Mock interactions must use real component state; no static placeholder buttons.
 
 ---
@@ -245,3 +246,59 @@ git commit -m "fix(replay): refine comparison editor mock"
 ```
 
 Skip this step when browser review requires no code changes.
+
+### Task 6: Automatic Audit Fields and Searchable Group Owner
+
+**Files:**
+- Modify: `src/components/replay/ReplayDatabaseComparisonEditor.vue`
+- Modify: `src/components/replay/ReplayDatabaseComparisonEditor.spec.js`
+- Modify: `src/components/replay/ReplayDatabaseComparisonPage.vue`
+- Modify: `src/components/replay/ReplayDatabaseComparisonPage.spec.js`
+
+**Interfaces:**
+- Editor prop: `searchUsers: Function`, defaulting to the existing `searchReplayIssueUsers` API function.
+- Editor form state: `{ domain, groupOwnerUsername, groupOwnerDisplay }`.
+- Editor emits `save` with `{ domain, groupOwnerUsername, groupOwnerName }`; it does not emit owner, date, or remark.
+- Parent Mock adds `owner` from the current Mock login and `date` from the current system date when creating or updating a row.
+
+- [ ] **Step 1: Write failing editor and list tests**
+
+```js
+expect(wrapper.text()).not.toContain('登记日期 *')
+expect(wrapper.text()).not.toContain('备注')
+await wrapper.get('[data-testid="group-owner-search"]').setValue('孙')
+expect(searchUsers).toHaveBeenCalledWith('孙')
+await wrapper.get('[data-testid="group-owner-option-sunhy1"]').trigger('click')
+expect(wrapper.get('[data-testid="group-owner-search"]').element.value).toContain('孙海英')
+```
+
+Also assert that the list header contains `小组负责人`, does not contain `归属小组`, and still contains `负责人` and `登记日期`.
+
+- [ ] **Step 2: Run focused tests and verify RED**
+
+Run: `npm test -- src/components/replay/ReplayDatabaseComparisonEditor.spec.js src/components/replay/ReplayDatabaseComparisonPage.spec.js`
+
+Expected: FAIL because the old owner, group, date, and remark controls still render and no searchable group-owner picker exists.
+
+- [ ] **Step 3: Implement the minimal form and Mock audit behavior**
+
+Replace the registration form with a two-column `领域` + `小组负责人` layout. Reuse the problem-list collaborator picker behavior: search on input, show matching display names, store the selected username separately, clear stale selections when text changes, and require a selected username before saving. Rename list row `group` data to `groupOwner`, preserve `owner` and `date` only in the parent Mock, and use the current Mock login name plus `new Date().toISOString().slice(0, 10)` for saved audit values.
+
+- [ ] **Step 4: Run focused tests and verify GREEN**
+
+Run: `npm test -- src/components/replay/ReplayDatabaseComparisonEditor.spec.js src/components/replay/ReplayDatabaseComparisonPage.spec.js`
+
+Expected: PASS.
+
+- [ ] **Step 5: Run full regression and build**
+
+Run: `npm test && npm run build -- --outDir /tmp/axon-link-replay-db-comparison-build && git diff --check`
+
+Expected: all tests pass, production build exits 0, and the patch has no whitespace errors.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add docs/superpowers/plans/2026-09-12-replay-db-comparison-editor-mock.md src/components/replay/ReplayDatabaseComparisonEditor.vue src/components/replay/ReplayDatabaseComparisonEditor.spec.js src/components/replay/ReplayDatabaseComparisonPage.vue src/components/replay/ReplayDatabaseComparisonPage.spec.js
+git commit -m "feat(replay): add searchable comparison group owner"
+```

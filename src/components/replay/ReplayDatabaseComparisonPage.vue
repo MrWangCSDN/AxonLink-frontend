@@ -22,12 +22,17 @@
               :key="column.key"
               :class="{ 'primary-column': column.key === 'tableName' }"
             >
+              <span>{{ column.label }}</span>
               <button
+                type="button"
+                class="replay-header-filter-button"
                 data-testid="database-comparison-header-filter"
                 :data-filter-key="column.key"
                 :class="{ active: filters[column.key]?.length }"
-                @click.stop="openFilter(column.key)"
-              >{{ column.label }} ▼</button>
+                :title="`筛选${column.label}`"
+                aria-label="打开筛选"
+                @click.stop="openFilter(column.key, $event)"
+              ><i aria-hidden="true"></i></button>
             </th>
             <th>操作</th>
           </tr>
@@ -73,18 +78,21 @@
       </table>
     </section>
 
-    <section v-if="activeFilterKey" class="header-filter-panel" data-testid="header-filter-panel">
-      <header><strong>筛选{{ activeFilterLabel }}</strong><button type="button" aria-label="关闭筛选" @click="closeFilter">×</button></header>
-      <div class="header-filter-search"><input v-model.trim="filterSearch" data-testid="header-filter-search" type="search" placeholder="模糊搜索" /></div>
-      <div class="header-filter-actions"><button type="button" @click="selectAllOptions">全选</button><button type="button" @click="invertOptions">反选</button><span>筛选数（{{ visibleFilterOptions.length }}）</span><span>计数（{{ draftMatchedCount }}）</span></div>
-      <div class="header-filter-options">
-        <label v-for="option in visibleFilterOptions" :key="option.value" data-testid="header-filter-option">
-          <input v-model="filterDraft" type="checkbox" :value="option.value" />
-          <span>{{ option.value }}</span><em>（{{ option.count }}）</em>
-        </label>
-        <p v-if="!visibleFilterOptions.length">暂无选项</p>
+    <section v-if="activeFilterKey" class="replay-header-filter-panel" :style="filterPanelStyle" data-testid="header-filter-panel">
+      <header><strong>筛选 {{ activeFilterLabel }}</strong></header>
+      <div class="replay-header-filter-content">
+        <div class="replay-header-filter-search"><input v-model.trim="filterSearch" data-testid="header-filter-search" type="search" placeholder="模糊搜索" /><button type="button" aria-label="查询筛选选项" title="查询">⌕</button></div>
+        <div class="replay-header-filter-actions"><button type="button" @click="selectAllOptions">全选</button><button type="button" @click="invertOptions">反选</button><span>筛选数（{{ visibleFilterOptions.length }}）</span><span>计数（{{ draftMatchedCount }}）</span></div>
+        <div class="replay-header-filter-options">
+          <label v-for="option in visibleFilterOptions" :key="option.value" data-testid="header-filter-option">
+            <input v-model="filterDraft" type="checkbox" :value="option.value" />
+            <span>{{ option.value }}</span><em>（{{ option.count }}）</em>
+          </label>
+          <p v-if="!visibleFilterOptions.length">暂无选项</p>
+        </div>
       </div>
-      <footer><button type="button" @click="clearActiveFilter">清空筛选</button><span></span><button type="button" @click="closeFilter">取消</button><button type="button" data-testid="apply-header-filter" class="primary" @click="applyFilter">确定</button></footer>
+      <footer><button class="replay-header-filter-clear" type="button" @click="clearActiveFilter">清空筛选</button><span></span><button type="button" aria-label="关闭筛选" @click="closeFilter">取消</button><button type="button" data-testid="apply-header-filter" class="primary" @click="applyFilter">确定</button></footer>
+      <button class="replay-header-filter-resize-handle" type="button" aria-label="拖拽调整筛选窗口大小" data-testid="header-filter-resize-handle" @pointerdown="startFilterResize"></button>
     </section>
 
     <footer class="pager is-fixed-pager" data-testid="fixed-pager">
@@ -99,7 +107,7 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, reactive, ref } from 'vue'
 
 defineEmits(['toggleNavigation'])
 
@@ -151,6 +159,9 @@ const filterSearch = ref('')
 const filterDraft = ref([])
 const page = ref(1)
 const pageSize = ref(50)
+const filterPanelSize = reactive({ width: 340, height: 300 })
+const filterPanelStyle = reactive({ left: '8px', top: '8px', width: '340px', height: '300px' })
+let filterResizeState = null
 
 const expandedTables = ref(new Set())
 const copiedTable = ref('')
@@ -222,10 +233,33 @@ const copyFields = async row => {
   copiedTable.value = row.tableName
 }
 
-const openFilter = key => {
+const positionFilterPanel = anchor => {
+  const margin = 8
+  const gap = 6
+  const rect = anchor?.getBoundingClientRect?.() || { left: margin, top: margin, bottom: margin }
+  const viewportWidth = window.innerWidth || 1280
+  const viewportHeight = window.innerHeight || 800
+  const maxWidth = Math.max(300, viewportWidth - margin * 2)
+  const maxHeight = Math.max(220, viewportHeight - margin * 2)
+  filterPanelSize.width = Math.min(filterPanelSize.width, maxWidth)
+  filterPanelSize.height = Math.min(filterPanelSize.height, maxHeight)
+  const left = Math.max(margin, Math.min(rect.left, viewportWidth - filterPanelSize.width - margin))
+  const belowTop = rect.bottom + gap
+  const top = belowTop + filterPanelSize.height <= viewportHeight - margin
+    ? belowTop
+    : Math.max(margin, rect.top - filterPanelSize.height - gap)
+  filterPanelStyle.left = `${Math.round(left)}px`
+  filterPanelStyle.top = `${Math.round(top)}px`
+  filterPanelStyle.width = `${Math.round(filterPanelSize.width)}px`
+  filterPanelStyle.height = `${Math.round(filterPanelSize.height)}px`
+}
+
+const openFilter = async (key, event) => {
   activeFilterKey.value = key
   filterSearch.value = ''
   filterDraft.value = [...(filters[key] || [])]
+  await nextTick()
+  positionFilterPanel(event?.currentTarget)
 }
 
 const closeFilter = () => {
@@ -257,6 +291,32 @@ const resetFilters = () => {
 const goToPage = nextPage => {
   page.value = Math.min(Math.max(1, nextPage), pageCount.value)
 }
+
+const stopFilterResize = () => {
+  filterResizeState = null
+  window.removeEventListener('pointermove', resizeFilterPanel)
+  window.removeEventListener('pointerup', stopFilterResize)
+}
+
+const resizeFilterPanel = event => {
+  if (!filterResizeState) return
+  const left = Number.parseFloat(filterPanelStyle.left) || 8
+  const top = Number.parseFloat(filterPanelStyle.top) || 8
+  const maxWidth = Math.max(300, window.innerWidth - left - 8)
+  const maxHeight = Math.max(220, window.innerHeight - top - 8)
+  filterPanelSize.width = Math.max(300, Math.min(filterResizeState.width + event.clientX - filterResizeState.x, maxWidth))
+  filterPanelSize.height = Math.max(220, Math.min(filterResizeState.height + event.clientY - filterResizeState.y, maxHeight))
+  filterPanelStyle.width = `${Math.round(filterPanelSize.width)}px`
+  filterPanelStyle.height = `${Math.round(filterPanelSize.height)}px`
+}
+
+const startFilterResize = event => {
+  filterResizeState = { x: event.clientX, y: event.clientY, width: filterPanelSize.width, height: filterPanelSize.height }
+  window.addEventListener('pointermove', resizeFilterPanel)
+  window.addEventListener('pointerup', stopFilterResize)
+}
+
+onBeforeUnmount(stopFilterResize)
 </script>
 
 <style scoped>
@@ -275,7 +335,7 @@ const goToPage = nextPage => {
 table { width: 100%; min-width: 1120px; border-collapse: collapse; font-size: 13px; }
 table.is-fixed-layout { table-layout: fixed; }
 thead.is-sticky { position: sticky; top: 0; z-index: 2; color: #fff; background: #176f74; }
-th { padding: 0; text-align: left; white-space: nowrap; }
+th { padding: 12px 10px; text-align: left; white-space: nowrap; }
 th:nth-child(1) { width: 260px; }
 th:nth-child(2) { width: 70px; }
 th:nth-child(3) { width: 430px; }
@@ -283,8 +343,11 @@ th:nth-child(4) { width: 110px; }
 th:nth-child(5) { width: 130px; }
 th:nth-child(6) { width: 145px; }
 th:nth-child(7) { width: 130px; }
-th button { width: 100%; padding: 12px 10px; border: 0; color: inherit; background: transparent; text-align: left; font-weight: 600; }
-th button.active { color: #ffd166; }
+.replay-header-filter-button { display: inline-grid; place-items: center; width: 18px; height: 18px; margin-left: 3px; padding: 0; border: 0; background: transparent; cursor: pointer; vertical-align: middle; }
+.replay-header-filter-button i { display: block; width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 7px solid #e9fff9; filter: drop-shadow(0 0 1px rgba(0,0,0,.7)); }
+.replay-header-filter-button:hover i, .replay-header-filter-button:focus-visible i { border-top-color: #fff; }
+.replay-header-filter-button.active i { border-top-color: #ffd166; }
+.replay-header-filter-button:focus-visible { outline: 1px solid #fff; outline-offset: 1px; }
 td { padding: 12px 10px; border-right: 1px solid #e2e8ee; border-bottom: 1px solid #e2e8ee; }
 tbody tr:nth-child(even) { background: #edf7fb; }
 .primary-column { position: sticky; left: 0; z-index: 1; }
@@ -302,24 +365,31 @@ td small { margin-top: 4px; color: #7b8795; }
 .field-action { padding: 0; border: 0; color: #168478; background: transparent; font-size: 12px; cursor: pointer; }
 .fields:not(.is-expanded) .field-content { white-space: nowrap; }
 .link { padding: 0 5px; border: 0; background: transparent; }
-.header-filter-panel { position: fixed; z-index: 1500; top: 138px; right: 28px; display: grid; grid-template-rows: auto auto auto minmax(110px, 1fr) auto; gap: 7px; width: 340px; max-height: 430px; padding: 9px; border: 1px solid #7c8589; border-radius: 4px; color: #eee; background: #454b4d; box-shadow: 0 9px 26px rgba(0, 0, 0, .3); }
-.header-filter-panel > header, .header-filter-panel > footer { display: flex; align-items: center; gap: 8px; }
-.header-filter-panel > header { justify-content: space-between; }
-.header-filter-panel > header button { border: 0; color: #fff; background: transparent; font-size: 20px; cursor: pointer; }
-.header-filter-search input { box-sizing: border-box; width: 100%; height: 30px; padding: 0 8px; border: 1px solid #737b7e; border-radius: 3px; color: #fff; background: #555d60; }
-.header-filter-actions { display: flex; align-items: center; gap: 8px; font-size: 11px; color: #c9d0d2; }
-.header-filter-actions button { padding: 2px 4px; border: 0; color: #dce4e6; background: transparent; cursor: pointer; }
-.header-filter-options { min-height: 110px; overflow: auto; padding: 4px; border-radius: 3px; background: #555d60; }
-.header-filter-options label { display: flex; align-items: flex-start; gap: 6px; min-height: 24px; padding: 3px 4px; border-radius: 3px; font-size: 12px; cursor: pointer; }
-.header-filter-options label:hover { background: #687174; }
-.header-filter-options label span { min-width: 0; overflow-wrap: anywhere; }
-.header-filter-options label em { margin-left: auto; color: #c0c8ca; font-style: normal; white-space: nowrap; }
-.header-filter-options input { flex: 0 0 auto; margin-top: 2px; accent-color: #42b883; }
-.header-filter-options p { color: #c0c8ca; text-align: center; }
-.header-filter-panel > footer { padding-top: 7px; border-top: 1px solid #687174; }
-.header-filter-panel > footer span { flex: 1; }
-.header-filter-panel > footer button { padding: 5px 10px; border: 1px solid #737b7e; border-radius: 3px; color: #eee; background: #555d60; cursor: pointer; }
-.header-filter-panel > footer .primary { border-color: #168478; background: #168478; }
+.replay-header-filter-panel { position: fixed; z-index: 1500; box-sizing: border-box; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 6px; padding: 8px; overflow: hidden; border: 1px solid #8e8e8e; border-radius: 3px; color: #222; background: #454545; box-shadow: 0 8px 22px rgba(0, 0, 0, .32); }
+.replay-header-filter-panel > header, .replay-header-filter-panel > footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.replay-header-filter-panel > header { padding: 0 2px; color: #fff; }
+.replay-header-filter-panel > header strong { font-size: 13px; }
+.replay-header-filter-content { min-height: 0; display: grid; grid-template-rows: auto auto minmax(78px, 1fr); gap: 5px; padding: 7px; border-radius: 4px; background: #454545; }
+.replay-header-filter-search { display: flex; gap: 5px; }
+.replay-header-filter-search input { flex: 1; min-width: 0; height: 28px; padding: 0 8px; border: 1px solid #777; border-radius: 3px; color: #eee; background: #555; }
+.replay-header-filter-search button { width: 28px; border: 1px solid #42b883; border-radius: 3px; color: #fff; background: #42b883; cursor: pointer; }
+.replay-header-filter-actions { display: flex; gap: 6px; }
+.replay-header-filter-actions button { padding: 3px 7px; border: 0; color: #ddd; background: transparent; cursor: pointer; font-size: 11px; }
+.replay-header-filter-actions span { align-self: center; color: #c7c7c7; font-size: 11px; white-space: nowrap; }
+.replay-header-filter-options { min-height: 0; overflow: auto; display: grid; align-content: start; gap: 1px; padding: 3px; border-radius: 3px; background: #555; }
+.replay-header-filter-options label { display: flex; align-items: flex-start; gap: 6px; width: max-content; min-width: 100%; min-height: 23px; padding: 3px 4px; border-radius: 3px; color: #eee; font-size: 12px; line-height: 1.35; cursor: pointer; }
+.replay-header-filter-options label:hover { background: #666; }
+.replay-header-filter-options label span { white-space: nowrap; }
+.replay-header-filter-options label em { position: sticky; right: 0; flex: 0 0 auto; min-width: 52px; margin-left: auto; padding-left: 10px; color: #c7c7c7; background: #555; text-align: right; font-style: normal; white-space: nowrap; }
+.replay-header-filter-options label:hover em { background: #666; }
+.replay-header-filter-options input { flex: 0 0 auto; margin-top: 2px; accent-color: #42d1a5; }
+.replay-header-filter-options p { margin: 12px 4px; color: #bbb; text-align: center; font-size: 12px; }
+.replay-header-filter-panel > footer { padding-top: 5px; border-top: 1px solid #666; }
+.replay-header-filter-panel > footer > span { flex: 1; }
+.replay-header-filter-panel > footer button { min-height: 25px; padding: 4px 9px; border: 1px solid #777; border-radius: 3px; color: #eee; background: #555; cursor: pointer; }
+.replay-header-filter-panel > footer .primary { border-color: #42b883; background: #42b883; }
+.replay-header-filter-panel > footer .replay-header-filter-clear { border-color: transparent; color: #ffcf8a; background: transparent; }
+.replay-header-filter-resize-handle { position: absolute; right: 1px; bottom: 1px; width: 16px; height: 16px; padding: 0; border: 0; cursor: nwse-resize; touch-action: none; background: linear-gradient(135deg, transparent 0 42%, #bbb 43% 49%, transparent 50% 61%, #ddd 62% 68%, transparent 69%); }
 .pager { flex: 0 0 auto; min-height: 52px; display: flex; justify-content: flex-end; align-items: center; gap: 14px; padding: 10px 22px; border-top: 1px solid #e2e8ee; background: #fff; font-size: 12px; color: #687381; }
 .pager label { display: inline-flex; align-items: center; gap: 6px; }
 .pager select { width: 66px; height: 31px; padding: 0 7px; border: 1px solid #d4dce5; border-radius: 4px; color: #44505e; background: #fff; }

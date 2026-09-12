@@ -9,7 +9,10 @@ describe('ReplayDatabaseComparisonPage', () => {
     expect(wrapper.get('h2').text()).toBe('回放数据库比对字段登记')
     expect(wrapper.find('[data-testid="database-comparison-separate-filter-form"]').exists()).toBe(false)
     expect(wrapper.get('[data-testid="database-comparison-table-head"]').classes()).toContain('is-sticky')
-    expect(wrapper.findAll('[data-testid="database-comparison-header-filter"]')).toHaveLength(6)
+    const filterButtons = wrapper.findAll('[data-testid="database-comparison-header-filter"]')
+    expect(filterButtons).toHaveLength(6)
+    expect(filterButtons.every(button => button.classes().includes('replay-header-filter-button'))).toBe(true)
+    expect(filterButtons.every(button => button.find('i').exists())).toBe(true)
     const headers = wrapper.findAll('thead th')
     expect(headers[0].text()).toContain('表英文名 / 中文名')
     expect(headers[0].classes()).toContain('primary-column')
@@ -90,7 +93,13 @@ describe('ReplayDatabaseComparisonPage', () => {
 
     for (const button of wrapper.findAll('[data-testid="database-comparison-header-filter"]')) {
       await button.trigger('click')
-      expect(wrapper.get('[data-testid="header-filter-panel"]').text()).toContain(`筛选${button.text().replace(' ▼', '')}`)
+      const panel = wrapper.get('[data-testid="header-filter-panel"]')
+      expect(panel.classes()).toContain('replay-header-filter-panel')
+      expect(panel.attributes('style')).toContain('left:')
+      expect(panel.attributes('style')).toContain('top:')
+      expect(panel.text()).toContain(`筛选 ${button.element.previousElementSibling.textContent}`)
+      expect(panel.find('[aria-label="查询筛选选项"]').exists()).toBe(true)
+      expect(panel.find('[data-testid="header-filter-resize-handle"]').exists()).toBe(true)
       expect(wrapper.findAll('[data-testid="header-filter-option"]').length).toBeGreaterThan(0)
       await wrapper.get('[aria-label="关闭筛选"]').trigger('click')
     }

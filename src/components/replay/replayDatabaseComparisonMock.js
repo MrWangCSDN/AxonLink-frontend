@@ -38,6 +38,7 @@ export const mockTableCatalog = [
       ['fzn_cntl_amt', '冻结金额', 'DECIMAL(20,2)'],
       ['fzn_reason_cd', '冻结原因代码', 'VARCHAR(8)'],
       ['fzn_status', '冻结状态', 'VARCHAR(8)'],
+      ['acct_status', '账户状态', 'VARCHAR(8)'],
     ]),
   },
   {

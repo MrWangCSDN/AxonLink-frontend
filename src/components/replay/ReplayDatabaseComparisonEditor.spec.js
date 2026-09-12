@@ -44,6 +44,26 @@ describe('ReplayDatabaseComparisonEditor', () => {
     expect(wrapper.find('[data-testid="table-search-input"]').exists()).toBe(false)
   })
 
+  it('restores every registered field that exists in the table metadata', () => {
+    const registration = {
+      ...registrations[0],
+      fields: [
+        { name: 'fzn_cntl_id', comment: '冻结控制编号' },
+        { name: 'lglpern_cd', comment: '' },
+        { name: 'fzn_cntl_amt', comment: '冻结金额' },
+        { name: 'currency_cd', comment: '币种' },
+        { name: 'effective_dt', comment: '生效日期' },
+        { name: 'acct_status', comment: '账户状态' },
+      ],
+    }
+    const wrapper = mount(ReplayDatabaseComparisonEditor, {
+      props: { registrations: [registration], initialRegistration: registration },
+    })
+
+    expect(wrapper.findAll('[data-testid="selected-field-row"]')).toHaveLength(6)
+    expect(wrapper.get('[data-testid="selected-fields"]').text()).toContain('acct_status')
+  })
+
   it('filters, transfers and reorders primary-key-aware fields', async () => {
     const wrapper = mount(ReplayDatabaseComparisonEditor, { props: { registrations } })
     await wrapper.get('[data-testid="table-search-input"]').setValue('customer_ext')

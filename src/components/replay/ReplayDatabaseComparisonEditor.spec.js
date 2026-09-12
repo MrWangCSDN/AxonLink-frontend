@@ -1,5 +1,5 @@
 import { mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import ReplayDatabaseComparisonEditor from './ReplayDatabaseComparisonEditor.vue'
 
 const registrations = [{
@@ -13,7 +13,8 @@ const registrations = [{
   ],
   domain: '存款',
   owner: '周皓',
-  group: '存款组',
+  groupOwnerUsername: 'sunhy1',
+  groupOwner: '孙海英(sunhy1)',
   date: '2026-09-07',
 }]
 
@@ -62,6 +63,26 @@ describe('ReplayDatabaseComparisonEditor', () => {
 
     expect(wrapper.findAll('[data-testid="selected-field-row"]')).toHaveLength(6)
     expect(wrapper.get('[data-testid="selected-fields"]').text()).toContain('acct_status')
+  })
+
+  it('keeps only domain and a searchable group owner in registration information', async () => {
+    const searchUsers = vi.fn().mockResolvedValue([
+      { username: 'sunhy1', realName: '孙海英', displayName: '孙海英(sunhy1)' },
+    ])
+    const wrapper = mount(ReplayDatabaseComparisonEditor, {
+      props: { registrations, searchUsers },
+    })
+    const fieldLabels = wrapper.findAll('.registration-form > label').map(label => label.text())
+
+    expect(fieldLabels.some(label => label.startsWith('负责人'))).toBe(false)
+    expect(fieldLabels.some(label => label.startsWith('登记日期'))).toBe(false)
+    expect(fieldLabels.some(label => label.startsWith('备注'))).toBe(false)
+    await wrapper.get('[data-testid="group-owner-search"]').setValue('孙')
+    await wrapper.get('[data-testid="group-owner-search"]').trigger('input')
+
+    expect(searchUsers).toHaveBeenCalledWith('孙')
+    await wrapper.get('[data-testid="group-owner-option-sunhy1"]').trigger('click')
+    expect(wrapper.get('[data-testid="group-owner-search"]').element.value).toBe('孙海英(sunhy1)')
   })
 
   it('filters, transfers and reorders primary-key-aware fields', async () => {

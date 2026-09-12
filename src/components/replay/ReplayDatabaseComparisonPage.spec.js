@@ -18,8 +18,11 @@ describe('ReplayDatabaseComparisonPage', () => {
     expect(headers[0].text()).toContain('表英文名 / 中文名')
     expect(headers[0].classes()).toContain('primary-column')
     expect(headers.slice(0, -1).every(header => header.classes().includes('has-white-divider'))).toBe(true)
-    expect(headers.some(header => header.text().includes('归属小组'))).toBe(true)
+    expect(headers.some(header => header.text().includes('小组负责人'))).toBe(true)
+    expect(headers.some(header => header.text().includes('归属小组'))).toBe(false)
     expect(headers.some(header => header.text().includes('归属大组'))).toBe(false)
+    expect(headers.some(header => header.text() === '负责人')).toBe(true)
+    expect(headers.some(header => header.text().includes('登记日期'))).toBe(true)
     expect(headers.some(header => header.text() === '序号')).toBe(false)
     expect(wrapper.text()).toContain('kdpa_cb_acct_fzn_cntl_inf')
     expect(wrapper.text()).toContain('fzn_cntl_id(冻结控制编号)')
@@ -133,5 +136,28 @@ describe('ReplayDatabaseComparisonPage', () => {
     await wrapper.get('[data-testid="edit-registration-kdpa_cb_acct_fzn_cntl_inf"]').trigger('click')
     expect(wrapper.get('[data-testid="editor-title"]').text()).toBe('编辑登记')
     expect(wrapper.get('[data-testid="selected-table"]').text()).toContain('kdpa_cb_acct_fzn_cntl_inf')
+  })
+
+  it('fills the current login and local system date when a registration is saved', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-12T16:30:00Z'))
+    const wrapper = mount(ReplayDatabaseComparisonPage)
+    await wrapper.get('[data-testid="add-registration"]').trigger('click')
+
+    wrapper.findComponent(ReplayDatabaseComparisonEditor).vm.$emit('save', {
+      tableName: 'kpb_new_comparison_table',
+      tableComment: '新增比对表',
+      fields: [{ name: 'id', comment: '主键' }],
+      domain: '公共',
+      groupOwnerUsername: 'sunhy1',
+      groupOwnerName: '孙海英',
+    })
+    await wrapper.vm.$nextTick()
+
+    const firstRow = wrapper.findAll('[data-testid="registration-row"]')[0].text()
+    expect(firstRow).toContain('管理员')
+    expect(firstRow).toContain('孙海英(sunhy1)')
+    expect(firstRow).toContain('2026-09-13')
+    vi.useRealTimers()
   })
 })

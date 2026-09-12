@@ -84,11 +84,22 @@
           <div class="block-heading"><strong>3. 登记信息</strong><span>带 * 为必填项</span></div>
           <div class="registration-form">
             <label>领域 *<select v-model="form.domain"><option value="">请选择</option><option v-for="domain in domains" :key="domain">{{ domain }}</option></select></label>
-            <label>负责人 *<input v-model="form.owner" placeholder="搜索人员" /></label>
-            <label>归属小组 *<select v-model="form.group"><option value="">请选择</option><option v-for="group in groups" :key="group">{{ group }}</option></select></label>
-            <label>登记日期 *<input v-model="form.date" type="date" /></label>
-            <label class="remark">备注<textarea v-model="form.remark" rows="2" placeholder="请输入备注"></textarea></label>
+            <label>小组负责人 *
+              <div class="group-owner-picker">
+                <input v-model="form.groupOwnerDisplay" data-testid="group-owner-search" type="search" placeholder="姓名或账号" @input="searchGroupOwners" />
+                <div v-if="groupOwnerOptions.length" class="group-owner-options">
+                  <button
+                    v-for="user in groupOwnerOptions"
+                    :key="user.username"
+                    type="button"
+                    :data-testid="`group-owner-option-${user.username}`"
+                    @click="selectGroupOwner(user)"
+                  >{{ user.displayName }}</button>
+                </div>
+              </div>
+            </label>
           </div>
+          <p v-if="groupOwnerError" class="registration-error">{{ groupOwnerError }}</p>
         </section>
       </div>
 
@@ -109,16 +120,17 @@
 <script setup>
 import { computed, reactive, ref } from 'vue'
 import { Database, Search } from 'lucide-vue-next'
+import { searchReplayIssueUsers } from '../../api/replayIssues.js'
 import { getMockColumns, searchMockTables } from './replayDatabaseComparisonMock.js'
 
 const props = defineProps({
   registrations: { type: Array, default: () => [] },
   initialRegistration: { type: Object, default: null },
+  searchUsers: { type: Function, default: searchReplayIssueUsers },
 })
 const emit = defineEmits(['close', 'save', 'delete'])
 
 const domains = ['公共', '存款', '贷款', '结算']
-const groups = domains.map(domain => `${domain}组`)
 const tableKeywordInput = ref('')
 const tableKeyword = ref('')
 const tableSearchExecuted = ref(false)
@@ -131,7 +143,9 @@ const fieldKeyword = ref('')
 const fieldFilter = ref('ALL')
 const draggedFieldIndex = ref(-1)
 const deleteConfirmationVisible = ref(false)
-const form = reactive({ domain: '', owner: '', group: '', date: '', remark: '' })
+const groupOwnerOptions = ref([])
+const groupOwnerError = ref('')
+const form = reactive({ domain: '', groupOwnerUsername: '', groupOwnerName: '', groupOwnerDisplay: '' })
 
 const tableResults = computed(() => searchMockTables(tableKeyword.value, props.registrations))
 const isEditing = computed(() => selectedTable.value?.registrationStatus === 'ACTIVE')
@@ -139,7 +153,7 @@ const isDeleteMode = computed(() => isEditing.value && selectedColumns.value.len
 const canSubmit = computed(() => {
   if (!selectedTable.value) return false
   if (isDeleteMode.value) return true
-  return selectedColumns.value.length > 0 && form.domain && form.owner && form.group && form.date
+  return selectedColumns.value.length > 0 && form.domain && form.groupOwnerUsername
 })
 const availableColumns = computed(() => {
   const selectedNames = new Set(selectedColumns.value.map(column => column.columnName))
@@ -168,10 +182,11 @@ const selectTable = table => {
     .map(name => allColumns.value.find(column => column.columnName === name))
     .filter(Boolean)
   form.domain = registration?.domain || ''
-  form.owner = registration?.owner || ''
-  form.group = registration?.group || ''
-  form.date = registration?.date || new Date().toISOString().slice(0, 10)
-  form.remark = registration?.remark || ''
+  form.groupOwnerUsername = registration?.groupOwnerUsername || ''
+  form.groupOwnerName = registration?.groupOwnerName || registration?.groupOwner || ''
+  form.groupOwnerDisplay = registration?.groupOwner || registration?.groupOwnerName || ''
+  groupOwnerOptions.value = []
+  groupOwnerError.value = ''
   availableSelection.value = []
   selectedSelection.value = []
   fieldKeyword.value = ''
@@ -207,6 +222,31 @@ const dropSelectedField = targetIndex => {
   draggedFieldIndex.value = -1
 }
 
+const searchGroupOwners = async () => {
+  form.groupOwnerUsername = ''
+  form.groupOwnerName = ''
+  groupOwnerError.value = ''
+  const keyword = form.groupOwnerDisplay.trim()
+  if (!keyword) {
+    groupOwnerOptions.value = []
+    return
+  }
+  try {
+    groupOwnerOptions.value = await props.searchUsers(keyword)
+  } catch (cause) {
+    groupOwnerOptions.value = []
+    groupOwnerError.value = `小组负责人检索失败：${cause?.message || cause}`
+  }
+}
+
+const selectGroupOwner = user => {
+  form.groupOwnerUsername = user.username
+  form.groupOwnerName = user.realName || user.displayName || user.username
+  form.groupOwnerDisplay = user.displayName || user.realName || user.username
+  groupOwnerOptions.value = []
+  groupOwnerError.value = ''
+}
+
 const submitRegistration = () => {
   if (!canSubmit.value) return
   if (isDeleteMode.value) {
@@ -221,7 +261,9 @@ const submitRegistration = () => {
     tableComment: selectedTable.value.tableComment,
     fieldNames: selectedColumns.value.map(column => column.columnName),
     fields: selectedColumns.value.map(column => ({ name: column.columnName, comment: column.columnComment })),
-    ...form,
+    domain: form.domain,
+    groupOwnerUsername: form.groupOwnerUsername,
+    groupOwnerName: form.groupOwnerName,
   })
 }
 
@@ -240,6 +282,8 @@ const resetSelectedTable = () => {
   availableSelection.value = []
   selectedSelection.value = []
   tableSearchExecuted.value = false
+  groupOwnerOptions.value = []
+  groupOwnerError.value = ''
 }
 
 if (props.initialRegistration) {
@@ -269,7 +313,8 @@ if (props.initialRegistration) {
 .selected-table { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-left: 4px solid #168478; background: #f0f8f7; }.selected-table > span { flex: 1; }.text-button { border: 0; color: #167e76; background: transparent; cursor: pointer; }
 .transfer-layout { display: grid; grid-template-columns: minmax(0, 1fr) 92px minmax(0, 1fr); gap: 12px; min-height: 245px; }.field-panel { overflow: hidden; border: 1px solid #d9e2e7; border-radius: 5px; }.field-panel > header { display: flex; justify-content: space-between; padding: 9px 11px; color: #fff; background: #237b80; }.field-panel > header span { font-size: 12px; }.field-panel-placeholder { display: grid; min-height: 190px; place-items: center; padding: 20px; color: #8a96a1; text-align: center; }.transfer-actions { display: flex; flex-direction: column; justify-content: center; gap: 10px; }.transfer-actions button { padding: 7px 4px; }.selected-preview { max-height: 205px; margin: 0; padding: 6px; overflow: auto; list-style: none; }.selected-preview li { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto auto auto; align-items: center; gap: 6px; padding: 5px 4px; border-bottom: 1px solid #edf1f3; cursor: grab; }.selected-preview small { display: block; color: #84909a; }.selected-preview li > i { color: #84919c; font-style: normal; }.selected-preview li > span { min-width: 0; }.selected-preview li button { width: 25px; height: 25px; padding: 0; border: 1px solid #cad5dc; border-radius: 3px; background: #fff; }.selected-preview li button:disabled { opacity: .35; }
 .field-tools { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; padding: 7px; border-bottom: 1px solid #e2e8ec; }.field-tools input { min-width: 0; padding: 6px 7px; border: 1px solid #ccd7de; border-radius: 3px; }.field-filters { display: flex; }.field-filters button { padding: 4px 7px; border: 1px solid #cad5dc; background: #fff; font-size: 11px; }.field-filters button.active { color: #fff; background: #168478; }.field-list-scroll { max-height: 205px; overflow: auto; }.available-field-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 7px; padding: 6px 8px; border-bottom: 1px solid #edf1f3; }.available-field-row:hover { background: #f1f9f8; }.available-field-row span, .available-field-row strong, .available-field-row small { min-width: 0; }.available-field-row strong, .available-field-row small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.available-field-row small { margin-top: 2px; color: #7f8b95; }.available-field-row em { color: #687682; font-size: 10px; font-style: normal; }.available-field-row b, .selected-preview b { padding: 2px 5px; border-radius: 8px; color: #087064; background: #dff4f0; font-size: 10px; }.field-panel-placeholder.compact { min-height: 145px; }
-.registration-form { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }.registration-form label { display: grid; gap: 5px; color: #52606d; font-size: 12px; }.registration-form input, .registration-form select, .registration-form textarea { box-sizing: border-box; width: 100%; padding: 7px 8px; border: 1px solid #cbd6de; border-radius: 4px; background: #fff; }.remark { grid-column: 1 / -1; }
+.registration-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }.registration-form label { display: grid; gap: 5px; color: #52606d; font-size: 12px; }.registration-form input, .registration-form select { box-sizing: border-box; width: 100%; padding: 7px 8px; border: 1px solid #cbd6de; border-radius: 4px; background: #fff; }
+.group-owner-picker { position: relative; }.group-owner-options { position: absolute; z-index: 3; top: calc(100% + 4px); right: 0; left: 0; max-height: 160px; overflow: auto; border: 1px solid #cbd6de; border-radius: 4px; background: #fff; box-shadow: 0 7px 18px rgba(30, 53, 70, .16); }.group-owner-options button { width: 100%; padding: 8px 10px; border: 0; border-bottom: 1px solid #edf1f3; background: #fff; text-align: left; cursor: pointer; }.group-owner-options button:hover { background: #edf8f7; }.registration-error { margin: 8px 0 0; color: #c43f3a; font-size: 12px; }
 .editor-footer { display: flex; align-items: center; justify-content: flex-end; gap: 9px; padding: 11px 18px; border-top: 1px solid #dbe3e8; background: #fff; }.editor-footer span { margin-right: auto; color: #74818e; font-size: 12px; }.editor-footer button { min-width: 76px; padding: 7px 14px; border: 1px solid #cad4dc; border-radius: 4px; background: #fff; cursor: pointer; }.editor-footer button:disabled { opacity: .45; cursor: not-allowed; }
 .danger { border-color: #d9534f !important; color: #fff !important; background: #d9534f !important; }.delete-confirmation { position: fixed; z-index: 1810; width: min(430px, 88vw); padding: 20px; border-radius: 7px; background: #fff; box-shadow: 0 16px 45px rgba(0, 0, 0, .35); }.delete-confirmation h4 { margin: 0 0 10px; color: #b93c38; }.delete-confirmation p { color: #56636f; line-height: 1.65; }.delete-confirmation div { display: flex; justify-content: flex-end; gap: 9px; }.delete-confirmation button { padding: 7px 13px; border: 1px solid #cbd5dc; border-radius: 4px; background: #fff; }
 .empty-result { padding: 18px; color: #87939e; text-align: center; }

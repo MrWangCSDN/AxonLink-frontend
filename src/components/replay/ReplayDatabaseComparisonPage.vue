@@ -71,7 +71,7 @@
               </div>
             </td>
             <td>{{ row.owner }}</td>
-            <td>{{ row.group }}</td>
+            <td>{{ row.groupOwner }}</td>
             <td>{{ row.date }}</td>
             <td><button class="link">查看</button><button class="link" :data-testid="`edit-registration-${row.tableName}`" @click="openEditEditor(row)">编辑</button></td>
           </tr>
@@ -108,6 +108,7 @@
       v-if="editorOpen"
       :registrations="rows"
       :initial-registration="editingRegistration"
+      :search-users="searchMockUsers"
       @close="closeEditor"
       @save="saveRegistration"
       @delete="deleteRegistration"
@@ -123,13 +124,28 @@ import ReplayDatabaseComparisonEditor from './ReplayDatabaseComparisonEditor.vue
 defineEmits(['toggleNavigation'])
 
 const seedRows = [
-  { domain: '存款', tableName: 'kdpa_cb_acct_fzn_cntl_inf', tableComment: '对公存款账户冻结控制信息', fields: [{ name: 'fzn_cntl_id', comment: '冻结控制编号' }, { name: 'lglpern_cd', comment: '' }, { name: 'fzn_cntl_amt', comment: '冻结金额' }, { name: 'currency_cd', comment: '币种' }, { name: 'effective_dt', comment: '生效日期' }, { name: 'acct_status', comment: '账户状态' }], owner: '周皓', group: '存款组', date: '2026-09-07' },
-  { domain: '存款', tableName: 'kdpl_cb_acct_fzn_cntl_oprn_detl', tableComment: '对公存款账户冻结控制操作明细', fields: [{ name: 'fzn_cntl_oprn_sn', comment: '冻结操作序号' }, { name: 'txn_dt', comment: '交易日期' }, { name: 'cncl_fzn_dectrl_amt', comment: '取消冻结金额' }, { name: 'operator_id', comment: '' }], owner: '周皓', group: '存款组', date: '2026-09-07' },
-  { domain: '贷款', tableName: 'klna_ln_acct_base_info', tableComment: '贷款账户基础信息', fields: [{ name: 'loan_acct_no', comment: '贷款账号' }, { name: 'customer_no', comment: '客户号' }, { name: 'product_code', comment: '' }, { name: 'loan_status', comment: '贷款状态' }], owner: '李明', group: '贷款组', date: '2026-09-08' },
+  { domain: '存款', tableName: 'kdpa_cb_acct_fzn_cntl_inf', tableComment: '对公存款账户冻结控制信息', fields: [{ name: 'fzn_cntl_id', comment: '冻结控制编号' }, { name: 'lglpern_cd', comment: '' }, { name: 'fzn_cntl_amt', comment: '冻结金额' }, { name: 'currency_cd', comment: '币种' }, { name: 'effective_dt', comment: '生效日期' }, { name: 'acct_status', comment: '账户状态' }], owner: '周皓', groupOwnerUsername: 'sunhy1', groupOwnerName: '孙海英', groupOwner: '孙海英(sunhy1)', date: '2026-09-07' },
+  { domain: '存款', tableName: 'kdpl_cb_acct_fzn_cntl_oprn_detl', tableComment: '对公存款账户冻结控制操作明细', fields: [{ name: 'fzn_cntl_oprn_sn', comment: '冻结操作序号' }, { name: 'txn_dt', comment: '交易日期' }, { name: 'cncl_fzn_dectrl_amt', comment: '取消冻结金额' }, { name: 'operator_id', comment: '' }], owner: '周皓', groupOwnerUsername: 'zhangsan', groupOwnerName: '张三', groupOwner: '张三(zhangsan)', date: '2026-09-07' },
+  { domain: '贷款', tableName: 'klna_ln_acct_base_info', tableComment: '贷款账户基础信息', fields: [{ name: 'loan_acct_no', comment: '贷款账号' }, { name: 'customer_no', comment: '客户号' }, { name: 'product_code', comment: '' }, { name: 'loan_status', comment: '贷款状态' }], owner: '李明', groupOwnerUsername: 'liming', groupOwnerName: '李明', groupOwner: '李明(liming)', date: '2026-09-08' },
 ]
 
 const domains = ['公共', '存款', '贷款', '结算']
 const owners = ['周皓', '李明', '王芳', '陈晨', '赵磊']
+const mockUsers = [
+  { username: 'sunhy1', realName: '孙海英', displayName: '孙海英(sunhy1)' },
+  { username: 'zhangsan', realName: '张三', displayName: '张三(zhangsan)' },
+  { username: 'liming', realName: '李明', displayName: '李明(liming)' },
+  { username: 'wangfang', realName: '王芳', displayName: '王芳(wangfang)' },
+  { username: 'chenchen', realName: '陈晨', displayName: '陈晨(chenchen)' },
+  { username: 'zhaolei', realName: '赵磊', displayName: '赵磊(zhaolei)' },
+]
+const currentMockUser = { username: 'admin', realName: '管理员', displayName: '管理员(admin)' }
+const localSystemDate = () => {
+  const current = new Date()
+  const month = String(current.getMonth() + 1).padStart(2, '0')
+  const day = String(current.getDate()).padStart(2, '0')
+  return `${current.getFullYear()}-${month}-${day}`
+}
 const fieldCatalog = [
   ['acct_no', '账号'], ['customer_no', '客户号'], ['currency_cd', '币种'], ['balance_amt', '余额'],
   ['status_cd', '状态'], ['open_dt', '开户日期'], ['branch_no', '机构号'], ['product_cd', '产品代码'],
@@ -139,6 +155,7 @@ const fieldCatalog = [
 const createMockRow = index => {
   const domain = domains[(index - 1) % domains.length]
   const fieldCount = 4 + (index % 8)
+  const groupOwner = mockUsers[(index - 1) % mockUsers.length]
   return {
     domain,
     tableName: `k${domain === '贷款' ? 'ln' : domain === '存款' ? 'dp' : domain === '结算' ? 'st' : 'pb'}_replay_compare_${String(index).padStart(3, '0')}`,
@@ -148,7 +165,9 @@ const createMockRow = index => {
       return { name: `${name}_${fieldIndex + 1}`, comment }
     }),
     owner: owners[(index - 1) % owners.length],
-    group: `${domain}组`,
+    groupOwnerUsername: groupOwner.username,
+    groupOwnerName: groupOwner.realName,
+    groupOwner: groupOwner.displayName,
     date: `2026-09-${String(((index - 1) % 28) + 1).padStart(2, '0')}`,
   }
 }
@@ -161,7 +180,7 @@ const filterColumns = [
   { key: 'domain', label: '领域' },
   { key: 'fields', label: '比对字段' },
   { key: 'owner', label: '负责人' },
-  { key: 'group', label: '归属小组' },
+  { key: 'groupOwner', label: '小组负责人' },
   { key: 'date', label: '登记日期' },
 ]
 
@@ -258,6 +277,11 @@ const openEditEditor = row => {
   editorOpen.value = true
 }
 
+const searchMockUsers = async keyword => {
+  const normalizedKeyword = keyword.trim().toLocaleLowerCase()
+  return mockUsers.filter(user => `${user.realName} ${user.username}`.toLocaleLowerCase().includes(normalizedKeyword))
+}
+
 const closeEditor = () => {
   editorOpen.value = false
   editingRegistration.value = null
@@ -272,10 +296,11 @@ const saveRegistration = payload => {
     tableComment: payload.tableComment,
     fields: payload.fields,
     domain: payload.domain,
-    owner: payload.owner,
-    group: payload.group,
-    date: payload.date,
-    remark: payload.remark,
+    owner: currentMockUser.realName,
+    groupOwnerUsername: payload.groupOwnerUsername,
+    groupOwnerName: payload.groupOwnerName,
+    groupOwner: `${payload.groupOwnerName}(${payload.groupOwnerUsername})`,
+    date: localSystemDate(),
   }
   if (existingIndex >= 0) rows.splice(existingIndex, 1, nextRow)
   else rows.unshift(nextRow)

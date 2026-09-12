@@ -43,4 +43,25 @@ describe('ReplayDatabaseComparisonEditor', () => {
     expect(wrapper.get('[data-testid="selected-fields"]').text()).toContain('currency_cd')
     expect(wrapper.find('[data-testid="table-search-input"]').exists()).toBe(false)
   })
+
+  it('filters, transfers and reorders primary-key-aware fields', async () => {
+    const wrapper = mount(ReplayDatabaseComparisonEditor, { props: { registrations } })
+    await wrapper.get('[data-testid="table-search-input"]').setValue('customer_ext')
+    await wrapper.get('[data-testid="table-search-button"]').trigger('click')
+    await wrapper.get('[data-testid="table-search-result"]').trigger('click')
+
+    expect(wrapper.get('[data-testid="available-fields"]').text()).toContain('主键')
+    await wrapper.get('[data-testid="field-filter-primary"]').trigger('click')
+    expect(wrapper.findAll('[data-testid="available-field-row"]')).toHaveLength(1)
+    await wrapper.get('[data-testid="field-filter-all"]').trigger('click')
+
+    await wrapper.get('[data-testid="available-field-customer_no"]').setValue(true)
+    await wrapper.get('[data-testid="move-fields-right"]').trigger('click')
+    await wrapper.get('[data-testid="available-field-customer_type"]').setValue(true)
+    await wrapper.get('[data-testid="move-fields-right"]').trigger('click')
+    expect(wrapper.get('[data-testid="selected-fields"]').text()).toContain('customer_type')
+
+    await wrapper.get('[data-testid="move-selected-up-customer_type"]').trigger('click')
+    expect(wrapper.findAll('[data-testid="selected-field-row"]')[0].text()).toContain('customer_type')
+  })
 })

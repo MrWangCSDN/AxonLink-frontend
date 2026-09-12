@@ -20,13 +20,14 @@ const columns = (primaryName, primaryComment, extras = []) => [
   [primaryName, primaryComment, 'VARCHAR(40)', true],
   ...extras,
   ...commonColumns,
-].map(([columnName, columnComment, dataType, primaryKey = false], index) => ({
+].filter(([columnName], index, source) => source.findIndex(([candidate]) => candidate === columnName) === index)
+  .map(([columnName, columnComment, dataType, primaryKey = false], index) => ({
   columnName,
   columnComment,
   dataType,
   primaryKey,
   ordinalPosition: index + 1,
-}))
+  }))
 
 export const mockTableCatalog = [
   {

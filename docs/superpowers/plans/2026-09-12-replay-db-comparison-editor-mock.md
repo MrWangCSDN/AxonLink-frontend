@@ -317,41 +317,41 @@ git commit -m "feat(replay): add searchable comparison group owner"
 - Editor computed collection: `filteredSelectedColumns` preserving each column's original index for ordering.
 - Editor selection actions: `selectAllAvailable`, `invertAvailableSelection`, `selectAllSelected`, `invertSelectedSelection`.
 
-- [ ] **Step 1: Write failing list interaction tests**
+- [x] **Step 1: Write failing list interaction tests**
 
 Assert each row renders bordered `查看、编辑、删除、审计` buttons. Verify 查看 opens a read-only detail dialog, 审计 opens a history dialog, 删除 requires confirmation before removing the row, and compact audit columns expose full-value titles plus copy controls. Expand a field row and assert the row receives a wrapping-state class.
 
-- [ ] **Step 2: Write failing editor interaction tests**
+- [x] **Step 2: Write failing editor interaction tests**
 
 Assert the domain options are exactly `存款组、贷款组、公共组、结算组、平台组`; the selected-field panel has a fuzzy search; both panels expose 全选 and 反选; clicking a selected row toggles its checkbox; and primary-key markers in both panels use the red marker class.
 
-- [ ] **Step 3: Run focused tests and verify RED**
+- [x] **Step 3: Run focused tests and verify RED**
 
 Run: `npm test -- src/components/replay/ReplayDatabaseComparisonPage.spec.js src/components/replay/ReplayDatabaseComparisonEditor.spec.js`
 
 Expected: FAIL because the four boxed actions, compact copy cells, dialogs, right-side search, dual selection controls, five group domains, enlarged row selection, and red primary-key markers do not exist.
 
-- [ ] **Step 4: Implement list actions and compact wrapping cells**
+- [x] **Step 4: Implement list actions and compact wrapping cells**
 
 Replace text links with four outlined buttons. Add page-level read-only detail, audit timeline, and delete-confirmation dialogs. Reduce owner, group-owner, and date widths; render ellipsis by default, full values through `title`, and a copy button that writes the complete value. Add a row class when comparison fields are expanded so compact cells wrap within their fixed widths.
 
-- [ ] **Step 5: Implement the expanded field picker**
+- [x] **Step 5: Implement the expanded field picker**
 
 Increase the transfer area and list viewport heights. Add right-side fuzzy search without changing persisted order. Add 全选/反选 controls to both filtered lists, enlarge checkboxes to 18px, and make selected rows toggle on row click while action buttons stop propagation. Use a red `主键` marker in both panels and neutral panel background so unused space is not rendered as a separate white placeholder box.
 
-- [ ] **Step 6: Run focused tests and verify GREEN**
+- [x] **Step 6: Run focused tests and verify GREEN**
 
 Run: `npm test -- src/components/replay/ReplayDatabaseComparisonPage.spec.js src/components/replay/ReplayDatabaseComparisonEditor.spec.js`
 
 Expected: PASS.
 
-- [ ] **Step 7: Run full regression, production build, and browser verification**
+- [x] **Step 7: Run full regression, production build, and browser verification**
 
 Run: `npm test && npm run build -- --outDir /tmp/axon-link-replay-db-comparison-build && git diff --check`
 
 Then verify `http://127.0.0.1:5176/#replay-database-comparison-fields` in Playwright and capture the list plus editor screenshots.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add docs/superpowers/plans/2026-09-12-replay-db-comparison-editor-mock.md src/components/replay/ReplayDatabaseComparisonPage.vue src/components/replay/ReplayDatabaseComparisonPage.spec.js src/components/replay/ReplayDatabaseComparisonEditor.vue src/components/replay/ReplayDatabaseComparisonEditor.spec.js

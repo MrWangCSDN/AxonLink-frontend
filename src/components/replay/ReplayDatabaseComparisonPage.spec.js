@@ -88,8 +88,8 @@ describe('ReplayDatabaseComparisonPage', () => {
     await wrapper.get('[data-testid="apply-header-filter"]').trigger('click')
 
     expect(wrapper.findAll('[data-testid="domain-cell"]')
-      .every(cell => cell.text() === '贷款')).toBe(true)
-    expect(wrapper.get('[data-testid="page-summary"]').text()).toContain('共 50 条')
+      .every(cell => cell.text() === '贷款组')).toBe(true)
+    expect(wrapper.get('[data-testid="page-summary"]').text()).toContain('共 40 条')
 
     await wrapper.get('[data-testid="reset-filters"]').trigger('click')
     expect(wrapper.get('[data-testid="page-summary"]').text()).toContain('共 200 条')
@@ -148,7 +148,7 @@ describe('ReplayDatabaseComparisonPage', () => {
       tableName: 'kpb_new_comparison_table',
       tableComment: '新增比对表',
       fields: [{ name: 'id', comment: '主键' }],
-      domain: '公共',
+      domain: '公共组',
       groupOwnerUsername: 'sunhy1',
       groupOwnerName: '孙海英',
     })
@@ -159,5 +159,49 @@ describe('ReplayDatabaseComparisonPage', () => {
     expect(firstRow).toContain('孙海英(sunhy1)')
     expect(firstRow).toContain('2026-09-13')
     vi.useRealTimers()
+  })
+
+  it('renders four boxed row actions and opens detail and audit dialogs', async () => {
+    const wrapper = mount(ReplayDatabaseComparisonPage)
+    const tableName = 'kdpa_cb_acct_fzn_cntl_inf'
+
+    for (const action of ['view', 'edit', 'delete', 'audit']) {
+      expect(wrapper.get(`[data-testid="${action}-registration-${tableName}"]`).classes()).toContain('operation-button')
+    }
+    await wrapper.get(`[data-testid="view-registration-${tableName}"]`).trigger('click')
+    expect(wrapper.get('[data-testid="registration-detail-dialog"]').text()).toContain('对公存款账户冻结控制信息')
+    await wrapper.get('[data-testid="close-registration-detail"]').trigger('click')
+    await wrapper.get(`[data-testid="audit-registration-${tableName}"]`).trigger('click')
+    expect(wrapper.get('[data-testid="registration-audit-dialog"]').text()).toContain('变更审计')
+  })
+
+  it('requires confirmation before deleting a registration from the list', async () => {
+    const wrapper = mount(ReplayDatabaseComparisonPage)
+    const tableName = 'kdpa_cb_acct_fzn_cntl_inf'
+    const originalCount = wrapper.findAll('[data-testid="registration-row"]').length
+
+    await wrapper.get(`[data-testid="delete-registration-${tableName}"]`).trigger('click')
+    expect(wrapper.get('[data-testid="list-delete-confirmation"]').text()).toContain(tableName)
+    expect(wrapper.text()).toContain(tableName)
+    await wrapper.get('[data-testid="confirm-list-delete"]').trigger('click')
+
+    expect(wrapper.findAll('[data-testid="registration-row"]')).toHaveLength(originalCount)
+    expect(wrapper.get('[data-testid="page-summary"]').text()).toContain('共 199 条')
+    expect(wrapper.text()).not.toContain(tableName)
+  })
+
+  it('exposes compact audit values for hover, copy and expanded-row wrapping', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+    const wrapper = mount(ReplayDatabaseComparisonPage)
+    const tableName = 'kdpa_cb_acct_fzn_cntl_inf'
+    const ownerCell = wrapper.get(`[data-testid="owner-${tableName}"]`)
+
+    expect(ownerCell.attributes('title')).toBe('周皓')
+    await wrapper.get(`[data-testid="copy-owner-${tableName}"]`).trigger('click')
+    expect(writeText).toHaveBeenCalledWith('周皓')
+    await wrapper.get(`[data-testid="expand-fields-${tableName}"]`).trigger('click')
+    expect(wrapper.get(`[data-row-table="${tableName}"]`).classes()).toContain('is-fields-expanded')
+    expect(ownerCell.classes()).toContain('compact-copy-cell')
   })
 })

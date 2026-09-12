@@ -11,7 +11,7 @@ const registrations = [{
     { name: 'fzn_cntl_id', comment: '冻结控制编号' },
     { name: 'currency_cd', comment: '币种' },
   ],
-  domain: '存款',
+  domain: '存款组',
   owner: '周皓',
   groupOwnerUsername: 'sunhy1',
   groupOwner: '孙海英(sunhy1)',
@@ -83,6 +83,52 @@ describe('ReplayDatabaseComparisonEditor', () => {
     expect(searchUsers).toHaveBeenCalledWith('孙')
     await wrapper.get('[data-testid="group-owner-option-sunhy1"]').trigger('click')
     expect(wrapper.get('[data-testid="group-owner-search"]').element.value).toBe('孙海英(sunhy1)')
+  })
+
+  it('uses the five group domains and filters selected fields by name or comment', async () => {
+    const wrapper = mount(ReplayDatabaseComparisonEditor, {
+      props: { registrations, initialRegistration: registrations[0] },
+    })
+
+    expect(wrapper.findAll('.registration-form select option').map(option => option.text()).slice(1)).toEqual([
+      '存款组', '贷款组', '公共组', '结算组', '平台组',
+    ])
+    await wrapper.get('[data-testid="selected-field-search"]').setValue('币种')
+    expect(wrapper.findAll('[data-testid="selected-field-row"]')).toHaveLength(1)
+    expect(wrapper.get('[data-testid="selected-fields"]').text()).toContain('currency_cd')
+  })
+
+  it('supports whole-row selection plus select-all and invert on both field panels', async () => {
+    const wrapper = mount(ReplayDatabaseComparisonEditor, {
+      props: { registrations, initialRegistration: registrations[0] },
+    })
+
+    await wrapper.get('[data-testid="available-select-all"]').trigger('click')
+    expect(wrapper.findAll('[data-testid="available-field-row"] input:checked').length).toBeGreaterThan(0)
+    await wrapper.get('[data-testid="available-invert-selection"]').trigger('click')
+    expect(wrapper.findAll('[data-testid="available-field-row"] input:checked')).toHaveLength(0)
+
+    const selectedRow = wrapper.findAll('[data-testid="selected-field-row"]')[0]
+    expect(selectedRow.get('input').element.checked).toBe(false)
+    await selectedRow.trigger('click')
+    expect(selectedRow.get('input').element.checked).toBe(true)
+    await wrapper.get('[data-testid="selected-select-all"]').trigger('click')
+    expect(wrapper.findAll('[data-testid="selected-field-row"] input:checked')).toHaveLength(2)
+    await wrapper.get('[data-testid="selected-invert-selection"]').trigger('click')
+    expect(wrapper.findAll('[data-testid="selected-field-row"] input:checked')).toHaveLength(0)
+  })
+
+  it('marks primary keys in red on available and selected fields', async () => {
+    const selectedWrapper = mount(ReplayDatabaseComparisonEditor, {
+      props: { registrations, initialRegistration: registrations[0] },
+    })
+    expect(selectedWrapper.get('[data-testid="selected-fields"] .primary-key-marker').text()).toBe('主键')
+
+    const availableWrapper = mount(ReplayDatabaseComparisonEditor, { props: { registrations } })
+    await availableWrapper.get('[data-testid="table-search-input"]').setValue('customer_ext')
+    await availableWrapper.get('[data-testid="table-search-button"]').trigger('click')
+    await availableWrapper.get('[data-testid="table-search-result"]').trigger('click')
+    expect(availableWrapper.get('[data-testid="available-fields"] .primary-key-marker').text()).toBe('主键')
   })
 
   it('filters, transfers and reorders primary-key-aware fields', async () => {

@@ -39,7 +39,13 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="row in pagedRows" :key="row.tableName" data-testid="registration-row">
+          <tr
+            v-for="row in pagedRows"
+            :key="row.tableName"
+            data-testid="registration-row"
+            :data-row-table="row.tableName"
+            :class="{ 'is-fields-expanded': isExpanded(row.tableName) }"
+          >
             <td class="primary-column"><strong>{{ row.tableName }}</strong><small>{{ row.tableComment }}</small></td>
             <td data-testid="domain-cell">{{ row.domain }}</td>
             <td
@@ -70,10 +76,27 @@
                 >{{ copiedTable === row.tableName ? '已复制' : '复制全部字段' }}</button>
               </div>
             </td>
-            <td>{{ row.owner }}</td>
-            <td>{{ row.groupOwner }}</td>
-            <td>{{ row.date }}</td>
-            <td><button class="link">查看</button><button class="link" :data-testid="`edit-registration-${row.tableName}`" @click="openEditEditor(row)">编辑</button></td>
+            <td
+              class="compact-copy-cell"
+              :data-testid="`owner-${row.tableName}`"
+              :title="row.owner"
+            ><span>{{ row.owner }}</span><button type="button" :data-testid="`copy-owner-${row.tableName}`" @click="copyCellValue(row.owner, `owner-${row.tableName}`)">{{ copiedCellKey === `owner-${row.tableName}` ? '已复制' : '复制' }}</button></td>
+            <td
+              class="compact-copy-cell"
+              :data-testid="`group-owner-${row.tableName}`"
+              :title="row.groupOwner"
+            ><span>{{ row.groupOwner }}</span><button type="button" :data-testid="`copy-group-owner-${row.tableName}`" @click="copyCellValue(row.groupOwner, `group-owner-${row.tableName}`)">{{ copiedCellKey === `group-owner-${row.tableName}` ? '已复制' : '复制' }}</button></td>
+            <td
+              class="compact-copy-cell"
+              :data-testid="`date-${row.tableName}`"
+              :title="row.date"
+            ><span>{{ row.date }}</span><button type="button" :data-testid="`copy-date-${row.tableName}`" @click="copyCellValue(row.date, `date-${row.tableName}`)">{{ copiedCellKey === `date-${row.tableName}` ? '已复制' : '复制' }}</button></td>
+            <td class="operation-cell">
+              <button class="operation-button" type="button" :data-testid="`view-registration-${row.tableName}`" @click="openRegistrationDetail(row)">查看</button>
+              <button class="operation-button" type="button" :data-testid="`edit-registration-${row.tableName}`" @click="openEditEditor(row)">编辑</button>
+              <button class="operation-button danger" type="button" :data-testid="`delete-registration-${row.tableName}`" @click="requestDeleteRegistration(row)">删除</button>
+              <button class="operation-button" type="button" :data-testid="`audit-registration-${row.tableName}`" @click="openRegistrationAudit(row)">审计</button>
+            </td>
           </tr>
         </tbody>
       </table>
@@ -113,6 +136,36 @@
       @save="saveRegistration"
       @delete="deleteRegistration"
     />
+    <div v-if="detailRegistration" class="page-dialog-backdrop">
+      <section class="page-dialog" data-testid="registration-detail-dialog">
+        <header><h3>登记详情</h3><button type="button" data-testid="close-registration-detail" aria-label="关闭登记详情" @click="detailRegistration = null">×</button></header>
+        <dl>
+          <dt>表英文名</dt><dd>{{ detailRegistration.tableName }}</dd>
+          <dt>表中文名</dt><dd>{{ detailRegistration.tableComment || '-' }}</dd>
+          <dt>领域</dt><dd>{{ detailRegistration.domain }}</dd>
+          <dt>比对字段</dt><dd>{{ allFields(detailRegistration) }}</dd>
+          <dt>负责人</dt><dd>{{ detailRegistration.owner }}</dd>
+          <dt>小组负责人</dt><dd>{{ detailRegistration.groupOwner }}</dd>
+          <dt>登记日期</dt><dd>{{ detailRegistration.date }}</dd>
+        </dl>
+      </section>
+    </div>
+    <div v-if="auditRegistration" class="page-dialog-backdrop">
+      <section class="page-dialog" data-testid="registration-audit-dialog">
+        <header><h3>变更审计</h3><button type="button" aria-label="关闭变更审计" @click="auditRegistration = null">×</button></header>
+        <div class="audit-timeline">
+          <article><b>{{ auditRegistration.date }} 10:26</b><span>{{ auditRegistration.owner }} 更新了比对字段登记</span></article>
+          <article><b>{{ auditRegistration.date }} 09:18</b><span>{{ auditRegistration.owner }} 创建了登记记录</span></article>
+        </div>
+      </section>
+    </div>
+    <div v-if="deleteTarget" class="page-dialog-backdrop">
+      <section class="page-dialog compact-dialog" data-testid="list-delete-confirmation">
+        <header><h3>删除登记</h3><button type="button" aria-label="关闭删除确认" @click="deleteTarget = null">×</button></header>
+        <p>确认删除表 <strong>{{ deleteTarget.tableName }}</strong> 的全部比对字段登记吗？</p>
+        <footer><button type="button" @click="deleteTarget = null">取消</button><button type="button" class="danger-confirm" data-testid="confirm-list-delete" @click="confirmListDelete">确认删除</button></footer>
+      </section>
+    </div>
   </main>
 </template>
 
@@ -124,12 +177,12 @@ import ReplayDatabaseComparisonEditor from './ReplayDatabaseComparisonEditor.vue
 defineEmits(['toggleNavigation'])
 
 const seedRows = [
-  { domain: '存款', tableName: 'kdpa_cb_acct_fzn_cntl_inf', tableComment: '对公存款账户冻结控制信息', fields: [{ name: 'fzn_cntl_id', comment: '冻结控制编号' }, { name: 'lglpern_cd', comment: '' }, { name: 'fzn_cntl_amt', comment: '冻结金额' }, { name: 'currency_cd', comment: '币种' }, { name: 'effective_dt', comment: '生效日期' }, { name: 'acct_status', comment: '账户状态' }], owner: '周皓', groupOwnerUsername: 'sunhy1', groupOwnerName: '孙海英', groupOwner: '孙海英(sunhy1)', date: '2026-09-07' },
-  { domain: '存款', tableName: 'kdpl_cb_acct_fzn_cntl_oprn_detl', tableComment: '对公存款账户冻结控制操作明细', fields: [{ name: 'fzn_cntl_oprn_sn', comment: '冻结操作序号' }, { name: 'txn_dt', comment: '交易日期' }, { name: 'cncl_fzn_dectrl_amt', comment: '取消冻结金额' }, { name: 'operator_id', comment: '' }], owner: '周皓', groupOwnerUsername: 'zhangsan', groupOwnerName: '张三', groupOwner: '张三(zhangsan)', date: '2026-09-07' },
-  { domain: '贷款', tableName: 'klna_ln_acct_base_info', tableComment: '贷款账户基础信息', fields: [{ name: 'loan_acct_no', comment: '贷款账号' }, { name: 'customer_no', comment: '客户号' }, { name: 'product_code', comment: '' }, { name: 'loan_status', comment: '贷款状态' }], owner: '李明', groupOwnerUsername: 'liming', groupOwnerName: '李明', groupOwner: '李明(liming)', date: '2026-09-08' },
+  { domain: '存款组', tableName: 'kdpa_cb_acct_fzn_cntl_inf', tableComment: '对公存款账户冻结控制信息', fields: [{ name: 'fzn_cntl_id', comment: '冻结控制编号' }, { name: 'lglpern_cd', comment: '' }, { name: 'fzn_cntl_amt', comment: '冻结金额' }, { name: 'currency_cd', comment: '币种' }, { name: 'effective_dt', comment: '生效日期' }, { name: 'acct_status', comment: '账户状态' }], owner: '周皓', groupOwnerUsername: 'sunhy1', groupOwnerName: '孙海英', groupOwner: '孙海英(sunhy1)', date: '2026-09-07' },
+  { domain: '存款组', tableName: 'kdpl_cb_acct_fzn_cntl_oprn_detl', tableComment: '对公存款账户冻结控制操作明细', fields: [{ name: 'fzn_cntl_oprn_sn', comment: '冻结操作序号' }, { name: 'txn_dt', comment: '交易日期' }, { name: 'cncl_fzn_dectrl_amt', comment: '取消冻结金额' }, { name: 'operator_id', comment: '' }], owner: '周皓', groupOwnerUsername: 'zhangsan', groupOwnerName: '张三', groupOwner: '张三(zhangsan)', date: '2026-09-07' },
+  { domain: '贷款组', tableName: 'klna_ln_acct_base_info', tableComment: '贷款账户基础信息', fields: [{ name: 'loan_acct_no', comment: '贷款账号' }, { name: 'customer_no', comment: '客户号' }, { name: 'product_code', comment: '' }, { name: 'loan_status', comment: '贷款状态' }], owner: '李明', groupOwnerUsername: 'liming', groupOwnerName: '李明', groupOwner: '李明(liming)', date: '2026-09-08' },
 ]
 
-const domains = ['公共', '存款', '贷款', '结算']
+const domains = ['存款组', '贷款组', '公共组', '结算组', '平台组']
 const owners = ['周皓', '李明', '王芳', '陈晨', '赵磊']
 const mockUsers = [
   { username: 'sunhy1', realName: '孙海英', displayName: '孙海英(sunhy1)' },
@@ -158,7 +211,7 @@ const createMockRow = index => {
   const groupOwner = mockUsers[(index - 1) % mockUsers.length]
   return {
     domain,
-    tableName: `k${domain === '贷款' ? 'ln' : domain === '存款' ? 'dp' : domain === '结算' ? 'st' : 'pb'}_replay_compare_${String(index).padStart(3, '0')}`,
+    tableName: `k${domain === '贷款组' ? 'ln' : domain === '存款组' ? 'dp' : domain === '结算组' ? 'st' : domain === '平台组' ? 'pt' : 'pb'}_replay_compare_${String(index).padStart(3, '0')}`,
     tableComment: `${domain}回放比对业务表${index}`,
     fields: Array.from({ length: fieldCount }, (_, fieldIndex) => {
       const [name, comment] = fieldCatalog[(index + fieldIndex) % fieldCatalog.length]
@@ -199,6 +252,10 @@ const expandedTables = ref(new Set())
 const copiedTable = ref('')
 const editorOpen = ref(false)
 const editingRegistration = ref(null)
+const detailRegistration = ref(null)
+const auditRegistration = ref(null)
+const deleteTarget = ref(null)
+const copiedCellKey = ref('')
 
 const formatField = field => field.comment?.trim()
   ? `${field.name}(${field.comment.trim()})`
@@ -265,6 +322,22 @@ const toggleFields = tableName => {
 const copyFields = async row => {
   await navigator.clipboard.writeText(allFields(row))
   copiedTable.value = row.tableName
+}
+
+const copyCellValue = async (value, key) => {
+  await navigator.clipboard.writeText(value)
+  copiedCellKey.value = key
+}
+
+const openRegistrationDetail = row => { detailRegistration.value = row }
+const openRegistrationAudit = row => { auditRegistration.value = row }
+const requestDeleteRegistration = row => { deleteTarget.value = row }
+
+const confirmListDelete = () => {
+  if (!deleteTarget.value) return
+  const existingIndex = rows.findIndex(row => row.tableName === deleteTarget.value.tableName)
+  if (existingIndex >= 0) rows.splice(existingIndex, 1)
+  deleteTarget.value = null
 }
 
 const openAddEditor = () => {
@@ -418,18 +491,20 @@ onBeforeUnmount(stopFilterResize)
 .toolbar-actions .outlined { border-color: #168478; color: #107267; }
 .toolbar-actions .primary, .pager .active { border-color: #168478; color: #fff; background: #168478; }
 .table-shell { min-width: 0; min-height: 0; height: 0; flex: 1 1 auto; margin: 0 22px; overflow: auto; overscroll-behavior: contain; border: 1px solid #dbe2e9; border-radius: 5px; background: #fff; box-shadow: 0 3px 12px rgba(25, 42, 60, .06); scrollbar-gutter: stable; }
-table { width: 100%; min-width: 1120px; border-collapse: collapse; font-size: 13px; }
+table { width: 100%; min-width: 920px; border-collapse: collapse; font-size: 13px; }
 table.is-fixed-layout { table-layout: fixed; }
 thead.is-sticky { position: sticky; top: 0; z-index: 2; color: #fff; background: #176f74; }
-th { padding: 12px 10px; text-align: left; white-space: nowrap; }
+th { position: relative; padding: 12px 8px; text-align: left; white-space: nowrap; }
 thead th.has-white-divider { border-right: 1px solid rgba(255, 255, 255, .78); }
-th:nth-child(1) { width: 260px; }
-th:nth-child(2) { width: 70px; }
-th:nth-child(3) { width: 430px; }
-th:nth-child(4) { width: 110px; }
-th:nth-child(5) { width: 130px; }
-th:nth-child(6) { width: 145px; }
-th:nth-child(7) { width: 130px; }
+th:nth-child(1) { width: 190px; }
+th:nth-child(2) { width: 62px; }
+th:nth-child(3) { width: 250px; }
+th:nth-child(4) { width: 60px; }
+th:nth-child(5) { width: 72px; }
+th:nth-child(6) { width: 76px; }
+th:nth-child(7) { width: 190px; }
+th:nth-child(4) > span, th:nth-child(5) > span, th:nth-child(6) > span { display: block; padding-right: 15px; overflow: hidden; text-overflow: ellipsis; }
+th:nth-child(4) .replay-header-filter-button, th:nth-child(5) .replay-header-filter-button, th:nth-child(6) .replay-header-filter-button { position: absolute; right: 1px; top: 50%; margin: 0; transform: translateY(-50%); }
 .replay-header-filter-button { display: inline-grid; place-items: center; width: 18px; height: 18px; margin-left: 3px; padding: 0; border: 0; background: transparent; cursor: pointer; vertical-align: middle; }
 .replay-header-filter-button i { display: block; width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 7px solid #e9fff9; filter: drop-shadow(0 0 1px rgba(0,0,0,.7)); }
 .replay-header-filter-button:hover i, .replay-header-filter-button:focus-visible i { border-top-color: #fff; }
@@ -443,7 +518,7 @@ tbody .primary-column { background: #fff; }
 tbody tr:nth-child(even) .primary-column { background: #edf7fb; }
 td strong, td small { display: block; }
 td small { margin-top: 4px; color: #7b8795; }
-.fields, .link { color: #1769aa; }
+.fields { color: #1769aa; }
 .field-content { overflow: hidden; line-height: 1.65; text-overflow: ellipsis; }
 .field-list { display: flex; flex-wrap: wrap; gap: 6px 0; align-items: flex-start; }
 .field-item { max-width: 100%; color: #1769aa; line-height: 1.65; overflow-wrap: anywhere; }
@@ -451,7 +526,34 @@ td small { margin-top: 4px; color: #7b8795; }
 .field-actions { display: flex; gap: 10px; margin-top: 5px; }
 .field-action { padding: 0; border: 0; color: #168478; background: transparent; font-size: 12px; cursor: pointer; }
 .fields:not(.is-expanded) .field-content { white-space: nowrap; }
-.link { padding: 0 5px; border: 0; background: transparent; }
+.compact-copy-cell { position: relative; max-width: 0; }
+.compact-copy-cell > span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.compact-copy-cell > button { display: none; position: absolute; right: 4px; bottom: 3px; padding: 1px 4px; border: 1px solid #a9c8c5; border-radius: 3px; color: #14766d; background: #fff; font-size: 10px; cursor: pointer; }
+.compact-copy-cell:hover > button, .compact-copy-cell:focus-within > button { display: block; }
+.is-fields-expanded .compact-copy-cell > span { white-space: normal; overflow-wrap: anywhere; }
+.operation-cell { white-space: nowrap; }
+.operation-button { margin-right: 3px; padding: 4px 7px; border: 1px solid #9fbab8; border-radius: 3px; color: #176f74; background: #fff; font-size: 12px; cursor: pointer; }
+.operation-button:hover { border-color: #176f74; background: #eff9f8; }
+.operation-button.danger { border-color: #e7aaa9; color: #c83d3a; }
+.page-dialog-backdrop { position: fixed; inset: 0; z-index: 1700; display: grid; place-items: center; padding: 20px; background: rgba(22, 31, 41, .46); }
+.page-dialog { width: min(680px, calc(100vw - 40px)); max-height: calc(100vh - 40px); overflow: auto; border-radius: 7px; background: #fff; box-shadow: 0 18px 50px rgba(0, 0, 0, .24); }
+.page-dialog.compact-dialog { width: min(480px, calc(100vw - 40px)); }
+.page-dialog > header { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid #dfe6eb; }
+.page-dialog > header h3 { margin: 0; font-size: 17px; }
+.page-dialog > header button { width: 28px; height: 28px; border: 0; color: #66727e; background: transparent; font-size: 22px; cursor: pointer; }
+.page-dialog dl { display: grid; grid-template-columns: 100px minmax(0, 1fr); margin: 0; padding: 18px; }
+.page-dialog dt, .page-dialog dd { margin: 0; padding: 10px; border-bottom: 1px solid #edf0f2; overflow-wrap: anywhere; }
+.page-dialog dt { color: #6f7a85; background: #f6f8f9; }
+.page-dialog > p { margin: 0; padding: 24px 18px; line-height: 1.7; }
+.page-dialog > footer { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 18px; border-top: 1px solid #e3e8ec; }
+.page-dialog > footer button { padding: 7px 14px; border: 1px solid #ccd5dc; border-radius: 4px; background: #fff; cursor: pointer; }
+.page-dialog > footer .danger-confirm { border-color: #d94a47; color: #fff; background: #d94a47; }
+.audit-timeline { padding: 18px 24px 24px; }
+.audit-timeline article { position: relative; display: grid; gap: 5px; padding: 2px 0 22px 22px; border-left: 2px solid #b8d7d3; }
+.audit-timeline article::before { content: ''; position: absolute; left: -6px; top: 4px; width: 10px; height: 10px; border-radius: 50%; background: #168478; }
+.audit-timeline article:last-child { padding-bottom: 2px; }
+.audit-timeline b { color: #34414d; font-size: 13px; }
+.audit-timeline span { color: #6e7a86; font-size: 13px; }
 .replay-header-filter-panel { position: fixed; z-index: 1500; box-sizing: border-box; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 6px; padding: 8px; overflow: hidden; border: 1px solid #8e8e8e; border-radius: 3px; color: #222; background: #454545; box-shadow: 0 8px 22px rgba(0, 0, 0, .32); }
 .replay-header-filter-panel > header, .replay-header-filter-panel > footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .replay-header-filter-panel > header { padding: 0 2px; color: #fff; }

@@ -53,11 +53,16 @@
                   <button type="button" :class="{ active: fieldFilter === 'NON_PRIMARY_KEY' }" @click="fieldFilter = 'NON_PRIMARY_KEY'">非主键</button>
                 </div>
               </div>
+              <div class="selection-tools">
+                <button type="button" data-testid="available-select-all" @click="selectAllAvailable">全选</button>
+                <button type="button" data-testid="available-invert-selection" @click="invertAvailableSelection">反选</button>
+                <span>已勾选 {{ availableSelection.length }} 个</span>
+              </div>
               <div class="field-list-scroll" data-testid="available-fields">
                 <label v-for="column in filteredAvailableColumns" :key="column.columnName" class="available-field-row" data-testid="available-field-row">
                   <input v-model="availableSelection" type="checkbox" :value="column.columnName" :data-testid="`available-field-${column.columnName}`" />
                   <span><strong>{{ column.columnName }}</strong><small>{{ column.columnComment || '暂无中文描述' }}</small></span>
-                  <em>{{ column.dataType }}</em><b v-if="column.primaryKey">主键</b>
+                  <em>{{ column.dataType }}</em><b v-if="column.primaryKey" class="primary-key-marker">主键</b>
                 </label>
                 <div v-if="selectedTable && !filteredAvailableColumns.length" class="field-panel-placeholder compact">暂无可选字段</div>
                 <div v-if="!selectedTable" class="field-panel-placeholder compact">请先选择母库表</div>
@@ -66,16 +71,22 @@
             <div class="transfer-actions"><button type="button" data-testid="move-fields-right" :disabled="!availableSelection.length" @click="moveFieldsRight">添加 →</button><button type="button" data-testid="move-fields-left" :disabled="!selectedSelection.length" @click="moveFieldsLeft">← 移除</button></div>
             <article class="field-panel" data-testid="selected-fields">
               <header><strong>已选比对字段</strong><span>{{ selectedColumns.length }} 个</span></header>
+              <div class="field-tools selected-field-tools">
+                <input v-model.trim="selectedFieldKeyword" data-testid="selected-field-search" type="search" placeholder="搜索已选字段名或中文描述" />
+                <div class="selection-actions">
+                  <button type="button" data-testid="selected-select-all" @click="selectAllSelected">全选</button>
+                  <button type="button" data-testid="selected-invert-selection" @click="invertSelectedSelection">反选</button>
+                </div>
+              </div>
               <ol v-if="selectedColumns.length" class="selected-preview">
-                <li v-for="(column, index) in selectedColumns" :key="column.columnName" draggable="true" data-testid="selected-field-row" @dragstart="draggedFieldIndex = index" @dragover.prevent @drop="dropSelectedField(index)">
-                  <input v-model="selectedSelection" type="checkbox" :value="column.columnName" />
-                  <i>⋮⋮</i><span><strong>{{ index + 1 }}. {{ column.columnName }}</strong><small>{{ column.columnComment }}</small></span>
-                  <b v-if="column.primaryKey">主键</b>
-                  <button type="button" :data-testid="`move-selected-up-${column.columnName}`" :disabled="index === 0" title="上移" @click="moveSelected(index, -1)">↑</button>
-                  <button type="button" :disabled="index === selectedColumns.length - 1" title="下移" @click="moveSelected(index, 1)">↓</button>
+                <li v-for="entry in filteredSelectedColumns" :key="entry.column.columnName" draggable="true" data-testid="selected-field-row" @click="toggleSelectedColumn(entry.column.columnName)" @dragstart="draggedFieldIndex = entry.index" @dragover.prevent @drop.stop="dropSelectedField(entry.index)">
+                  <input v-model="selectedSelection" type="checkbox" :value="entry.column.columnName" @click.stop />
+                  <i @click.stop>⋮⋮</i><span><strong>{{ entry.index + 1 }}. {{ entry.column.columnName }}</strong><small>{{ entry.column.columnComment }}</small></span>
+                  <b v-if="entry.column.primaryKey" class="primary-key-marker">主键</b>
+                  <button type="button" :data-testid="`move-selected-up-${entry.column.columnName}`" :disabled="entry.index === 0" title="上移" @click.stop="moveSelected(entry.index, -1)">↑</button>
+                  <button type="button" :disabled="entry.index === selectedColumns.length - 1" title="下移" @click.stop="moveSelected(entry.index, 1)">↓</button>
                 </li>
               </ol>
-              <div v-else class="field-panel-placeholder">从左侧选择需要参与比对的字段</div>
             </article>
           </div>
         </section>
@@ -130,7 +141,7 @@ const props = defineProps({
 })
 const emit = defineEmits(['close', 'save', 'delete'])
 
-const domains = ['公共', '存款', '贷款', '结算']
+const domains = ['存款组', '贷款组', '公共组', '结算组', '平台组']
 const tableKeywordInput = ref('')
 const tableKeyword = ref('')
 const tableSearchExecuted = ref(false)
@@ -140,6 +151,7 @@ const selectedColumns = ref([])
 const availableSelection = ref([])
 const selectedSelection = ref([])
 const fieldKeyword = ref('')
+const selectedFieldKeyword = ref('')
 const fieldFilter = ref('ALL')
 const draggedFieldIndex = ref(-1)
 const deleteConfirmationVisible = ref(false)
@@ -167,6 +179,12 @@ const filteredAvailableColumns = computed(() => {
     return !keyword || `${column.columnName} ${column.columnComment}`.toLocaleLowerCase().includes(keyword)
   })
 })
+const filteredSelectedColumns = computed(() => {
+  const keyword = selectedFieldKeyword.value.toLocaleLowerCase()
+  return selectedColumns.value
+    .map((column, index) => ({ column, index }))
+    .filter(({ column }) => !keyword || `${column.columnName} ${column.columnComment}`.toLocaleLowerCase().includes(keyword))
+})
 
 const runTableSearch = () => {
   tableKeyword.value = tableKeywordInput.value
@@ -190,7 +208,31 @@ const selectTable = table => {
   availableSelection.value = []
   selectedSelection.value = []
   fieldKeyword.value = ''
+  selectedFieldKeyword.value = ''
   fieldFilter.value = 'ALL'
+}
+
+const invertSelection = (currentSelection, visibleNames) => {
+  const visible = new Set(visibleNames)
+  const selected = new Set(currentSelection)
+  return [
+    ...currentSelection.filter(name => !visible.has(name)),
+    ...visibleNames.filter(name => !selected.has(name)),
+  ]
+}
+
+const selectAllAvailable = () => { availableSelection.value = filteredAvailableColumns.value.map(column => column.columnName) }
+const invertAvailableSelection = () => {
+  availableSelection.value = invertSelection(availableSelection.value, filteredAvailableColumns.value.map(column => column.columnName))
+}
+const selectAllSelected = () => { selectedSelection.value = filteredSelectedColumns.value.map(({ column }) => column.columnName) }
+const invertSelectedSelection = () => {
+  selectedSelection.value = invertSelection(selectedSelection.value, filteredSelectedColumns.value.map(({ column }) => column.columnName))
+}
+const toggleSelectedColumn = columnName => {
+  selectedSelection.value = selectedSelection.value.includes(columnName)
+    ? selectedSelection.value.filter(name => name !== columnName)
+    : [...selectedSelection.value, columnName]
 }
 
 const moveFieldsRight = () => {
@@ -281,6 +323,7 @@ const resetSelectedTable = () => {
   selectedColumns.value = []
   availableSelection.value = []
   selectedSelection.value = []
+  selectedFieldKeyword.value = ''
   tableSearchExecuted.value = false
   groupOwnerOptions.value = []
   groupOwnerError.value = ''
@@ -311,8 +354,8 @@ if (props.initialRegistration) {
 .primary { border-color: #168478 !important; color: #fff !important; background: #168478 !important; }.table-results { max-height: 170px; margin-top: 8px; overflow: auto; border: 1px solid #dce4e9; border-radius: 4px; }
 .table-result { width: 100%; display: flex; align-items: center; gap: 12px; padding: 9px 11px; border: 0; border-bottom: 1px solid #edf1f3; background: #fff; text-align: left; cursor: pointer; }.table-result:hover { background: #edf8f7; }.table-result > span { flex: 1; }.table-result strong, .table-result small, .selected-table strong, .selected-table small { display: block; }.table-result small, .selected-table small { margin-top: 3px; color: #7c8995; }.table-result em, .selected-table em { padding: 3px 8px; border-radius: 10px; font-size: 11px; font-style: normal; }.active { color: #b66000; background: #fff0d2; }.unregistered { color: #0c786e; background: #dff5f1; }
 .selected-table { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-left: 4px solid #168478; background: #f0f8f7; }.selected-table > span { flex: 1; }.text-button { border: 0; color: #167e76; background: transparent; cursor: pointer; }
-.transfer-layout { display: grid; grid-template-columns: minmax(0, 1fr) 92px minmax(0, 1fr); gap: 12px; min-height: 245px; }.field-panel { overflow: hidden; border: 1px solid #d9e2e7; border-radius: 5px; }.field-panel > header { display: flex; justify-content: space-between; padding: 9px 11px; color: #fff; background: #237b80; }.field-panel > header span { font-size: 12px; }.field-panel-placeholder { display: grid; min-height: 190px; place-items: center; padding: 20px; color: #8a96a1; text-align: center; }.transfer-actions { display: flex; flex-direction: column; justify-content: center; gap: 10px; }.transfer-actions button { padding: 7px 4px; }.selected-preview { max-height: 205px; margin: 0; padding: 6px; overflow: auto; list-style: none; }.selected-preview li { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto auto auto; align-items: center; gap: 6px; padding: 5px 4px; border-bottom: 1px solid #edf1f3; cursor: grab; }.selected-preview small { display: block; color: #84909a; }.selected-preview li > i { color: #84919c; font-style: normal; }.selected-preview li > span { min-width: 0; }.selected-preview li button { width: 25px; height: 25px; padding: 0; border: 1px solid #cad5dc; border-radius: 3px; background: #fff; }.selected-preview li button:disabled { opacity: .35; }
-.field-tools { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; padding: 7px; border-bottom: 1px solid #e2e8ec; }.field-tools input { min-width: 0; padding: 6px 7px; border: 1px solid #ccd7de; border-radius: 3px; }.field-filters { display: flex; }.field-filters button { padding: 4px 7px; border: 1px solid #cad5dc; background: #fff; font-size: 11px; }.field-filters button.active { color: #fff; background: #168478; }.field-list-scroll { max-height: 205px; overflow: auto; }.available-field-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 7px; padding: 6px 8px; border-bottom: 1px solid #edf1f3; }.available-field-row:hover { background: #f1f9f8; }.available-field-row span, .available-field-row strong, .available-field-row small { min-width: 0; }.available-field-row strong, .available-field-row small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.available-field-row small { margin-top: 2px; color: #7f8b95; }.available-field-row em { color: #687682; font-size: 10px; font-style: normal; }.available-field-row b, .selected-preview b { padding: 2px 5px; border-radius: 8px; color: #087064; background: #dff4f0; font-size: 10px; }.field-panel-placeholder.compact { min-height: 145px; }
+.transfer-layout { display: grid; grid-template-columns: minmax(0, 1fr) 92px minmax(0, 1fr); gap: 12px; min-height: 390px; }.field-panel { min-height: 390px; overflow: hidden; border: 1px solid #d9e2e7; border-radius: 5px; background: #f5f8fa; }.field-panel > header { display: flex; justify-content: space-between; padding: 9px 11px; color: #fff; background: #237b80; }.field-panel > header span { font-size: 12px; }.field-panel-placeholder { display: grid; min-height: 250px; place-items: center; padding: 20px; color: #8a96a1; text-align: center; }.transfer-actions { display: flex; flex-direction: column; justify-content: center; gap: 10px; }.transfer-actions button { padding: 7px 4px; }.selected-preview { max-height: 305px; margin: 0; padding: 0 6px 6px; overflow: auto; list-style: none; }.selected-preview li { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto auto auto; align-items: center; gap: 7px; min-height: 42px; padding: 5px 4px; border-bottom: 1px solid #dfe7ec; background: #fff; cursor: pointer; }.selected-preview li:hover { background: #eef8f7; }.selected-preview small { display: block; color: #84909a; }.selected-preview li > i { color: #84919c; font-style: normal; cursor: grab; }.selected-preview li > span { min-width: 0; }.selected-preview li button { width: 27px; height: 27px; padding: 0; border: 1px solid #cad5dc; border-radius: 3px; background: #fff; }.selected-preview li button:disabled { opacity: .35; }
+.field-tools { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; padding: 7px; border-bottom: 1px solid #e2e8ec; background: #fff; }.field-tools input { min-width: 0; padding: 6px 7px; border: 1px solid #ccd7de; border-radius: 3px; }.field-filters, .selection-actions { display: flex; }.field-filters button, .selection-actions button { padding: 4px 7px; border: 1px solid #cad5dc; background: #fff; font-size: 11px; }.field-filters button.active { color: #fff; background: #168478; }.selection-tools { display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-bottom: 1px solid #dfe7ec; background: #f6f9fa; }.selection-tools button { padding: 3px 8px; border: 1px solid #c4d0d8; border-radius: 3px; background: #fff; color: #26747a; }.selection-tools span { margin-left: auto; color: #7c8994; font-size: 11px; }.field-list-scroll { max-height: 300px; overflow: auto; }.available-field-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 8px; min-height: 42px; padding: 6px 8px; border-bottom: 1px solid #dfe7ec; background: #fff; cursor: pointer; }.available-field-row:hover { background: #eef8f7; }.available-field-row span, .available-field-row strong, .available-field-row small { min-width: 0; }.available-field-row strong, .available-field-row small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.available-field-row small { margin-top: 2px; color: #7f8b95; }.available-field-row em { color: #687682; font-size: 10px; font-style: normal; }.available-field-row input, .selected-preview input { width: 18px; height: 18px; margin: 0; accent-color: #168478; cursor: pointer; }.primary-key-marker { padding: 2px 5px; border-radius: 8px; color: #d9363e; background: #fff0f0; font-size: 10px; font-weight: 700; }.field-panel-placeholder.compact { min-height: 240px; }
 .registration-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }.registration-form label { display: grid; gap: 5px; color: #52606d; font-size: 12px; }.registration-form input, .registration-form select { box-sizing: border-box; width: 100%; padding: 7px 8px; border: 1px solid #cbd6de; border-radius: 4px; background: #fff; }
 .group-owner-picker { position: relative; }.group-owner-options { position: absolute; z-index: 3; top: calc(100% + 4px); right: 0; left: 0; max-height: 160px; overflow: auto; border: 1px solid #cbd6de; border-radius: 4px; background: #fff; box-shadow: 0 7px 18px rgba(30, 53, 70, .16); }.group-owner-options button { width: 100%; padding: 8px 10px; border: 0; border-bottom: 1px solid #edf1f3; background: #fff; text-align: left; cursor: pointer; }.group-owner-options button:hover { background: #edf8f7; }.registration-error { margin: 8px 0 0; color: #c43f3a; font-size: 12px; }
 .editor-footer { display: flex; align-items: center; justify-content: flex-end; gap: 9px; padding: 11px 18px; border-top: 1px solid #dbe3e8; background: #fff; }.editor-footer span { margin-right: auto; color: #74818e; font-size: 12px; }.editor-footer button { min-width: 76px; padding: 7px 14px; border: 1px solid #cad4dc; border-radius: 4px; background: #fff; cursor: pointer; }.editor-footer button:disabled { opacity: .45; cursor: not-allowed; }

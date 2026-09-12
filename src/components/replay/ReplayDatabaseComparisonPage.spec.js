@@ -17,6 +17,8 @@ describe('ReplayDatabaseComparisonPage', () => {
     expect(headers[0].text()).toContain('表英文名 / 中文名')
     expect(headers[0].classes()).toContain('primary-column')
     expect(headers.slice(0, -1).every(header => header.classes().includes('has-white-divider'))).toBe(true)
+    expect(headers.some(header => header.text().includes('归属小组'))).toBe(true)
+    expect(headers.some(header => header.text().includes('归属大组'))).toBe(false)
     expect(headers.some(header => header.text() === '序号')).toBe(false)
     expect(wrapper.text()).toContain('kdpa_cb_acct_fzn_cntl_inf')
     expect(wrapper.text()).toContain('fzn_cntl_id(冻结控制编号)')

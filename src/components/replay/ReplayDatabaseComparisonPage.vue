@@ -151,7 +151,7 @@ const filterColumns = [
   { key: 'domain', label: '领域' },
   { key: 'fields', label: '比对字段' },
   { key: 'owner', label: '负责人' },
-  { key: 'group', label: '归属大组' },
+  { key: 'group', label: '归属小组' },
   { key: 'date', label: '登记日期' },
 ]
 

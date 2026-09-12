@@ -16,6 +16,7 @@ describe('ReplayDatabaseComparisonPage', () => {
     const headers = wrapper.findAll('thead th')
     expect(headers[0].text()).toContain('表英文名 / 中文名')
     expect(headers[0].classes()).toContain('primary-column')
+    expect(headers.slice(0, -1).every(header => header.classes().includes('has-white-divider'))).toBe(true)
     expect(headers.some(header => header.text() === '序号')).toBe(false)
     expect(wrapper.text()).toContain('kdpa_cb_acct_fzn_cntl_inf')
     expect(wrapper.text()).toContain('fzn_cntl_id(冻结控制编号)')
@@ -98,10 +99,22 @@ describe('ReplayDatabaseComparisonPage', () => {
       expect(panel.attributes('style')).toContain('left:')
       expect(panel.attributes('style')).toContain('top:')
       expect(panel.text()).toContain(`筛选 ${button.element.previousElementSibling.textContent}`)
-      expect(panel.find('[aria-label="查询筛选选项"]').exists()).toBe(true)
+      expect(panel.get('[aria-label="查询筛选选项"]').find('svg').exists()).toBe(true)
       expect(panel.find('[data-testid="header-filter-resize-handle"]').exists()).toBe(true)
       expect(wrapper.findAll('[data-testid="header-filter-option"]').length).toBeGreaterThan(0)
       await wrapper.get('[aria-label="关闭筛选"]').trigger('click')
     }
+  })
+
+  it('does not search filter options until the search button is clicked', async () => {
+    const wrapper = mount(ReplayDatabaseComparisonPage)
+    await wrapper.get('[data-filter-key="tableName"]').trigger('click')
+    const originalOptionCount = wrapper.findAll('[data-testid="header-filter-option"]').length
+
+    await wrapper.get('[data-testid="header-filter-search"]').setValue('不存在的表')
+
+    expect(wrapper.findAll('[data-testid="header-filter-option"]')).toHaveLength(originalOptionCount)
+    await wrapper.get('[aria-label="查询筛选选项"]').trigger('click')
+    expect(wrapper.findAll('[data-testid="header-filter-option"]')).toHaveLength(0)
   })
 })

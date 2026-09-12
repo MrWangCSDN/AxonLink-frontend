@@ -20,6 +20,7 @@
             <th
               v-for="column in filterColumns"
               :key="column.key"
+              class="has-white-divider"
               :class="{ 'primary-column': column.key === 'tableName' }"
             >
               <span>{{ column.label }}</span>
@@ -81,7 +82,7 @@
     <section v-if="activeFilterKey" class="replay-header-filter-panel" :style="filterPanelStyle" data-testid="header-filter-panel">
       <header><strong>筛选 {{ activeFilterLabel }}</strong></header>
       <div class="replay-header-filter-content">
-        <div class="replay-header-filter-search"><input v-model.trim="filterSearch" data-testid="header-filter-search" type="search" placeholder="模糊搜索" /><button type="button" aria-label="查询筛选选项" title="查询">⌕</button></div>
+        <div class="replay-header-filter-search"><input v-model.trim="filterSearchInput" data-testid="header-filter-search" type="search" placeholder="模糊搜索" /><button type="button" aria-label="查询筛选选项" title="查询" @click="runFilterSearch"><Search :size="14" /></button></div>
         <div class="replay-header-filter-actions"><button type="button" @click="selectAllOptions">全选</button><button type="button" @click="invertOptions">反选</button><span>筛选数（{{ visibleFilterOptions.length }}）</span><span>计数（{{ draftMatchedCount }}）</span></div>
         <div class="replay-header-filter-options">
           <label v-for="option in visibleFilterOptions" :key="option.value" data-testid="header-filter-option">
@@ -108,6 +109,7 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, reactive, ref } from 'vue'
+import { Search } from 'lucide-vue-next'
 
 defineEmits(['toggleNavigation'])
 
@@ -155,6 +157,7 @@ const filterColumns = [
 
 const filters = reactive({})
 const activeFilterKey = ref('')
+const filterSearchInput = ref('')
 const filterSearch = ref('')
 const filterDraft = ref([])
 const page = ref(1)
@@ -256,6 +259,7 @@ const positionFilterPanel = anchor => {
 
 const openFilter = async (key, event) => {
   activeFilterKey.value = key
+  filterSearchInput.value = ''
   filterSearch.value = ''
   filterDraft.value = [...(filters[key] || [])]
   await nextTick()
@@ -264,8 +268,13 @@ const openFilter = async (key, event) => {
 
 const closeFilter = () => {
   activeFilterKey.value = ''
+  filterSearchInput.value = ''
   filterSearch.value = ''
   filterDraft.value = []
+}
+
+const runFilterSearch = () => {
+  filterSearch.value = filterSearchInput.value
 }
 
 const selectAllOptions = () => { filterDraft.value = visibleFilterOptions.value.map(option => option.value) }
@@ -336,6 +345,7 @@ table { width: 100%; min-width: 1120px; border-collapse: collapse; font-size: 13
 table.is-fixed-layout { table-layout: fixed; }
 thead.is-sticky { position: sticky; top: 0; z-index: 2; color: #fff; background: #176f74; }
 th { padding: 12px 10px; text-align: left; white-space: nowrap; }
+thead th.has-white-divider { border-right: 1px solid rgba(255, 255, 255, .78); }
 th:nth-child(1) { width: 260px; }
 th:nth-child(2) { width: 70px; }
 th:nth-child(3) { width: 430px; }

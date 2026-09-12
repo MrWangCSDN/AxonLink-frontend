@@ -63,7 +63,7 @@
                 <div v-if="!selectedTable" class="field-panel-placeholder compact">请先选择母库表</div>
               </div>
             </article>
-            <div class="transfer-actions"><button type="button" data-testid="move-fields-right" :disabled="!availableSelection.length" @click="moveFieldsRight">添加 →</button><button type="button" :disabled="!selectedSelection.length" @click="moveFieldsLeft">← 移除</button></div>
+            <div class="transfer-actions"><button type="button" data-testid="move-fields-right" :disabled="!availableSelection.length" @click="moveFieldsRight">添加 →</button><button type="button" data-testid="move-fields-left" :disabled="!selectedSelection.length" @click="moveFieldsLeft">← 移除</button></div>
             <article class="field-panel" data-testid="selected-fields">
               <header><strong>已选比对字段</strong><span>{{ selectedColumns.length }} 个</span></header>
               <ol v-if="selectedColumns.length" class="selected-preview">
@@ -95,8 +95,13 @@
       <footer class="editor-footer">
         <span>{{ selectedTable ? `当前：${selectedTable.tableName}` : '请先检索并选择母库表' }}</span>
         <button type="button" @click="emit('close')">取消</button>
-        <button type="button" class="primary" :disabled="!selectedTable || !selectedColumns.length">保存</button>
+        <button type="button" data-testid="submit-registration" :class="isDeleteMode ? 'danger' : 'primary'" :disabled="!canSubmit" @click="submitRegistration">{{ isDeleteMode ? '删除登记' : '保存' }}</button>
       </footer>
+    </section>
+    <section v-if="deleteConfirmationVisible" class="delete-confirmation" data-testid="delete-confirmation" role="alertdialog" aria-modal="true">
+      <h4>确认删除登记</h4>
+      <p>当前表的比对字段已全部移除，继续后将删除整张表的登记记录，历史记录仍会保留。</p>
+      <div><button type="button" @click="deleteConfirmationVisible = false">返回检查</button><button type="button" class="danger" data-testid="confirm-delete-registration" @click="confirmDelete">确认删除</button></div>
     </section>
   </div>
 </template>
@@ -125,10 +130,17 @@ const selectedSelection = ref([])
 const fieldKeyword = ref('')
 const fieldFilter = ref('ALL')
 const draggedFieldIndex = ref(-1)
+const deleteConfirmationVisible = ref(false)
 const form = reactive({ domain: '', owner: '', group: '', date: '', remark: '' })
 
 const tableResults = computed(() => searchMockTables(tableKeyword.value, props.registrations))
 const isEditing = computed(() => selectedTable.value?.registrationStatus === 'ACTIVE')
+const isDeleteMode = computed(() => isEditing.value && selectedColumns.value.length === 0)
+const canSubmit = computed(() => {
+  if (!selectedTable.value) return false
+  if (isDeleteMode.value) return true
+  return selectedColumns.value.length > 0 && form.domain && form.owner && form.group && form.date
+})
 const availableColumns = computed(() => {
   const selectedNames = new Set(selectedColumns.value.map(column => column.columnName))
   return allColumns.value.filter(column => !selectedNames.has(column.columnName))
@@ -195,6 +207,32 @@ const dropSelectedField = targetIndex => {
   draggedFieldIndex.value = -1
 }
 
+const submitRegistration = () => {
+  if (!canSubmit.value) return
+  if (isDeleteMode.value) {
+    deleteConfirmationVisible.value = true
+    return
+  }
+  emit('save', {
+    mode: isEditing.value ? 'edit' : 'add',
+    id: selectedTable.value.registrationId,
+    version: selectedTable.value.registrationVersion,
+    tableName: selectedTable.value.tableName,
+    tableComment: selectedTable.value.tableComment,
+    fieldNames: selectedColumns.value.map(column => column.columnName),
+    fields: selectedColumns.value.map(column => ({ name: column.columnName, comment: column.columnComment })),
+    ...form,
+  })
+}
+
+const confirmDelete = () => emit('delete', {
+  id: selectedTable.value.registrationId,
+  tableName: selectedTable.value.tableName,
+  version: selectedTable.value.registrationVersion,
+  deleteWhenNoFields: true,
+  reason: '全部比对字段已移除',
+})
+
 const resetSelectedTable = () => {
   selectedTable.value = null
   allColumns.value = []
@@ -233,6 +271,7 @@ if (props.initialRegistration) {
 .field-tools { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; padding: 7px; border-bottom: 1px solid #e2e8ec; }.field-tools input { min-width: 0; padding: 6px 7px; border: 1px solid #ccd7de; border-radius: 3px; }.field-filters { display: flex; }.field-filters button { padding: 4px 7px; border: 1px solid #cad5dc; background: #fff; font-size: 11px; }.field-filters button.active { color: #fff; background: #168478; }.field-list-scroll { max-height: 205px; overflow: auto; }.available-field-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 7px; padding: 6px 8px; border-bottom: 1px solid #edf1f3; }.available-field-row:hover { background: #f1f9f8; }.available-field-row span, .available-field-row strong, .available-field-row small { min-width: 0; }.available-field-row strong, .available-field-row small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.available-field-row small { margin-top: 2px; color: #7f8b95; }.available-field-row em { color: #687682; font-size: 10px; font-style: normal; }.available-field-row b, .selected-preview b { padding: 2px 5px; border-radius: 8px; color: #087064; background: #dff4f0; font-size: 10px; }.field-panel-placeholder.compact { min-height: 145px; }
 .registration-form { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }.registration-form label { display: grid; gap: 5px; color: #52606d; font-size: 12px; }.registration-form input, .registration-form select, .registration-form textarea { box-sizing: border-box; width: 100%; padding: 7px 8px; border: 1px solid #cbd6de; border-radius: 4px; background: #fff; }.remark { grid-column: 1 / -1; }
 .editor-footer { display: flex; align-items: center; justify-content: flex-end; gap: 9px; padding: 11px 18px; border-top: 1px solid #dbe3e8; background: #fff; }.editor-footer span { margin-right: auto; color: #74818e; font-size: 12px; }.editor-footer button { min-width: 76px; padding: 7px 14px; border: 1px solid #cad4dc; border-radius: 4px; background: #fff; cursor: pointer; }.editor-footer button:disabled { opacity: .45; cursor: not-allowed; }
+.danger { border-color: #d9534f !important; color: #fff !important; background: #d9534f !important; }.delete-confirmation { position: fixed; z-index: 1810; width: min(430px, 88vw); padding: 20px; border-radius: 7px; background: #fff; box-shadow: 0 16px 45px rgba(0, 0, 0, .35); }.delete-confirmation h4 { margin: 0 0 10px; color: #b93c38; }.delete-confirmation p { color: #56636f; line-height: 1.65; }.delete-confirmation div { display: flex; justify-content: flex-end; gap: 9px; }.delete-confirmation button { padding: 7px 13px; border: 1px solid #cbd5dc; border-radius: 4px; background: #fff; }
 .empty-result { padding: 18px; color: #87939e; text-align: center; }
 @media (max-width: 900px) { .comparison-editor { width: 96vw; height: 94vh; }.transfer-layout { grid-template-columns: 1fr; }.transfer-actions { flex-direction: row; }.registration-form { grid-template-columns: repeat(2, 1fr); } }
 </style>

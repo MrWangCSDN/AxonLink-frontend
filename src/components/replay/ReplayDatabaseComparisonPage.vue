@@ -9,7 +9,7 @@
       <div class="toolbar-actions">
         <button type="button" data-testid="reset-filters" @click="resetFilters">重置筛选条件</button>
         <button type="button" class="outlined">初始化导入</button>
-        <button type="button" class="primary">＋ 新增登记</button>
+        <button type="button" class="primary" data-testid="add-registration" @click="openAddEditor">＋ 新增登记</button>
       </div>
     </header>
 
@@ -73,7 +73,7 @@
             <td>{{ row.owner }}</td>
             <td>{{ row.group }}</td>
             <td>{{ row.date }}</td>
-            <td><button class="link">查看</button><button class="link">编辑</button></td>
+            <td><button class="link">查看</button><button class="link" :data-testid="`edit-registration-${row.tableName}`" @click="openEditEditor(row)">编辑</button></td>
           </tr>
         </tbody>
       </table>
@@ -104,12 +104,21 @@
         <button type="button" data-testid="next-page" title="下一页" :disabled="page === pageCount" @click="goToPage(page + 1)">›</button>
       </div>
     </footer>
+    <ReplayDatabaseComparisonEditor
+      v-if="editorOpen"
+      :registrations="rows"
+      :initial-registration="editingRegistration"
+      @close="closeEditor"
+      @save="saveRegistration"
+      @delete="deleteRegistration"
+    />
   </main>
 </template>
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, reactive, ref } from 'vue'
 import { Search } from 'lucide-vue-next'
+import ReplayDatabaseComparisonEditor from './ReplayDatabaseComparisonEditor.vue'
 
 defineEmits(['toggleNavigation'])
 
@@ -144,7 +153,8 @@ const createMockRow = index => {
   }
 }
 
-const rows = [...seedRows, ...Array.from({ length: 197 }, (_, index) => createMockRow(index + 4))]
+const rows = reactive([...seedRows, ...Array.from({ length: 197 }, (_, index) => createMockRow(index + 4))]
+  .map((row, index) => ({ ...row, id: index + 1, version: 1 })))
 
 const filterColumns = [
   { key: 'tableName', label: '表英文名 / 中文名' },
@@ -168,6 +178,8 @@ let filterResizeState = null
 
 const expandedTables = ref(new Set())
 const copiedTable = ref('')
+const editorOpen = ref(false)
+const editingRegistration = ref(null)
 
 const formatField = field => field.comment?.trim()
   ? `${field.name}(${field.comment.trim()})`
@@ -234,6 +246,46 @@ const toggleFields = tableName => {
 const copyFields = async row => {
   await navigator.clipboard.writeText(allFields(row))
   copiedTable.value = row.tableName
+}
+
+const openAddEditor = () => {
+  editingRegistration.value = null
+  editorOpen.value = true
+}
+
+const openEditEditor = row => {
+  editingRegistration.value = row
+  editorOpen.value = true
+}
+
+const closeEditor = () => {
+  editorOpen.value = false
+  editingRegistration.value = null
+}
+
+const saveRegistration = payload => {
+  const existingIndex = rows.findIndex(row => row.tableName === payload.tableName)
+  const nextRow = {
+    id: payload.id || rows.length + 1,
+    version: (payload.version || 0) + 1,
+    tableName: payload.tableName,
+    tableComment: payload.tableComment,
+    fields: payload.fields,
+    domain: payload.domain,
+    owner: payload.owner,
+    group: payload.group,
+    date: payload.date,
+    remark: payload.remark,
+  }
+  if (existingIndex >= 0) rows.splice(existingIndex, 1, nextRow)
+  else rows.unshift(nextRow)
+  closeEditor()
+}
+
+const deleteRegistration = payload => {
+  const existingIndex = rows.findIndex(row => row.tableName === payload.tableName)
+  if (existingIndex >= 0) rows.splice(existingIndex, 1)
+  closeEditor()
 }
 
 const positionFilterPanel = anchor => {

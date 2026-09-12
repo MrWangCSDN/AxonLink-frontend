@@ -1,6 +1,7 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 import ReplayDatabaseComparisonPage from './ReplayDatabaseComparisonPage.vue'
+import ReplayDatabaseComparisonEditor from './ReplayDatabaseComparisonEditor.vue'
 
 describe('ReplayDatabaseComparisonPage', () => {
   it('renders replay-style header filters and table-level mock registrations', () => {
@@ -119,5 +120,18 @@ describe('ReplayDatabaseComparisonPage', () => {
     expect(wrapper.findAll('[data-testid="header-filter-option"]')).toHaveLength(originalOptionCount)
     await wrapper.get('[aria-label="查询筛选选项"]').trigger('click')
     expect(wrapper.findAll('[data-testid="header-filter-option"]')).toHaveLength(0)
+  })
+
+  it('opens the shared editor in add and edit modes', async () => {
+    const wrapper = mount(ReplayDatabaseComparisonPage)
+
+    await wrapper.get('[data-testid="add-registration"]').trigger('click')
+    expect(wrapper.findComponent(ReplayDatabaseComparisonEditor).exists()).toBe(true)
+    expect(wrapper.get('[data-testid="editor-title"]').text()).toBe('新增登记')
+    await wrapper.get('[aria-label="关闭新增登记"]').trigger('click')
+
+    await wrapper.get('[data-testid="edit-registration-kdpa_cb_acct_fzn_cntl_inf"]').trigger('click')
+    expect(wrapper.get('[data-testid="editor-title"]').text()).toBe('编辑登记')
+    expect(wrapper.get('[data-testid="selected-table"]').text()).toContain('kdpa_cb_acct_fzn_cntl_inf')
   })
 })

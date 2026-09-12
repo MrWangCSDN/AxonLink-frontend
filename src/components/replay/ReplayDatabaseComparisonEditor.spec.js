@@ -64,4 +64,26 @@ describe('ReplayDatabaseComparisonEditor', () => {
     await wrapper.get('[data-testid="move-selected-up-customer_type"]').trigger('click')
     expect(wrapper.findAll('[data-testid="selected-field-row"]')[0].text()).toContain('customer_type')
   })
+
+  it('requires explicit confirmation before deleting an edit with no selected fields', async () => {
+    const wrapper = mount(ReplayDatabaseComparisonEditor, {
+      props: { registrations, initialRegistration: registrations[0] },
+    })
+    for (const checkbox of wrapper.findAll('[data-testid="selected-field-row"] input[type="checkbox"]')) {
+      await checkbox.setValue(true)
+    }
+    await wrapper.get('[data-testid="move-fields-left"]').trigger('click')
+
+    expect(wrapper.get('[data-testid="submit-registration"]').text()).toBe('删除登记')
+    await wrapper.get('[data-testid="submit-registration"]').trigger('click')
+    expect(wrapper.get('[data-testid="delete-confirmation"]').text()).toContain('删除整张表的登记记录')
+    expect(wrapper.emitted('delete')).toBeUndefined()
+
+    await wrapper.get('[data-testid="confirm-delete-registration"]').trigger('click')
+    expect(wrapper.emitted('delete')?.[0]?.[0]).toMatchObject({
+      id: 12,
+      version: 3,
+      deleteWhenNoFields: true,
+    })
+  })
 })

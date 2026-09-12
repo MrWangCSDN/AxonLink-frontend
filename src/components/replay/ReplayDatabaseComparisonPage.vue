@@ -92,7 +92,7 @@
           <p v-if="!visibleFilterOptions.length">暂无选项</p>
         </div>
       </div>
-      <footer><button class="replay-header-filter-clear" type="button" @click="clearActiveFilter">清空筛选</button><span></span><button type="button" aria-label="关闭筛选" @click="closeFilter">取消</button><button type="button" data-testid="apply-header-filter" class="primary" @click="applyFilter">确定</button></footer>
+      <footer><button class="replay-header-filter-clear is-bordered" type="button" @click="clearActiveFilter">清空筛选</button><span></span><button type="button" aria-label="关闭筛选" @click="closeFilter">取消</button><button type="button" data-testid="apply-header-filter" class="primary" @click="applyFilter">确定</button></footer>
       <button class="replay-header-filter-resize-handle" type="button" aria-label="拖拽调整筛选窗口大小" data-testid="header-filter-resize-handle" @pointerdown="startFilterResize"></button>
     </section>
 
@@ -398,7 +398,7 @@ td small { margin-top: 4px; color: #7b8795; }
 .replay-header-filter-panel > footer > span { flex: 1; }
 .replay-header-filter-panel > footer button { min-height: 25px; padding: 4px 9px; border: 1px solid #777; border-radius: 3px; color: #eee; background: #555; cursor: pointer; }
 .replay-header-filter-panel > footer .primary { border-color: #42b883; background: #42b883; }
-.replay-header-filter-panel > footer .replay-header-filter-clear { border-color: transparent; color: #ffcf8a; background: transparent; }
+.replay-header-filter-panel > footer .replay-header-filter-clear { border-color: #777; color: #ffcf8a; background: #555; }
 .replay-header-filter-resize-handle { position: absolute; right: 1px; bottom: 1px; width: 16px; height: 16px; padding: 0; border: 0; cursor: nwse-resize; touch-action: none; background: linear-gradient(135deg, transparent 0 42%, #bbb 43% 49%, transparent 50% 61%, #ddd 62% 68%, transparent 69%); }
 .pager { flex: 0 0 auto; min-height: 52px; display: flex; justify-content: flex-end; align-items: center; gap: 14px; padding: 10px 22px; border-top: 1px solid #e2e8ee; background: #fff; font-size: 12px; color: #687381; }
 .pager label { display: inline-flex; align-items: center; gap: 6px; }

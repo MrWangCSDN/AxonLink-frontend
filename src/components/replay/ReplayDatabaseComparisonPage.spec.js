@@ -101,6 +101,7 @@ describe('ReplayDatabaseComparisonPage', () => {
       expect(panel.text()).toContain(`筛选 ${button.element.previousElementSibling.textContent}`)
       expect(panel.get('[aria-label="查询筛选选项"]').find('svg').exists()).toBe(true)
       expect(panel.find('[data-testid="header-filter-resize-handle"]').exists()).toBe(true)
+      expect(panel.get('.replay-header-filter-clear').classes()).toContain('is-bordered')
       expect(wrapper.findAll('[data-testid="header-filter-option"]').length).toBeGreaterThan(0)
       await wrapper.get('[aria-label="关闭筛选"]').trigger('click')
     }

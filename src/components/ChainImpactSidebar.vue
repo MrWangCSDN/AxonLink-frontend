@@ -304,17 +304,27 @@ const props = defineProps({
 
 defineEmits(['selectDomain', 'selectImpactMode', 'selectDiiPage', 'selectReplayPage', 'selectCodePage'])
 
+// 并行回放分区包含的页面 key（含回放配置管理四个页面）
+const REPLAY_PAGE_KEYS = [
+  'replay-issues',
+  'replay-transaction-persons',
+  'replay-config-unconditional',
+  'replay-config-conditional',
+  'replay-config-error-code',
+  'replay-config-sort-field',
+]
+
 const chainOpen = ref(props.currentPage === 'chain')
 const impactOpen = ref(props.currentPage === 'impact')
 const diiOpen = ref((props.currentPage || '').startsWith('dii-'))
-const replayOpen = ref(props.currentPage === 'replay-issues' || props.currentPage === 'replay-transaction-persons')
+const replayOpen = ref(REPLAY_PAGE_KEYS.includes(props.currentPage))
 const codeOpen = ref(props.currentPage === 'code-dashboard')
 
 watch(() => props.currentPage, (currentPage) => {
   if (currentPage === 'chain') chainOpen.value = true
   if (currentPage === 'impact') impactOpen.value = true
   if ((currentPage || '').startsWith('dii-')) diiOpen.value = true
-  if (currentPage === 'replay-issues' || currentPage === 'replay-transaction-persons') replayOpen.value = true
+  if (REPLAY_PAGE_KEYS.includes(currentPage)) replayOpen.value = true
   if (currentPage === 'code-dashboard') codeOpen.value = true
 })
 // 各分区的 accent 统一为 Sourcegraph 蓝；不再每区一个颜色
@@ -325,7 +335,7 @@ const CODE_SECTION_ACCENT = '#0b70db'
 
 // 当 currentPage 命中 dii-* 任意页时视为 DAO 模块激活
 const isDiiPage = computed(() => (props.currentPage || '').startsWith('dii-'))
-const isReplayPage = computed(() => props.currentPage === 'replay-issues' || props.currentPage === 'replay-transaction-persons')
+const isReplayPage = computed(() => REPLAY_PAGE_KEYS.includes(props.currentPage))
 // 代码提交分区激活判定
 const isCodePage = computed(() => props.currentPage === 'code-dashboard')
 
@@ -593,6 +603,10 @@ const codeMenu = [
 
 const replayMenu = [
   { key: 'replay-transaction-persons', label: '全量交易人员清单', desc: '全量导入与导出', testId: 'replay-transaction-persons-menu' },
+  { key: 'replay-config-unconditional', label: '无条件忽略', desc: '按服务码忽略字段', testId: 'replay-config-unconditional-menu' },
+  { key: 'replay-config-conditional', label: '有条件忽略', desc: '按条件忽略字段', testId: 'replay-config-conditional-menu' },
+  { key: 'replay-config-error-code', label: '错误码忽略', desc: '忽略老/新错误码', testId: 'replay-config-error-code-menu' },
+  { key: 'replay-config-sort-field', label: '排序字段', desc: '对象/数组排序字段', testId: 'replay-config-sort-field-menu' },
   { key: 'replay-issues', label: '回放问题清单', desc: '导入与分页查询', testId: 'replay-issues-menu' },
 ]
 
@@ -633,6 +647,10 @@ const codeIconMap = {
 const replayIconMap = {
   'replay-transaction-persons': IconList,
   'replay-issues': PlaySquare,
+  'replay-config-unconditional': IconList,
+  'replay-config-conditional': IconShieldCheck,
+  'replay-config-error-code': IconSlow,
+  'replay-config-sort-field': IconClipboard,
 }
 
 function diiActive(m) { return props.currentPage === m.key }

@@ -257,6 +257,26 @@
         v-if="currentPage === 'replay-transaction-persons'"
         class="impact-main"
       />
+      <ReplayConfigPage
+        v-if="currentPage === 'replay-config-unconditional'"
+        type="unconditional-ignores"
+        class="impact-main"
+      />
+      <ReplayConfigPage
+        v-if="currentPage === 'replay-config-conditional'"
+        type="conditional-ignores"
+        class="impact-main"
+      />
+      <ReplayConfigPage
+        v-if="currentPage === 'replay-config-error-code'"
+        type="error-code-ignores"
+        class="impact-main"
+      />
+      <ReplayConfigPage
+        v-if="currentPage === 'replay-config-sort-field'"
+        type="sort-fields"
+        class="impact-main"
+      />
 
       <!-- ══════════ 源码提交分析大屏 ══════════ -->
       <CodeDashboard
@@ -335,6 +355,7 @@ import ImpactAnalysisPage from '../components/impact/ImpactAnalysisPage.vue'
 import DaoIndexPage from '../components/daoindex/DaoIndexPage.vue'
 import ReplayIssuePage from '../components/replay/ReplayIssuePage.vue'
 import ReplayTransactionPersonPage from '../components/replay/ReplayTransactionPersonPage.vue'
+import ReplayConfigPage from '../components/replay/ReplayConfigPage.vue'
 import CodeDashboard from '../components/code-dashboard/CodeDashboard.vue'
 import {
   getAllTables,

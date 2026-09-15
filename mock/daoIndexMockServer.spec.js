@@ -374,3 +374,131 @@ describe('replay issue counted header filter mock', () => {
     expect(payload.data.items[0]).toEqual(expect.objectContaining({ value: expect.any(String), count: expect.any(Number) }))
   })
 })
+
+function replayConfigServer() {
+  const middlewares = []
+  replayMock.daoIndexMockPlugin().configureServer({ middlewares: { use: handler => middlewares.push(handler) } })
+  return async function request(method, path, body) {
+    const req = Readable.from(body === undefined ? [] : [JSON.stringify(body)])
+    req.method = method
+    req.url = `/api/ai/parallel-replay/config${path}`
+    req.headers = {}
+    return new Promise((resolve, reject) => {
+      const responseHeaders = {}
+      const res = {
+        statusCode: 200,
+        setHeader(name, value) { responseHeaders[name.toLowerCase()] = value },
+        end(payload) {
+          resolve({ status: this.statusCode, body: payload ? JSON.parse(String(payload)) : null })
+        },
+      }
+      middlewares[0](req, res, () => reject(new Error(`config route ${path} was not handled`)))
+    })
+  }
+}
+
+describe('replay config management mock', () => {
+  it('lists seeded rows and filters by internal transaction code', async () => {
+    const request = replayConfigServer()
+    const all = await request('GET', '/unconditional-ignores')
+    expect(all.status).toBe(200)
+    expect(all.body.data.total).toBe(2)
+
+    const mapped = await request('GET', '/unconditional-ignores?internalTransactionCode=Y444')
+    expect(mapped.body.data.total).toBe(2)
+
+    const unmapped = await request('GET', '/unconditional-ignores?internalTransactionCode=NOPE')
+    expect(unmapped.body.data.total).toBe(0)
+
+    const invalid = await request('GET', '/unconditional-ignores?limit=25')
+    expect(invalid.status).toBe(400)
+    expect(invalid.body.code).toBe(400)
+  })
+
+  it('creates, rejects duplicates and validates service code', async () => {
+    const request = replayConfigServer()
+    const created = await request('POST', '/unconditional-ignores', {
+      tranCode: 'S900TestQry&sop', fieldName: 'accountNo',
+    })
+    expect(created.status).toBe(200)
+    expect(created.body.data.version).toBe(0)
+    expect(created.body.data.enableFlag).toBe(1)
+
+    const duplicate = await request('POST', '/unconditional-ignores', {
+      tranCode: 'S900TestQry&sop', fieldName: 'accountNo',
+    })
+    expect(duplicate.status).toBe(409)
+
+    const invalid = await request('POST', '/unconditional-ignores', {
+      tranCode: 'bad-code', fieldName: 'accountNo',
+    })
+    expect(invalid.status).toBe(400)
+
+    const list = await request('GET', '/unconditional-ignores')
+    expect(list.body.data.total).toBe(3)
+  })
+
+  it('updates with optimistic lock and exposes history changes', async () => {
+    const request = replayConfigServer()
+    const list = await request('GET', '/unconditional-ignores?limit=10')
+    const row = list.body.data.items[0]
+
+    const conflict = await request('PATCH', `/unconditional-ignores/${row.id}`, {
+      tranCode: row.tranCode, fieldName: 'changed', version: 99,
+    })
+    expect(conflict.status).toBe(409)
+
+    const updated = await request('PATCH', `/unconditional-ignores/${row.id}`, {
+      tranCode: row.tranCode, fieldName: 'changed', version: row.version,
+    })
+    expect(updated.status).toBe(200)
+    expect(updated.body.data.version).toBe(1)
+
+    const history = await request('GET', `/unconditional-ignores/${row.id}/operations`)
+    expect(history.body.data.total).toBe(2)
+    expect(history.body.data.items[0].operationType).toBe('UPDATE')
+    expect(history.body.data.items[0].changes).toEqual([
+      expect.objectContaining({ field: 'field_name', oldValue: row.fieldName, newValue: 'changed' }),
+    ])
+  })
+
+  it('deletes with version and rolls back inconsistent batch delete', async () => {
+    const request = replayConfigServer()
+    const list = await request('GET', '/unconditional-ignores')
+    const [first, second] = list.body.data.items
+
+    const badBatch = await request('POST', '/unconditional-ignores/batch-delete', {
+      items: [{ id: first.id, version: first.version }, { id: second.id, version: 99 }],
+    })
+    expect(badBatch.status).toBe(409)
+    expect((await request('GET', '/unconditional-ignores')).body.data.total).toBe(2)
+
+    const goodBatch = await request('POST', '/unconditional-ignores/batch-delete', {
+      items: [{ id: first.id, version: first.version }, { id: second.id, version: second.version }],
+    })
+    expect(goodBatch.body.data.deletedCount).toBe(2)
+    expect((await request('GET', '/unconditional-ignores')).body.data.total).toBe(0)
+  })
+
+  it('allocates conditional index per service code', async () => {
+    const request = replayConfigServer()
+    const created = await request('POST', '/conditional-ignores', {
+      origTrcd: 'S120034071CorpInfoQryTrdCrclr&soap', fieldRmoveName: 'third', fieldFileFlag: 1,
+    })
+    expect(created.body.data.fieldFileIndx).toBe(3)
+
+    const other = await request('POST', '/conditional-ignores', {
+      origTrcd: 'S777NewQry&sop', fieldRmoveName: 'first', fieldFileFlag: 2,
+    })
+    expect(other.body.data.fieldFileIndx).toBe(1)
+  })
+
+  it('rejects error code config with both codes empty', async () => {
+    const request = replayConfigServer()
+    const invalid = await request('POST', '/error-code-ignores', {
+      serviceCode: 'S900TestQry&sop', oldRespCode: '', newRespCode: null,
+    })
+    expect(invalid.status).toBe(400)
+    expect(invalid.body.message).toContain('不能同时为空')
+  })
+})

@@ -1377,6 +1377,378 @@ function databaseComparisonHeaderOptions(snapshot, query = {}) {
   }
 }
 
+// ────────────── 回放配置管理 mock ──────────────
+
+const REPLAY_CONFIG_TYPES = [
+  'unconditional-ignores',
+  'conditional-ignores',
+  'error-code-ignores',
+  'sort-fields',
+]
+
+// 内部核心交易码 → ESF 服务码（去点号后追加三种后缀），用于 internalTransactionCode 筛选
+const REPLAY_CONFIG_ZNZX_SERVICE = [
+  { tranCode: 'Y444', esfServiceCode: 'S120034071CorpInfo.QryTrdCrclr' },
+  { tranCode: 'Y444', esfServiceCode: 'S120034071CorpInfoQry' },
+  { tranCode: 'Z999', esfServiceCode: 'S120033800.LoanQuery' },
+]
+
+const REPLAY_CONFIG_META = {
+  'unconditional-ignores': {
+    fields: [
+      { key: 'tranCode', column: 'tran_code', label: '服务码', required: true, serviceCode: true },
+      { key: 'fieldName', column: 'field_name', label: '忽略字段', required: true },
+    ],
+    fixed: { enableFlag: 1 },
+    filters: ['tranCode', 'fieldName'],
+    order: ['tranCode', 'fieldName'],
+    unique: ['tranCode', 'fieldName'],
+  },
+  'conditional-ignores': {
+    fields: [
+      { key: 'origTrcd', column: 'orig_trcd', label: '服务码', required: true, serviceCode: true },
+      { key: 'fieldRmoveName', column: 'field_rmove_name', label: '忽略字段', required: true },
+      { key: 'fieldFileFlag', column: 'field_file_flag', label: '字段标识', required: true },
+      { key: 'origFieldCond', column: 'orig_field_cond', label: '主系统字段忽略条件' },
+      { key: 'destFieldCond', column: 'dest_field_cond', label: '备系统字段忽略条件' },
+    ],
+    fixed: { fieldFielState: 1 },
+    indexField: 'fieldFileIndx',
+    indexColumn: 'field_file_indx',
+    indexScope: 'origTrcd',
+    filters: ['origTrcd', 'fieldRmoveName', 'fieldFileFlag'],
+    order: ['origTrcd', 'fieldFileIndx'],
+    unique: ['origTrcd', 'fieldRmoveName', 'fieldFileIndx'],
+  },
+  'error-code-ignores': {
+    fields: [
+      { key: 'serviceCode', column: 'service_code', label: '服务码', required: true, serviceCode: true },
+      { key: 'oldRespCode', column: 'old_resp_code', label: '老核心错误码' },
+      { key: 'newRespCode', column: 'new_resp_code', label: '新核心错误码' },
+    ],
+    fixed: { enabled: 1 },
+    filters: ['serviceCode', 'oldRespCode', 'newRespCode'],
+    order: ['serviceCode', 'oldRespCode', 'newRespCode'],
+    unique: ['serviceCode', 'oldRespCode', 'newRespCode'],
+  },
+  'sort-fields': {
+    fields: [
+      { key: 'origTrcd', column: 'orig_trcd', label: '服务码', required: true, serviceCode: true },
+      { key: 'origArryName', column: 'orig_arry_name', label: '对象/数组名称', required: true },
+      { key: 'origFieldName', column: 'orig_field_name', label: '排序字段', required: true },
+    ],
+    fixed: { tranMode: 1 },
+    filters: ['origTrcd', 'origArryName', 'origFieldName'],
+    order: ['origTrcd', 'origArryName', 'origFieldName'],
+    unique: ['origTrcd', 'origArryName', 'origFieldName'],
+  },
+}
+
+const REPLAY_SERVICE_CODE_PATTERN = /^[0-9A-Za-z]+&(sop|soap|bzjson)$/
+
+function replayConfigTimestamp() {
+  return new Date().toISOString().slice(0, 23)
+}
+
+function replayConfigNextId(store) {
+  return store.nextId++
+}
+
+function replayConfigResolveServiceCodes(internalTransactionCode) {
+  if (!internalTransactionCode) return null
+  const codes = new Set()
+  for (const mapping of REPLAY_CONFIG_ZNZX_SERVICE) {
+    if (mapping.tranCode !== internalTransactionCode) continue
+    const base = mapping.esfServiceCode.replace(/\./g, '')
+    if (!base) continue
+    codes.add(`${base}&sop`)
+    codes.add(`${base}&soap`)
+    codes.add(`${base}&bzjson`)
+  }
+  return [...codes]
+}
+
+function replayConfigChanges(type, before, after, onlyChanged) {
+  const meta = REPLAY_CONFIG_META[type]
+  const changes = []
+  const push = (field, label, oldValue, newValue) => {
+    changes.push({
+      field,
+      label,
+      oldValue: oldValue === undefined ? null : oldValue,
+      newValue: newValue === undefined ? null : newValue,
+    })
+  }
+  for (const field of meta.fields) {
+    const oldValue = before ? (before[field.key] ?? null) : null
+    const newValue = after ? (after[field.key] ?? null) : null
+    if (onlyChanged) {
+      if (String(oldValue ?? '') === String(newValue ?? '')) continue
+    } else if (oldValue === null && newValue === null) {
+      continue
+    }
+    push(field.column || field.key, field.label, oldValue, newValue)
+  }
+  if (meta.indexField) {
+    const oldIndex = before ? (before[meta.indexField] ?? null) : null
+    const newIndex = after ? (after[meta.indexField] ?? null) : null
+    if ((!onlyChanged && (oldIndex !== null || newIndex !== null)) || (onlyChanged && oldIndex !== newIndex)) {
+      push(meta.indexColumn || meta.indexField, '字段索引', oldIndex, newIndex)
+    }
+  }
+  return changes
+}
+
+function replayConfigOperation(store, type, configId, operationType, changes) {
+  return {
+    id: replayConfigNextId(store),
+    configId,
+    operationType,
+    operatorUsername: 'mock-user',
+    operatorRealName: 'Mock 用户',
+    operationSource: 'MANUAL',
+    createdAt: replayConfigTimestamp(),
+    changes,
+  }
+}
+
+function replayConfigValidateBody(type, body) {
+  const meta = REPLAY_CONFIG_META[type]
+  const value = {}
+  for (const field of meta.fields) {
+    let raw = body[field.key]
+    if (typeof raw === 'string') raw = raw.trim()
+    const empty = raw === undefined || raw === null || raw === ''
+    if (field.required && empty) return { error: `${field.label}不能为空` }
+    if (field.serviceCode && !empty && !REPLAY_SERVICE_CODE_PATTERN.test(raw)) {
+      return { error: `${field.label}格式不正确，应为 <服务码>&sop|&soap|&bzjson` }
+    }
+    if (field.key === 'fieldFileFlag' && !empty && Number(raw) !== 1 && Number(raw) !== 2) {
+      return { error: '字段标识只允许 1 或 2' }
+    }
+    if (field.key === 'fieldFileFlag') value[field.key] = empty ? null : Number(raw)
+    else value[field.key] = empty ? null : raw
+  }
+  if (type === 'error-code-ignores' && !value.oldRespCode && !value.newRespCode) {
+    return { error: '老核心错误码与新核心错误码不能同时为空' }
+  }
+  return { value }
+}
+
+function replayConfigIsDuplicate(type, candidate, list, excludeId) {
+  const keys = REPLAY_CONFIG_META[type].unique
+  if (keys.some(key => candidate[key] === null || candidate[key] === undefined)) return false
+  return list.some(row => row.id !== excludeId && keys.every(key => (row[key] ?? null) === candidate[key]))
+}
+
+function replayConfigNextIndex(store, type, scopeValue) {
+  const meta = REPLAY_CONFIG_META[type]
+  const max = store.data[type]
+    .filter(row => row[meta.indexScope] === scopeValue)
+    .reduce((current, row) => Math.max(current, Number(row[meta.indexField]) || 0), 0)
+  return max + 1
+}
+
+function replayConfigCompare(left, right) {
+  if (left === right) return 0
+  if (left === null || left === undefined) return -1
+  if (right === null || right === undefined) return 1
+  return String(left).localeCompare(String(right))
+}
+
+function replayConfigFilterRows(store, type, query) {
+  const meta = REPLAY_CONFIG_META[type]
+  let rows = [...store.data[type]]
+  const codes = replayConfigResolveServiceCodes(query.internalTransactionCode)
+  if (codes !== null) {
+    const serviceField = meta.fields.find(field => field.serviceCode).key
+    rows = rows.filter(row => codes.includes(row[serviceField]))
+  }
+  for (const key of meta.filters) {
+    const raw = query[key]
+    if (raw === undefined || raw === '') continue
+    if (key === 'fieldFileFlag') rows = rows.filter(row => Number(row[key]) === Number(raw))
+    else rows = rows.filter(row => String(row[key] ?? '').includes(raw))
+  }
+  rows.sort((left, right) => {
+    for (const key of meta.order) {
+      const compared = replayConfigCompare(left[key], right[key])
+      if (compared !== 0) return compared
+    }
+    return left.id - right.id
+  })
+  return rows
+}
+
+function replayConfigLimit(raw) {
+  if (raw === undefined || raw === '') return 30
+  const value = Number(raw)
+  return [10, 30, 50, 100].includes(value) ? value : null
+}
+
+function replayConfigFail(res, status, message) {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8')
+  res.statusCode = status
+  res.end(JSON.stringify({ code: status, message }))
+}
+
+function createReplayConfigStore() {
+  const store = { nextId: 1000, data: {}, operations: {} }
+  for (const type of REPLAY_CONFIG_TYPES) {
+    store.data[type] = []
+    store.operations[type] = []
+  }
+  const seed = (type, rows) => {
+    for (const partial of rows) {
+      const timestamp = replayConfigTimestamp()
+      const id = replayConfigNextId(store)
+      const row = {
+        id,
+        ...REPLAY_CONFIG_META[type].fixed,
+        ...partial,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        version: 0,
+      }
+      store.data[type].push(row)
+      store.operations[type].push(
+        replayConfigOperation(store, type, id, 'CREATE', replayConfigChanges(type, null, row, false)),
+      )
+    }
+  }
+  const code = 'S120034071CorpInfoQryTrdCrclr'
+  const loan = 'S120033800LoanQuery'
+  seed('unconditional-ignores', [
+    { tranCode: `${code}&sop`, fieldName: 'accountNo' },
+    { tranCode: `${code}&soap`, fieldName: 'customerName' },
+  ])
+  seed('conditional-ignores', [
+    { origTrcd: `${code}&soap`, fieldRmoveName: 'accounts', fieldFileIndx: 1, fieldFileFlag: 2, origFieldCond: "status == '0'", destFieldCond: null },
+    { origTrcd: `${code}&soap`, fieldRmoveName: 'accountType', fieldFileIndx: 2, fieldFileFlag: 1, origFieldCond: null, destFieldCond: "state == '1'" },
+  ])
+  seed('error-code-ignores', [
+    { serviceCode: `${code}&bzjson`, oldRespCode: 'E001', newRespCode: 'N001' },
+    { serviceCode: `${loan}&sop`, oldRespCode: null, newRespCode: 'N002' },
+  ])
+  seed('sort-fields', [
+    { origTrcd: `${code}&bzjson`, origArryName: 'accounts', origFieldName: 'accountNo' },
+    { origTrcd: `${loan}&sop`, origArryName: 'loanItems', origFieldName: 'loanNo' },
+  ])
+  return store
+}
+
+function handleReplayConfig(req, res, query, path, store) {
+  const segments = path.split('/')
+  const type = segments[5]
+  const idPart = segments[6]
+  const sub = segments[7]
+  const meta = REPLAY_CONFIG_META[type]
+  if (!meta) return replayConfigFail(res, 404, '资源类型不存在')
+
+  if (req.method === 'POST' && idPart === 'batch-delete') {
+    return readJsonBody(req).then(body => {
+      const items = Array.isArray(body.items) ? body.items : []
+      if (!items.length || items.length > 100) return replayConfigFail(res, 400, '批量删除数量不合法')
+      const seen = new Set()
+      for (const item of items) {
+        if (!item || !item.id || seen.has(item.id)) return replayConfigFail(res, 400, '批量删除记录不合法')
+        seen.add(item.id)
+        const row = store.data[type].find(candidate => candidate.id === item.id)
+        if (!row) return replayConfigFail(res, 404, `记录不存在：${item.id}`)
+        if (row.version !== item.version) return replayConfigFail(res, 409, '数据已被其他用户修改，请刷新后重试')
+      }
+      for (const item of items) {
+        const row = store.data[type].find(candidate => candidate.id === item.id)
+        store.operations[type].push(
+          replayConfigOperation(store, type, row.id, 'DELETE', replayConfigChanges(type, row, null, false)),
+        )
+        store.data[type] = store.data[type].filter(candidate => candidate.id !== row.id)
+      }
+      return ok(res, { deletedCount: items.length })
+    })
+  }
+
+  if (req.method === 'GET' && idPart && sub === 'operations') {
+    const configId = Number(idPart)
+    if (!store.data[type].some(row => row.id === configId)) return replayConfigFail(res, 404, '记录不存在')
+    const limit = replayConfigLimit(query.limit)
+    if (limit === null) return replayConfigFail(res, 400, '分页大小只允许 10、30、50、100')
+    const offset = Number(query.offset || 0)
+    if (offset < 0) return replayConfigFail(res, 400, '偏移量不能小于 0')
+    const operations = store.operations[type]
+      .filter(operation => operation.configId === configId)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt) || right.id - left.id)
+    return ok(res, { total: operations.length, items: operations.slice(offset, offset + limit) })
+  }
+
+  if (req.method === 'POST' && !idPart) {
+    return readJsonBody(req).then(body => {
+      const validated = replayConfigValidateBody(type, body)
+      if (validated.error) return replayConfigFail(res, 400, validated.error)
+      const candidate = { ...meta.fixed, ...validated.value }
+      if (meta.indexField) candidate[meta.indexField] = replayConfigNextIndex(store, type, candidate[meta.indexScope])
+      if (replayConfigIsDuplicate(type, candidate, store.data[type])) {
+        return replayConfigFail(res, 409, '配置已存在')
+      }
+      const timestamp = replayConfigTimestamp()
+      const row = { id: replayConfigNextId(store), ...candidate, createdAt: timestamp, updatedAt: timestamp, version: 0 }
+      store.data[type].push(row)
+      store.operations[type].push(
+        replayConfigOperation(store, type, row.id, 'CREATE', replayConfigChanges(type, null, row, false)),
+      )
+      return ok(res, row)
+    })
+  }
+
+  if (req.method === 'PATCH' && idPart && !sub) {
+    return readJsonBody(req).then(body => {
+      const id = Number(idPart)
+      const row = store.data[type].find(candidate => candidate.id === id)
+      if (!row) return replayConfigFail(res, 404, '记录不存在')
+      const validated = replayConfigValidateBody(type, body)
+      if (validated.error) return replayConfigFail(res, 400, validated.error)
+      if (row.version !== body.version) return replayConfigFail(res, 409, '数据已被其他用户修改，请刷新后重试')
+      const next = { ...row, ...validated.value }
+      if (meta.indexField && next[meta.indexScope] !== row[meta.indexScope]) {
+        next[meta.indexField] = replayConfigNextIndex(store, type, next[meta.indexScope])
+      }
+      const changes = replayConfigChanges(type, row, next, true)
+      if (!changes.length) return ok(res, row)
+      if (replayConfigIsDuplicate(type, next, store.data[type], id)) return replayConfigFail(res, 409, '配置已存在')
+      next.version = row.version + 1
+      next.updatedAt = replayConfigTimestamp()
+      Object.assign(row, next)
+      store.operations[type].push(replayConfigOperation(store, type, id, 'UPDATE', changes))
+      return ok(res, row)
+    })
+  }
+
+  if (req.method === 'DELETE' && idPart && !sub) {
+    const id = Number(idPart)
+    const row = store.data[type].find(candidate => candidate.id === id)
+    if (!row) return replayConfigFail(res, 404, '记录不存在')
+    const version = query.version === undefined || query.version === '' ? null : Number(query.version)
+    if (version === null || Number.isNaN(version)) return replayConfigFail(res, 400, '缺少 version')
+    if (row.version !== version) return replayConfigFail(res, 409, '数据已被其他用户修改，请刷新后重试')
+    store.operations[type].push(
+      replayConfigOperation(store, type, id, 'DELETE', replayConfigChanges(type, row, null, false)),
+    )
+    store.data[type] = store.data[type].filter(candidate => candidate.id !== id)
+    return ok(res, null)
+  }
+
+  if (req.method === 'GET' && !idPart) {
+    const limit = replayConfigLimit(query.limit)
+    if (limit === null) return replayConfigFail(res, 400, '分页大小只允许 10、30、50、100')
+    const offset = Number(query.offset || 0)
+    if (offset < 0) return replayConfigFail(res, 400, '偏移量不能小于 0')
+    const rows = replayConfigFilterRows(store, type, query)
+    return ok(res, { total: rows.length, items: rows.slice(offset, offset + limit) })
+  }
+
+  return replayConfigFail(res, 404, '接口不存在')
+}
+
 // ────────────── Vite 插件 ──────────────
 
 export function daoIndexMockPlugin() {
@@ -1415,6 +1787,7 @@ export function daoIndexMockPlugin() {
     ['RPT20260825-01|RPT20260903-01', { status: 'SENT', sentAt: '2026-09-03T12:20:00', failureMessage: null }],
     ['RPT20260818-01|RPT20260901-01', { status: 'FAILED', sentAt: null, failureMessage: 'Mock：邮件服务器暂不可用' }],
   ])
+  const replayConfigStore = createReplayConfigStore()
   return {
     name: 'dao-index-mock',
     configureServer(server) {
@@ -1962,6 +2335,9 @@ export function daoIndexMockPlugin() {
           const rows = replaySortRows(replayFilterRows(q), q)
           const offset = Number(q.offset || 0); const limit = Number(q.limit || 50)
           return ok(res, { total: rows.length, items: rows.slice(offset, offset + limit).map(row => ({ ...row, weekly_task: isReplayWeeklyTask(row) })) })
+        }
+        if (url.startsWith('/api/ai/parallel-replay/config/')) {
+          return handleReplayConfig(req, res, parseQuery(url), path, replayConfigStore)
         }
         if (!url.startsWith('/api/ai/dao-index/') &&
             url !== '/api/flowtran/env' &&

@@ -304,6 +304,7 @@ const props = defineProps({
 
 defineEmits(['selectDomain', 'selectImpactMode', 'selectDiiPage', 'selectReplayPage', 'selectCodePage'])
 
+// 并行回放分区包含的页面 key（含回放配置管理四个页面）
 const chainOpen = ref(props.currentPage === 'chain')
 const impactOpen = ref(props.currentPage === 'impact')
 const diiOpen = ref((props.currentPage || '').startsWith('dii-'))
@@ -593,6 +594,10 @@ const codeMenu = [
 
 const replayMenu = [
   { key: 'replay-transaction-persons', label: '全量交易人员清单', desc: '全量导入与导出', testId: 'replay-transaction-persons-menu' },
+  { key: 'replay-config-unconditional', label: '无条件忽略', desc: '按服务码忽略字段', testId: 'replay-config-unconditional-menu' },
+  { key: 'replay-config-conditional', label: '有条件忽略', desc: '按条件忽略字段', testId: 'replay-config-conditional-menu' },
+  { key: 'replay-config-error-code', label: '错误码忽略', desc: '忽略老/新错误码', testId: 'replay-config-error-code-menu' },
+  { key: 'replay-config-sort-field', label: '排序字段', desc: '对象/数组排序字段', testId: 'replay-config-sort-field-menu' },
   { key: 'replay-issues', label: '回放问题清单', desc: '导入与分页查询', testId: 'replay-issues-menu' },
   { key: 'replay-database-comparison-fields', label: '回放数据库比对字段登记', desc: '母库表与字段登记', testId: 'replay-database-comparison-fields-menu' },
 ]
@@ -635,10 +640,22 @@ const replayIconMap = {
   'replay-transaction-persons': IconList,
   'replay-issues': PlaySquare,
   'replay-database-comparison-fields': IconDatabaseLg,
+  'replay-config-unconditional': IconList,
+  'replay-config-conditional': IconShieldCheck,
+  'replay-config-error-code': IconSlow,
+  'replay-config-sort-field': IconClipboard,
 }
 
 function isReplayPageKey(pageKey) {
-  return ['replay-transaction-persons', 'replay-issues', 'replay-database-comparison-fields'].includes(pageKey)
+  return [
+    'replay-transaction-persons',
+    'replay-issues',
+    'replay-database-comparison-fields',
+    'replay-config-unconditional',
+    'replay-config-conditional',
+    'replay-config-error-code',
+    'replay-config-sort-field',
+  ].includes(pageKey)
 }
 
 function diiActive(m) { return props.currentPage === m.key }

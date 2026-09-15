@@ -70,6 +70,10 @@ describe('ChainImpactSidebar', () => {
       .filter((item) => item.attributes('data-testid') !== 'replay-section-toggle')
     expect(replayItems.map((item) => item.text())).toEqual([
       expect.stringContaining('全量交易人员清单'),
+      expect.stringContaining('无条件忽略'),
+      expect.stringContaining('有条件忽略'),
+      expect.stringContaining('错误码忽略'),
+      expect.stringContaining('排序字段'),
       expect.stringContaining('回放问题清单'),
       expect.stringContaining('回放数据库比对字段登记'),
     ])

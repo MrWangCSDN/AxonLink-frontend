@@ -142,15 +142,35 @@ export function downloadReplayDailyReport(batchNo) {
   return download(`${PREFIX}/daily-report?batchNo=${encodeURIComponent(batchNo)}`, filename)
 }
 
+export function regenerateReplayDailyReport(batchNo, token = '') {
+  return download(
+    `${PREFIX}/daily-report/regenerate?batchNo=${encodeURIComponent(batchNo)}`,
+    `${batchNo}日报.xlsx`,
+    { method: 'POST', headers: { 'X-DII-Trigger-Token': token || '' } },
+  )
+}
+
 export function getReplayDailyReportMailConfig(batchNo) {
   return request(`${PREFIX}/daily-report/mail-config?batchNo=${encodeURIComponent(batchNo)}`)
 }
 
-export function sendReplayDailyReportMail(mail, token = '') {
+export function getReplayReportAttachmentOptions(params = {}) {
+  const query = queryString(params)
+  return request(`${PREFIX}/daily-report/attachment-options${query ? `?${query}` : ''}`)
+}
+
+function reportMailForm(mail, files) {
+  const form = new FormData()
+  form.append('mail', new Blob([JSON.stringify(mail || {})], { type: 'application/json' }))
+  for (const file of files || []) form.append('files', file, file.name)
+  return form
+}
+
+export function sendReplayDailyReportMail(mail, files = [], token = '') {
   return request(`${PREFIX}/daily-report/mail-send`, {
     method: 'POST',
     headers: { 'X-DII-Trigger-Token': token || '' },
-    body: JSON.stringify(mail || {}),
+    body: reportMailForm(mail, files),
   })
 }
 
@@ -163,16 +183,24 @@ export function downloadReplayWeeklyReport(startBatchNo, endBatchNo) {
   return download(`${PREFIX}/weekly-report?${query}`, `${endBatchNo}周报.xlsx`)
 }
 
+export function regenerateReplayWeeklyReport(startBatchNo, endBatchNo, token = '') {
+  const query = `startBatchNo=${encodeURIComponent(startBatchNo)}&endBatchNo=${encodeURIComponent(endBatchNo)}`
+  return download(`${PREFIX}/weekly-report/regenerate?${query}`, `${endBatchNo}周报.xlsx`, {
+    method: 'POST',
+    headers: { 'X-DII-Trigger-Token': token || '' },
+  })
+}
+
 export function getReplayWeeklyReportMailConfig(startBatchNo, endBatchNo) {
   const query = `startBatchNo=${encodeURIComponent(startBatchNo)}&endBatchNo=${encodeURIComponent(endBatchNo)}`
   return request(`${PREFIX}/weekly-report/mail-config?${query}`)
 }
 
-export function sendReplayWeeklyReportMail(mail, token = '') {
+export function sendReplayWeeklyReportMail(mail, files = [], token = '') {
   return request(`${PREFIX}/weekly-report/mail-send`, {
     method: 'POST',
     headers: { 'X-DII-Trigger-Token': token || '' },
-    body: JSON.stringify(mail || {}),
+    body: reportMailForm(mail, files),
   })
 }
 

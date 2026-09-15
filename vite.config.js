@@ -5,8 +5,8 @@ import { daoIndexMockPlugin } from './mock/daoIndexMockServer.js'
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
-  // VITE_USE_MOCK=1 时启用 Vite 中间件 mock；默认开启，方便本地无后端预览
-  const useMock = (env.VITE_USE_MOCK ?? '1') !== '0'
+  // 仅显式配置 VITE_USE_MOCK=1 时启用；默认连接真实后端。
+  const useMock = env.VITE_USE_MOCK === '1'
 
   return {
     plugins: [vue(), useMock && daoIndexMockPlugin()].filter(Boolean),

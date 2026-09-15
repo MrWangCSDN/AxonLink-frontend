@@ -1,4 +1,4 @@
-import { flushPromises, mount } from '@vue/test-utils'
+import { config, flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import ReplayIssuePage from './ReplayIssuePage.vue'
 import {
@@ -25,10 +25,13 @@ import {
   getReplayWeeklyTask,
   replaceReplayWeeklyTask,
   downloadReplayDailyReport,
+  regenerateReplayDailyReport,
   getReplayDailyReportMailConfig,
+  getReplayReportAttachmentOptions,
   sendReplayDailyReportMail,
   getReplayWeeklyReportOptions,
   downloadReplayWeeklyReport,
+  regenerateReplayWeeklyReport,
   getReplayWeeklyReportMailConfig,
   sendReplayWeeklyReportMail,
   importReplayIssues,
@@ -64,10 +67,13 @@ vi.mock('../../api/replayIssues.js', () => ({
   getReplayWeeklyTask: vi.fn(),
   replaceReplayWeeklyTask: vi.fn(),
   downloadReplayDailyReport: vi.fn(),
+  regenerateReplayDailyReport: vi.fn(),
   getReplayDailyReportMailConfig: vi.fn(),
+  getReplayReportAttachmentOptions: vi.fn(),
   sendReplayDailyReportMail: vi.fn(),
   getReplayWeeklyReportOptions: vi.fn(),
   downloadReplayWeeklyReport: vi.fn(),
+  regenerateReplayWeeklyReport: vi.fn(),
   getReplayWeeklyReportMailConfig: vi.fn(),
   sendReplayWeeklyReportMail: vi.fn(),
   importReplayIssues: vi.fn(),
@@ -136,6 +142,7 @@ function arrangeApi({ total = 4607, items = [fixtureRow] } = {}) {
   ])
   getReplayDailyReportBatches.mockResolvedValue([])
   downloadReplayDailyReport.mockResolvedValue({ fileName: 'RPT20260808-001批次日报.xlsx' })
+  regenerateReplayDailyReport.mockResolvedValue({ fileName: 'RPT20260808-001日报.xlsx' })
   getReplayDailyReportMailConfig.mockResolvedValue({
     batchNo: 'RPT20260903-01',
     subject: '对公分布式核心回放问题日报-20260903',
@@ -145,15 +152,19 @@ function arrangeApi({ total = 4607, items = [fixtureRow] } = {}) {
     status: 'UNSENT',
     sentAt: null,
     failureMessage: null,
+    currentAttachment: { fileName: 'RPT20260903-01日报.xlsx', size: 1024, source: 'CURRENT_REPORT', batchNo: 'RPT20260903-01' },
   })
+  getReplayReportAttachmentOptions.mockResolvedValue({ items: [], page: 0, size: 20, total: 0 })
   sendReplayDailyReportMail.mockResolvedValue({ status: 'SENT', sentAt: '2026-09-08T12:00:00' })
   getReplayWeeklyReportOptions.mockResolvedValue({ dailyBatches: [], weeklyReports: [] })
   downloadReplayWeeklyReport.mockResolvedValue({ fileName: 'RPT20260908-01周报.xlsx' })
+  regenerateReplayWeeklyReport.mockResolvedValue({ fileName: 'RPT20260908-01周报.xlsx' })
   getReplayWeeklyReportMailConfig.mockResolvedValue({
     startBatchNo: 'RPT20260901-01', endBatchNo: 'RPT20260908-01',
     subject: '对公分布式核心回放问题周报-20260908',
     toEmails: ['owner@example.com'], ccEmails: ['leader@example.com'],
     body: '各位好，附件为本周期回放问题周报，请查收。', status: 'UNSENT',
+    currentAttachment: { fileName: 'RPT20260908-01周报.xlsx', size: 2048, source: 'CURRENT_REPORT', batchNo: 'RPT20260908-01' },
   })
   sendReplayWeeklyReportMail.mockResolvedValue({ status: 'SENT', sentAt: '2026-09-08T12:00:00' })
   getReplayIssueStats.mockResolvedValue({
@@ -211,13 +222,17 @@ async function openImport(wrapper) {
   return file
 }
 
+const originalTeleportStub = config.global.stubs.teleport
+
 beforeEach(() => {
+  config.global.stubs.teleport = true
   vi.clearAllMocks()
   vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })))
   arrangeApi()
 })
 
 afterEach(() => {
+  config.global.stubs.teleport = originalTeleportStub
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
@@ -1356,8 +1371,8 @@ describe('ReplayIssuePage', () => {
     expect(sendReplayWeeklyReportMail).toHaveBeenCalledWith({
       startBatchNo: 'RPT20260901-01', endBatchNo: 'RPT20260908-01',
       subject: '自定义周报标题', toEmails: ['owner@example.com'],
-      ccEmails: ['leader@example.com'], body: '请查收周报',
-    }, 'secret')
+      ccEmails: ['leader@example.com'], body: '请查收周报', reportBatchNos: [],
+    }, [], 'secret')
     expect(wrapper.find('[data-testid="weekly-report-mail-modal"]').exists()).toBe(false)
     expect(wrapper.get('[data-testid="weekly-report-modal"]').text()).toContain('已发送')
   })
@@ -1412,6 +1427,56 @@ describe('ReplayIssuePage', () => {
 
     expect(wrapper.get('[data-testid="daily-report-batch"]').text()).toContain('RPT20260903-01（已生成）')
     expect(wrapper.get('[data-testid="generate-daily-report"]').text()).toContain('下载 Excel')
+    expect(wrapper.get('[data-testid="daily-report-regenerate"]').text()).toContain('重新生成')
+  })
+
+  it('regenerates a daily report with a token and resets its mail projection', async () => {
+    getReplayDailyReportBatches
+      .mockResolvedValueOnce([{ batchNo: 'RPT20260903-01', previousBatchNo: 'RPT20260902-01', canGenerate: true, generated: true, mailStatus: 'SENT' }])
+      .mockResolvedValueOnce([{ batchNo: 'RPT20260903-01', previousBatchNo: 'RPT20260902-01', canGenerate: true, generated: true, generatedAt: '2026-09-09T12:00:00', mailStatus: 'UNSENT' }])
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+    await wrapper.get('[data-testid="open-daily-report"]').trigger('click')
+    await flushPromises()
+
+    await wrapper.get('[data-testid="daily-report-regenerate"]').trigger('click')
+    expect(wrapper.get('[data-testid="daily-report-regenerate-modal"]').exists()).toBe(true)
+    await wrapper.get('[data-testid="daily-report-regenerate-token"]').setValue('secret')
+    await wrapper.get('[data-testid="daily-report-regenerate-submit"]').trigger('click')
+    await flushPromises()
+
+    expect(regenerateReplayDailyReport).toHaveBeenCalledWith('RPT20260903-01', 'secret')
+    expect(wrapper.find('[data-testid="daily-report-regenerate-modal"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="daily-report-mail-status"]').text()).toContain('未发送')
+  })
+
+  it('uses imported daily data copy and regenerates the selected weekly snapshot', async () => {
+    getReplayWeeklyReportOptions
+      .mockResolvedValueOnce({
+        dailyBatches: [
+          { batchNo: 'RPT20260901-01', family: 'RPT', generated: false },
+          { batchNo: 'RPT20260908-01', family: 'RPT', generated: false },
+        ],
+        weeklyReports: [{ startBatchNo: 'RPT20260901-01', endBatchNo: 'RPT20260908-01', family: 'RPT', mailStatus: 'SENT' }],
+      })
+      .mockResolvedValueOnce({
+        dailyBatches: [],
+        weeklyReports: [{ startBatchNo: 'RPT20260901-01', endBatchNo: 'RPT20260908-01', family: 'RPT', generatedAt: '2026-09-09T12:00:00', mailStatus: 'UNSENT' }],
+      })
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+    await wrapper.get('[data-testid="open-weekly-report"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="weekly-report-modal"]').text()).toContain('存在日报数据')
+    await wrapper.get('[data-testid="weekly-report-regenerate"]').trigger('click')
+    await wrapper.get('[data-testid="weekly-report-regenerate-token"]').setValue('secret')
+    await wrapper.get('[data-testid="weekly-report-regenerate-submit"]').trigger('click')
+    await flushPromises()
+
+    expect(regenerateReplayWeeklyReport).toHaveBeenCalledWith(
+      'RPT20260901-01', 'RPT20260908-01', 'secret')
+    expect(wrapper.get('[data-testid="weekly-report-mail-status"]').text()).toContain('未发送')
   })
 
   it('shows mail actions only for generated reports and exposes failed status for retry', async () => {
@@ -1469,8 +1534,8 @@ describe('ReplayIssuePage', () => {
     expect(sendReplayDailyReportMail).toHaveBeenCalledWith({
       batchNo: 'RPT20260903-01', subject: '自定义日报标题',
       toEmails: ['owner@example.com', 'new@example.com'], ccEmails: ['leader@example.com', 'copy@example.com'],
-      body: '各位好，请查收日报。',
-    }, 'secret')
+      body: '各位好，请查收日报。', reportBatchNos: [],
+    }, [], 'secret')
     expect(wrapper.get('[data-testid="daily-report-mail-submit"]').text()).toContain('发送中')
 
     finishSend({ status: 'SENT', sentAt: '2026-09-08T12:00:00' })
@@ -1480,6 +1545,37 @@ describe('ReplayIssuePage', () => {
     expect(wrapper.get('[data-testid="daily-report-modal"]').exists()).toBe(true)
     expect(wrapper.get('[data-testid="daily-report-mail-status"]').text()).toContain('已发送')
     expect(wrapper.get('[data-testid="daily-report-mail-button"]').text()).toContain('重新发送')
+  })
+
+  it('passes selected generated reports and local Excel files to daily mail sending', async () => {
+    getReplayDailyReportBatches.mockResolvedValue([
+      { batchNo: 'RPT20260903-01', previousBatchNo: 'RPT20260902-01', canGenerate: true, generated: true, mailStatus: 'UNSENT' },
+    ])
+    getReplayReportAttachmentOptions.mockResolvedValue({
+      items: [{ batchNo: 'DZ20260902-01', family: 'DZ', fileName: 'DZ20260902-01日报.xlsx', fileSize: 2048 }],
+      page: 0, size: 20, total: 1,
+    })
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+    await wrapper.get('[data-testid="open-daily-report"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="daily-report-mail-button"]').trigger('click')
+    await flushPromises()
+
+    await wrapper.get('[data-testid="mail-add-generated"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="mail-generated-option-DZ20260902-01"]').trigger('click')
+    const local = new File(['excel'], '本地补充.xlsx')
+    const input = wrapper.get('[data-testid="mail-local-files"]')
+    Object.defineProperty(input.element, 'files', { configurable: true, value: [local] })
+    await input.trigger('change')
+    await wrapper.get('[data-testid="daily-report-mail-token"]').setValue('secret')
+    await wrapper.get('[data-testid="daily-report-mail-submit"]').trigger('click')
+    await flushPromises()
+
+    expect(sendReplayDailyReportMail).toHaveBeenCalledWith(expect.objectContaining({
+      batchNo: 'RPT20260903-01', reportBatchNos: ['DZ20260902-01'],
+    }), [local], 'secret')
   })
 
   it('renders configured mail recipients as removable tags and accepts pasted addresses', async () => {
@@ -1515,7 +1611,8 @@ describe('ReplayIssuePage', () => {
     expect(sendReplayDailyReportMail).toHaveBeenCalledWith(expect.objectContaining({
       toEmails: ['owner@example.com', 'new@example.com', 'third@example.com'],
       ccEmails: ['leader@example.com'],
-    }), 'secret')
+      reportBatchNos: [],
+    }), [], 'secret')
   })
 
   it('shows recipient counts and keeps large address lists in scrollable editors', async () => {

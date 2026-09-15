@@ -40,7 +40,7 @@
         </svg>
       </button>
       <button
-        v-if="(currentPage === 'replay-issues' || currentPage === 'replay-transaction-persons') && mobileNavigationOpen"
+        v-if="currentPage.startsWith('replay-') && mobileNavigationOpen"
         class="replay-mobile-backdrop"
         type="button"
         aria-label="关闭导航"
@@ -277,6 +277,11 @@
         type="sort-fields"
         class="impact-main"
       />
+      <ReplayDatabaseComparisonPage
+        v-if="currentPage === 'replay-database-comparison-fields'"
+        class="impact-main"
+        @toggle-navigation="mobileNavigationOpen = !mobileNavigationOpen"
+      />
 
       <!-- ══════════ 源码提交分析大屏 ══════════ -->
       <CodeDashboard
@@ -356,6 +361,7 @@ import DaoIndexPage from '../components/daoindex/DaoIndexPage.vue'
 import ReplayIssuePage from '../components/replay/ReplayIssuePage.vue'
 import ReplayTransactionPersonPage from '../components/replay/ReplayTransactionPersonPage.vue'
 import ReplayConfigPage from '../components/replay/ReplayConfigPage.vue'
+import ReplayDatabaseComparisonPage from '../components/replay/ReplayDatabaseComparisonPage.vue'
 import CodeDashboard from '../components/code-dashboard/CodeDashboard.vue'
 import {
   getAllTables,
@@ -780,7 +786,7 @@ watch(activeDomain, () => {
 })
 
 watch(currentPage, (page) => {
-  if (page !== 'replay-issues') mobileNavigationOpen.value = false
+  if (!page.startsWith('replay-')) mobileNavigationOpen.value = false
 })
 
 // 防抖：停止输入 300ms 才查一次，避免每敲一个字就发一次（原先每键一查 + 加载丢弃 = 只跑了首字符查询）

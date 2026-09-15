@@ -4,12 +4,12 @@
  * 开发环境：可通过 vite.config.js proxy 转发到后端
  *
  * 鉴权拦截：
- * - 当响应 HTTP 401 或业务 code===401 时，认为是"未登录"
- * - 自动跳转 /login（携带 redirect 参数），且在 /login 页时不跳避免循环
+ * - 响应 HTTP 401 或业务 code===401 时，重新查询 /auth/me 确认会话
+ * - 仅会话也返回 401 时跳转 /login；业务身份错误保留当前页面
  * - 异常仍向上抛出，调用方可按需 catch
  * - 仅 401 触发跳转，404 / 5xx / 普通 R.fail 业务错误不受影响
  */
-import router from '../router/index.js'
+import router, { clearCurrentUser } from '../router/index.js'
 
 const BASE = '/api'
 
@@ -17,12 +17,13 @@ const BASE = '/api'
  * 自定义 HTTP 异常：携带 status、code 字段，便于 router guard 区分 401/404
  */
 export class ApiError extends Error {
-  constructor(message, { status = 0, code = 0, url = '' } = {}) {
+  constructor(message, { status = 0, code = 0, url = '', data = null } = {}) {
     super(message)
     this.name = 'ApiError'
     this.status = status   // HTTP 状态码（如 401/404/500）
     this.code = code       // 业务 code（ApiResult.code，如 200/401/500）
     this.url = url
+    this.data = data
   }
 }
 
@@ -37,20 +38,36 @@ function redirectToLogin() {
   })
 }
 
+// A business endpoint may reject its operator while /auth/me still accepts the session.
+// Probe directly to avoid recursively entering this request interceptor.
+async function verifySessionBeforeRedirect(url) {
+  if (url.split('?')[0].startsWith('/auth/')) return
+  try {
+    const response = await fetch(`${BASE}/auth/me`, { credentials: 'same-origin' })
+    const session = response.ok ? await response.json() : null
+    if (response.status === 401 || session?.code === 401) {
+      clearCurrentUser()
+      redirectToLogin()
+    }
+  } catch (_) {
+    // A failed probe cannot establish that the user has logged out.
+  }
+}
+
 // 导出供其他 api/ 子模块复用（如 api/daoIndex.js）
 export async function request(url, options = {}) {
-  const headers = {
-    'Content-Type': 'application/json',
-    ...(options.headers || {}),
-  }
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData
+  const headers = isFormData
+    ? { ...(options.headers || {}) }
+    : { 'Content-Type': 'application/json', ...(options.headers || {}) }
   const res = await fetch(BASE + url, {
     ...options,
     headers,
   })
 
-  // HTTP 层 401：未登录 → 跳 /login（但仍抛异常给调用方）
+  // HTTP 层 401：确认会话失效后才跳转，保留业务错误给调用方。
   if (res.status === 401) {
-    redirectToLogin()
+    await verifySessionBeforeRedirect(url)
     let msg = '未登录'
     try {
       const json = await res.json()
@@ -71,8 +88,9 @@ export async function request(url, options = {}) {
     }
     throw new ApiError(json?.message || `HTTP ${res.status}: ${url}`, {
       status: res.status,
-      code: json?.code || 0,
+      code: json?.data?.errorCode || json?.errorCode || json?.code || res.status,
       url,
+      data: json?.data,
     })
   }
 
@@ -80,13 +98,17 @@ export async function request(url, options = {}) {
 
   // 业务层 401（HTTP 200 但 code:401）：等价 HTTP 401 处理
   if (json.code === 401) {
-    redirectToLogin()
+    await verifySessionBeforeRedirect(url)
     throw new ApiError(json.message || '未登录', { status: 200, code: 401, url })
   }
 
   if (json.code !== 200) {
-    // 普通业务错误（R.fail）：保留原 Error 类型，不影响现有调用方 catch (e) { e.message }
-    throw new Error(json.message || '请求失败')
+    throw new ApiError(json.message || '请求失败', {
+      status: res.status,
+      code: json?.data?.errorCode || json?.errorCode || json?.code || res.status,
+      url,
+      data: json?.data,
+    })
   }
   return json.data
 }
@@ -97,15 +119,21 @@ export async function download(url, fallbackFileName, options = {}) {
   if (!res.ok) {
     const body = (await res.text().catch(() => '')).trim()
     let message = body
+    let payload = null
     if (body) {
       try {
-        const json = JSON.parse(body)
-        if (typeof json?.message === 'string' && json.message.trim()) {
-          message = json.message.trim()
+        payload = JSON.parse(body)
+        if (typeof payload?.message === 'string' && payload.message.trim()) {
+          message = payload.message.trim()
         }
       } catch (_) {}
     }
-    throw new Error(message || `HTTP ${res.status}: ${url}`)
+    throw new ApiError(message || `HTTP ${res.status}: ${url}`, {
+      status: res.status,
+      code: payload?.data?.errorCode || payload?.errorCode || payload?.code || res.status,
+      url,
+      data: payload?.data,
+    })
   }
 
   const blob = await res.blob()

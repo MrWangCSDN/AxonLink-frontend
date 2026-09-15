@@ -54,4 +54,31 @@ describe('ChainImpactSidebar', () => {
 
     expect(wrapper.emitted('selectReplayPage')).toEqual([['replay-issues']])
   })
+
+  it('places database comparison registration immediately after replay issues', async () => {
+    const wrapper = mount(ChainImpactSidebar, { props: {
+      domains: [],
+      activeDomainId: '',
+      systemStats: { status: 'normal', statusText: '系统运行正常' },
+      totalTransactions: 0,
+      impactStats: {},
+      currentPage: 'replay-issues',
+      impactMode: 'table',
+    } })
+
+    const replayItems = wrapper.findAll('[data-testid^="replay-"]')
+      .filter((item) => item.attributes('data-testid') !== 'replay-section-toggle')
+    expect(replayItems.map((item) => item.text())).toEqual([
+      expect.stringContaining('全量交易人员清单'),
+      expect.stringContaining('无条件忽略'),
+      expect.stringContaining('有条件忽略'),
+      expect.stringContaining('错误码忽略'),
+      expect.stringContaining('排序字段'),
+      expect.stringContaining('回放问题清单'),
+      expect.stringContaining('回放数据库比对字段登记'),
+    ])
+
+    await wrapper.get('[data-testid="replay-database-comparison-fields-menu"]').trigger('click')
+    expect(wrapper.emitted('selectReplayPage')?.at(-1)).toEqual(['replay-database-comparison-fields'])
+  })
 })

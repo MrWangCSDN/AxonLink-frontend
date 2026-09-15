@@ -33,4 +33,29 @@ describe('replay database comparison metadata mock', () => {
       [...columns].map(column => column.ordinalPosition).sort((left, right) => left - right),
     )
   })
+
+  it('exposes an unregistered table whose metadata has fields but no primary key', () => {
+    expect(searchMockTables('no_primary_key_new', registrations)[0]).toMatchObject({
+      tableName: 'no_primary_key_new',
+      registrationStatus: 'UNREGISTERED',
+    })
+    const columns = getMockColumns('no_primary_key_new')
+    expect(columns.length).toBeGreaterThan(0)
+    expect(columns.some(column => column.primaryKey)).toBe(false)
+  })
+
+  it('exposes a registered table after its BASE primary key has been removed', () => {
+    const registeredWithoutPrimaryKey = {
+      id: 88, version: 4, tableName: 'no_primary_key_registered',
+    }
+    expect(searchMockTables('no_primary_key_registered', [registeredWithoutPrimaryKey])[0]).toMatchObject({
+      tableName: 'no_primary_key_registered',
+      registrationStatus: 'ACTIVE',
+      registrationId: 88,
+      registrationVersion: 4,
+    })
+    const columns = getMockColumns('no_primary_key_registered')
+    expect(columns.length).toBeGreaterThan(0)
+    expect(columns.some(column => column.primaryKey)).toBe(false)
+  })
 })

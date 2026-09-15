@@ -16,18 +16,35 @@ const commonColumns = [
   ['remark', '备注', 'VARCHAR(500)'],
 ]
 
-const columns = (primaryName, primaryComment, extras = []) => [
-  [primaryName, primaryComment, 'VARCHAR(40)', true],
-  ...extras,
-  ...commonColumns,
-].filter(([columnName], index, source) => source.findIndex(([candidate]) => candidate === columnName) === index)
-  .map(([columnName, columnComment, dataType, primaryKey = false], index) => ({
-  columnName,
-  columnComment,
-  dataType,
-  primaryKey,
-  ordinalPosition: index + 1,
-  }))
+const columns = (primaryName, primaryComment, extras = []) => {
+  let primaryKeyOrder = 0
+  return [
+    [primaryName, primaryComment, 'VARCHAR(40)', true],
+    ...extras,
+    ...commonColumns,
+  ].filter(([columnName], index, source) => source.findIndex(([candidate]) => candidate === columnName) === index)
+    .map(([columnName, columnComment, dataType, primaryKey = false], index) => ({
+      columnName,
+      columnComment,
+      dataType,
+      primaryKey,
+      primaryKeyOrder: primaryKey ? ++primaryKeyOrder : null,
+      ordinalPosition: index + 1,
+    }))
+}
+
+const columnsWithoutPrimaryKey = (extras = []) => (
+  [...extras, ...commonColumns]
+    .filter(([columnName], index, source) => source.findIndex(([candidate]) => candidate === columnName) === index)
+    .map(([columnName, columnComment, dataType], index) => ({
+      columnName,
+      columnComment,
+      dataType,
+      primaryKey: false,
+      primaryKeyOrder: null,
+      ordinalPosition: index + 1,
+    }))
+)
 
 export const mockTableCatalog = [
   {
@@ -35,6 +52,7 @@ export const mockTableCatalog = [
     tableName: 'kdpa_cb_acct_fzn_cntl_inf',
     tableComment: '对公存款账户冻结控制信息',
     columns: columns('fzn_cntl_id', '冻结控制编号', [
+      ['fzn_new_pk', '新增联合主键', 'VARCHAR(40)', true],
       ['fzn_cntl_amt', '冻结金额', 'DECIMAL(20,2)'],
       ['fzn_reason_cd', '冻结原因代码', 'VARCHAR(8)'],
       ['fzn_status', '冻结状态', 'VARCHAR(8)'],
@@ -85,6 +103,25 @@ export const mockTableCatalog = [
       ['fzn_cntl_id', '冻结控制编号', 'VARCHAR(40)'],
       ['txn_dt', '交易日期', 'DATE'],
       ['cncl_fzn_dectrl_amt', '取消冻结金额', 'DECIMAL(20,2)'],
+      ['operator_id', '操作员编号', 'VARCHAR(32)'],
+    ]),
+  },
+  {
+    schemaName: 'CCBS_BASE',
+    tableName: 'no_primary_key_new',
+    tableComment: '无主键新增登记测试表',
+    columns: columnsWithoutPrimaryKey([
+      ['business_id', '业务编号', 'VARCHAR(40)'],
+      ['business_status', '业务状态', 'VARCHAR(8)'],
+    ]),
+  },
+  {
+    schemaName: 'CCBS_BASE',
+    tableName: 'no_primary_key_registered',
+    tableComment: '主键已被删除的登记测试表',
+    columns: columnsWithoutPrimaryKey([
+      ['historical_key', '历史主键字段', 'VARCHAR(40)'],
+      ['compare_status', '比对状态', 'VARCHAR(8)'],
     ]),
   },
 ]

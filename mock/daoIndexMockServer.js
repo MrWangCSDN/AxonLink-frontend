@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 /**
  * DAO 索引巡检 · 开发期 mock 中间件
  *
@@ -1167,9 +1169,232 @@ export function replayHeaderFilterOptions(query = {}) {
   return replayHeaderFilterOptionCounts(query).items.map(item => item.value)
 }
 
+const DB_COMPARE_VERSION_PREFIX = '/api/ai/parallel-replay/database-comparison-fields/versions'
+const DB_COMPARE_DOMAINS = ['存款组', '贷款组', '公共组', '结算组', '平台组']
+const DB_COMPARE_MODULES = {
+  存款组: 'dept',
+  贷款组: 'loan',
+  公共组: 'comm',
+  结算组: 'sett',
+  平台组: 'platform',
+}
+const DB_COMPARE_PEOPLE = [
+  { empNo: 'c-zhangs', name: '张三' },
+  { empNo: 'c-lisi', name: '李四' },
+  { empNo: 'c-wangwu', name: '王五' },
+  { empNo: 'c-zhaoliu', name: '赵六' },
+]
+
+function buildDatabaseComparisonSnapshot(total, revision = 0) {
+  return Array.from({ length: total }, (_, index) => {
+    const domainName = DB_COMPARE_DOMAINS[index % DB_COMPARE_DOMAINS.length]
+    const reviser = domainName === '存款组' ? DB_COMPARE_PEOPLE[0] : DB_COMPARE_PEOPLE[(index + revision) % DB_COMPARE_PEOPLE.length]
+    const groupOwner = DB_COMPARE_PEOPLE[(index + 1 + revision) % DB_COMPARE_PEOPLE.length]
+    const domainCode = ['deposit', 'loan', 'common', 'settlement', 'platform'][index % DB_COMPARE_DOMAINS.length]
+    const number = String(index + 1).padStart(3, '0')
+    const extraFields = Array.from({ length: 3 + ((index + revision) % 6) }, (_, fieldIndex) => ({
+      columnName: ['customer_no', 'currency_cd', 'balance_amt', 'status_cd', 'branch_no', 'product_cd', 'updated_at', 'txn_sn'][fieldIndex],
+      columnComment: ['客户号', '币种', '余额', '状态', '机构号', '产品代码', '更新时间', '交易流水'][fieldIndex],
+      primaryKey: false,
+      comparisonOrder: fieldIndex + 2,
+    }))
+    return {
+      sourceRegistrationId: index + 1,
+      sourceRegistrationVersion: revision + 1,
+      tableName: `${domainCode}_replay_compare_${number}`,
+      tableComment: `${domainName}回放比对快照表${number}`,
+      domainName,
+      reviserEmpNo: reviser.empNo,
+      reviserName: reviser.name,
+      groupOwnerEmpNo: groupOwner.empNo,
+      groupOwnerName: groupOwner.name,
+      registeredDate: `2026-09-${String(((index + revision) % 14) + 1).padStart(2, '0')}`,
+      fields: [
+        { columnName: 'acct_no', columnComment: '账号', primaryKey: true, comparisonOrder: 1 },
+        ...extraFields,
+      ],
+    }
+  })
+}
+
+function databaseComparisonVersionNo(date = new Date()) {
+  const part = value => String(value).padStart(2, '0')
+  return `${date.getFullYear()}${part(date.getMonth() + 1)}${part(date.getDate())}-${part(date.getHours())}${part(date.getMinutes())}${part(date.getSeconds())}`
+}
+
+function databaseComparisonLocalDateTime(date = new Date()) {
+  const part = value => String(value).padStart(2, '0')
+  return `${date.getFullYear()}-${part(date.getMonth() + 1)}-${part(date.getDate())}T${part(date.getHours())}:${part(date.getMinutes())}:${part(date.getSeconds())}`
+}
+
+function databaseComparisonVersionSummary(versionNo, generatedName, generatedAt, snapshot, latest = false) {
+  return {
+    versionNo,
+    generatedBy: generatedName === '系统' ? 'system' : 'c-mock-current',
+    generatedName,
+    generatedAt,
+    tableCount: snapshot.length,
+    fieldCount: snapshot.reduce((total, row) => total + row.fields.length, 0),
+    latest,
+  }
+}
+
+function escapeDatabaseComparisonSqlLiteral(value) {
+  return String(value ?? '').replaceAll("'", "''")
+}
+
+function databaseComparisonInsert(tableName, columns, rows) {
+  const batches = []
+  for (let offset = 0; offset < rows.length; offset += 500) {
+    batches.push(`INSERT INTO ${tableName} (${columns.join(',')}) VALUES\n${rows.slice(offset, offset + 500).join(',\n')};`)
+  }
+  return batches.join('\n')
+}
+
+function buildDatabaseComparisonConfigScript(version) {
+  const sortedSnapshot = [...version.snapshot].sort((left, right) => (
+    DB_COMPARE_DOMAINS.indexOf(left.domainName) - DB_COMPARE_DOMAINS.indexOf(right.domainName)
+    || left.tableName.localeCompare(right.tableName, 'en', { sensitivity: 'base' })
+  ))
+  const confRows = []
+  const fieldRows = []
+  const tableSqlRows = []
+  let fieldCount = 0
+  sortedSnapshot.forEach((table, tableIndex) => {
+    const bcompIndex = tableIndex + 1
+    const tableName = escapeDatabaseComparisonSqlLiteral(table.tableName)
+    const tableMemoBase = String(table.tableComment || table.tableName)
+    const tableMemo = escapeDatabaseComparisonSqlLiteral(
+      tableMemoBase.endsWith('比对') ? tableMemoBase : `${tableMemoBase}比对`,
+    )
+    confRows.push(`(${bcompIndex},'${DB_COMPARE_MODULES[table.domainName]}','${tableName}','${tableMemo}','2','1','3','1')`)
+    const fields = [...table.fields].sort((left, right) => left.comparisonOrder - right.comparisonOrder)
+    fields.forEach((field, fieldIndex) => {
+      const fieldName = escapeDatabaseComparisonSqlLiteral(field.columnName)
+      const fieldMemo = escapeDatabaseComparisonSqlLiteral(field.columnComment || field.columnName)
+      const fieldOrder = fieldIndex + 1
+      fieldRows.push(`(${bcompIndex},'${fieldName}','1','${fieldMemo}','${fieldOrder}','${fieldOrder}','${field.primaryKey ? '1' : '0'}','0')`)
+    })
+    fieldCount += fields.length
+    const selectFields = fields.map(field => field.columnName).join(',')
+    const selectSql = `(select ${selectFields} from ${table.tableName})`
+    tableSqlRows.push(`(${bcompIndex},'${selectSql} orig',1,'${selectSql} dest',2)`)
+  })
+  const sql = [
+    'START TRANSACTION;',
+    'TRUNCATE TABLE tss_bcomp_field;',
+    'TRUNCATE TABLE tss_bcomp_table_sql;',
+    'TRUNCATE TABLE tss_bcomp_conf;',
+    databaseComparisonInsert(
+      'tss_bcomp_conf',
+      ['bcomp_index', 'bcomp_module', 'bcomp_name', 'bcomp_memo', 'bcomp_type', 'bcomp_range', 'bcomp_time_node', 'bcomp_state'],
+      confRows,
+    ),
+    databaseComparisonInsert(
+      'tss_bcomp_field',
+      ['bcomp_index', 'field_name', 'field_type', 'field_memo', 'field_old_index', 'field_new_index', 'field_index_flag', 'field_enum_flag'],
+      fieldRows,
+    ),
+    databaseComparisonInsert(
+      'tss_bcomp_table_sql',
+      ['bcomp_index', 'orig_sql', 'orig_database_id', 'dest_sql', 'dest_database_id'],
+      tableSqlRows,
+    ),
+    'COMMIT;',
+    `-- 版本号：${version.summary.versionNo}`,
+    `-- 表数：${sortedSnapshot.length}`,
+    `-- 字段数：${fieldCount}`,
+    '',
+  ].join('\n')
+  const content = Buffer.from(sql, 'utf8')
+  return {
+    fileName: `replay-db-compare-config-${version.summary.versionNo}.sql`,
+    content,
+    sha256: createHash('sha256').update(content).digest('hex'),
+    scriptSize: content.byteLength,
+    generatedBy: 'c-mock-current',
+    generatedName: '当前Mock用户',
+    generatedAt: databaseComparisonLocalDateTime(),
+  }
+}
+
+function databaseComparisonConfigScriptStatus(artifact) {
+  if (!artifact) return { generated: false }
+  return {
+    generated: true,
+    fileName: artifact.fileName,
+    scriptSize: artifact.scriptSize,
+    sha256: artifact.sha256,
+    generatedBy: artifact.generatedBy,
+    generatedName: artifact.generatedName,
+    generatedAt: artifact.generatedAt,
+  }
+}
+
+function downloadDatabaseComparisonConfigScript(res, artifact) {
+  res.statusCode = 200
+  res.setHeader('Content-Type', 'application/sql; charset=UTF-8')
+  res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(artifact.fileName)}`)
+  res.setHeader('X-Content-Sha256', artifact.sha256)
+  return res.end(artifact.content)
+}
+
+function filterDatabaseComparisonSnapshot(snapshot, query = {}) {
+  const contains = (value, keyword) => String(value || '').toLocaleLowerCase().includes(String(keyword || '').trim().toLocaleLowerCase())
+  const selected = (values, value) => !Array.isArray(values) || !values.length || values.includes(value)
+  return snapshot.filter(row => (
+    (!query.tableKeyword || contains(`${row.tableName} ${row.tableComment}`, query.tableKeyword))
+    && (!query.fieldKeyword || row.fields.some(field => contains(`${field.columnName} ${field.columnComment}`, query.fieldKeyword)))
+    && selected(query.domains, row.domainName)
+    && selected(query.reviserEmpNos, row.reviserEmpNo)
+    && selected(query.groupOwnerEmpNos, row.groupOwnerEmpNo)
+    && (!query.registeredDateFrom || row.registeredDate >= query.registeredDateFrom)
+    && (!query.registeredDateTo || row.registeredDate <= query.registeredDateTo)
+  ))
+}
+
+function databaseComparisonHeaderOptions(snapshot, query = {}) {
+  const columns = {
+    domainName: row => ({ value: row.domainName, label: row.domainName }),
+    reviser: row => ({ value: row.reviserEmpNo, label: `${row.reviserName}(${row.reviserEmpNo})` }),
+    groupOwner: row => ({ value: row.groupOwnerEmpNo, label: `${row.groupOwnerName}(${row.groupOwnerEmpNo})` }),
+  }
+  const readOption = columns[query.targetColumn]
+  if (!readOption) return { options: [], matchedRegistrationCount: snapshot.length }
+  const keyword = String(query.keyword || '').trim().toLocaleLowerCase()
+  const counts = new Map()
+  snapshot.forEach(row => {
+    const option = readOption(row)
+    if (keyword && !`${option.value} ${option.label}`.toLocaleLowerCase().includes(keyword)) return
+    const existing = counts.get(option.value) || { ...option, count: 0 }
+    existing.count += 1
+    counts.set(option.value, existing)
+  })
+  const limit = Math.max(1, Number(query.limit || 200))
+  return {
+    options: [...counts.values()].sort((left, right) => left.label.localeCompare(right.label, 'zh-CN')).slice(0, limit),
+    matchedRegistrationCount: snapshot.length,
+  }
+}
+
 // ────────────── Vite 插件 ──────────────
 
 export function daoIndexMockPlugin() {
+  const initialSnapshots = [
+    ['20260914-160001', '当前Mock用户', '2026-09-14T16:00:01', buildDatabaseComparisonSnapshot(80, 0)],
+    ['20260913-143020', '张三', '2026-09-13T14:30:20', buildDatabaseComparisonSnapshot(60, 1)],
+    ['20260912-091530', '系统', '2026-09-12T09:15:30', buildDatabaseComparisonSnapshot(40, 2)],
+  ]
+  const databaseComparisonVersions = initialSnapshots.map(([versionNo, generatedName, generatedAt, snapshot], index) => ({
+    summary: databaseComparisonVersionSummary(versionNo, generatedName, generatedAt, snapshot, index === 0),
+    snapshot,
+  }))
+  const databaseComparisonConfigScripts = new Map()
+  const preGeneratedVersion = databaseComparisonVersions.find(item => item.summary.versionNo === '20260913-143020')
+  databaseComparisonConfigScripts.set(
+    preGeneratedVersion.summary.versionNo,
+    buildDatabaseComparisonConfigScript(preGeneratedVersion),
+  )
   const generatedDailyReports = new Map([
     ['RPT20260818-01', '2026-08-18T11:00:00'],
     ['RPT20260825-01', '2026-08-25T11:00:00'],
@@ -1196,6 +1421,102 @@ export function daoIndexMockPlugin() {
       server.middlewares.use((req, res, next) => {
         const url = req.url || ''
         const path = url.split('?')[0]
+        if (url.startsWith(DB_COMPARE_VERSION_PREFIX)) {
+          const versionPath = path.slice(DB_COMPARE_VERSION_PREFIX.length)
+          if (req.method === 'GET' && versionPath === '/latest') {
+            return ok(res, databaseComparisonVersions[0]?.summary || null)
+          }
+          if (req.method === 'GET' && versionPath === '') {
+            const query = parseQuery(url)
+            const page = Math.max(0, Number(query.page || 0))
+            const size = Math.max(1, Number(query.size || 20))
+            return ok(res, {
+              items: databaseComparisonVersions.slice(page * size, (page + 1) * size).map(item => item.summary),
+              page,
+              size,
+              total: databaseComparisonVersions.length,
+            })
+          }
+          if (req.method === 'POST' && versionPath === '/generate') {
+            if (req.headers['x-dii-trigger-token'] !== 'secret') {
+              res.statusCode = 401
+              return res.end(JSON.stringify({
+                code: 401,
+                message: '口令错误',
+                data: { errorCode: 'INVALID_TRIGGER_TOKEN' },
+              }))
+            }
+            const snapshot = buildDatabaseComparisonSnapshot(80, 0)
+            const generatedAt = new Date()
+            let versionNo = databaseComparisonVersionNo(generatedAt)
+            if (databaseComparisonVersions.some(item => item.summary.versionNo === versionNo)) {
+              generatedAt.setSeconds(generatedAt.getSeconds() + 1)
+              versionNo = databaseComparisonVersionNo(generatedAt)
+            }
+            databaseComparisonVersions.forEach(item => { item.summary.latest = false })
+            const summary = databaseComparisonVersionSummary(
+              versionNo,
+              '当前Mock用户',
+              databaseComparisonLocalDateTime(generatedAt),
+              snapshot,
+              true,
+            )
+            databaseComparisonVersions.unshift({ summary, snapshot })
+            return ok(res, summary)
+          }
+          const configScriptRoute = versionPath.match(/^\/([^/]+)\/config-script(?:\/(download))?$/)
+          if (configScriptRoute) {
+            const versionNo = decodeURIComponent(configScriptRoute[1])
+            const version = databaseComparisonVersions.find(item => item.summary.versionNo === versionNo)
+            if (!version) {
+              res.statusCode = 404
+              return res.end(JSON.stringify({ code: 404, message: '版本不存在' }))
+            }
+            const artifact = databaseComparisonConfigScripts.get(versionNo)
+            if (req.method === 'GET' && !configScriptRoute[2]) {
+              return ok(res, databaseComparisonConfigScriptStatus(artifact))
+            }
+            if (req.method === 'GET' && configScriptRoute[2] === 'download') {
+              if (!artifact) {
+                res.statusCode = 404
+                return res.end(JSON.stringify({
+                  code: 404,
+                  message: '配置脚本尚未生成',
+                  data: { errorCode: 'CONFIG_SCRIPT_NOT_GENERATED' },
+                }))
+              }
+              return downloadDatabaseComparisonConfigScript(res, artifact)
+            }
+            if (req.method === 'POST' && !configScriptRoute[2]) {
+              const storedArtifact = artifact || buildDatabaseComparisonConfigScript(version)
+              if (!artifact) databaseComparisonConfigScripts.set(versionNo, storedArtifact)
+              return downloadDatabaseComparisonConfigScript(res, storedArtifact)
+            }
+          }
+          const route = versionPath.match(/^\/([^/]+)\/(search|header-filter-options)$/)
+          if (req.method === 'POST' && route) {
+            const versionNo = decodeURIComponent(route[1])
+            const version = databaseComparisonVersions.find(item => item.summary.versionNo === versionNo)
+            if (!version) {
+              res.statusCode = 404
+              return res.end(JSON.stringify({ code: 404, message: '版本不存在' }))
+            }
+            return readJsonBody(req).then((query) => {
+              if (route[2] === 'header-filter-options') {
+                return ok(res, databaseComparisonHeaderOptions(version.snapshot, query))
+              }
+              const rows = filterDatabaseComparisonSnapshot(version.snapshot, query)
+              const page = Math.max(0, Number(query.page || 0))
+              const size = Math.max(1, Number(query.size || 50))
+              return ok(res, {
+                items: rows.slice(page * size, (page + 1) * size),
+                page,
+                size,
+                total: rows.length,
+              })
+            })
+          }
+        }
         if (url.startsWith('/api/ai/parallel-replay/issues')) {
           if (req.method === 'POST' && (path === '/api/ai/parallel-replay/issues'
               || path.endsWith('/header-filter-option-counts'))) {

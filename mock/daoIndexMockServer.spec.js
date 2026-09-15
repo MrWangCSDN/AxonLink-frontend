@@ -65,6 +65,140 @@ function replayServer() {
   }
 }
 
+function databaseComparisonServer() {
+  const middlewares = []
+  replayMock.daoIndexMockPlugin().configureServer({ middlewares: { use: handler => middlewares.push(handler) } })
+  return async function request(method, path, body, headers = {}) {
+    const req = Readable.from(body === undefined ? [] : [JSON.stringify(body)])
+    req.method = method
+    req.url = `/api/ai/parallel-replay/database-comparison-fields${path}`
+    req.headers = headers
+    return new Promise((resolve, reject) => {
+      const responseHeaders = {}
+      const res = {
+        statusCode: 200,
+        setHeader(name, value) { responseHeaders[name.toLowerCase()] = value },
+        end(payload) {
+          const contentType = responseHeaders['content-type'] || ''
+          if (contentType.includes('application/sql')) {
+            resolve({ status: this.statusCode, headers: responseHeaders, data: Buffer.from(payload) })
+            return
+          }
+          const parsed = JSON.parse(String(payload))
+          resolve({ status: this.statusCode, headers: responseHeaders, data: parsed.data, message: parsed.message })
+        },
+      }
+      middlewares[0](req, res, () => reject(new Error(`database comparison route ${path} was not handled`)))
+    })
+  }
+}
+
+describe('replay database comparison version mock', () => {
+  it('provides three immutable version summaries and the latest version', async () => {
+    const request = databaseComparisonServer()
+
+    const latest = await request('GET', '/versions/latest')
+    const versions = await request('GET', '/versions?page=0&size=20')
+
+    expect(latest.data).toMatchObject({ versionNo: '20260914-160001', latest: true })
+    expect(versions.data).toMatchObject({ page: 0, size: 20, total: 3 })
+    expect(versions.data.items.map(item => item.versionNo)).toEqual([
+      '20260914-160001', '20260913-143020', '20260912-091530',
+    ])
+    expect(versions.data.items[0]).toMatchObject({ tableCount: expect.any(Number), fieldCount: expect.any(Number) })
+  })
+
+  it('filters and paginates a selected version snapshot', async () => {
+    const request = databaseComparisonServer()
+
+    const result = await request('POST', '/versions/20260914-160001/search', {
+      tableKeyword: 'deposit',
+      fieldKeyword: 'acct_no',
+      domains: ['存款组'],
+      reviserEmpNos: ['c-zhangs'],
+      page: 0,
+      size: 5,
+    })
+
+    expect(result.data.page).toBe(0)
+    expect(result.data.size).toBe(5)
+    expect(result.data.total).toBeGreaterThan(5)
+    expect(result.data.items).toHaveLength(5)
+    expect(result.data.items.every(item => item.domainName === '存款组')).toBe(true)
+    expect(result.data.items.every(item => item.reviserEmpNo === 'c-zhangs')).toBe(true)
+    expect(result.data.items.every(item => item.fields.some(field => field.columnName === 'acct_no'))).toBe(true)
+  })
+
+  it('provides counted filter options for snapshot headers', async () => {
+    const request = databaseComparisonServer()
+
+    const result = await request('POST', '/versions/20260914-160001/header-filter-options', {
+      targetColumn: 'reviser', keyword: '张', limit: 200,
+    })
+
+    expect(result.data.matchedRegistrationCount).toBeGreaterThan(0)
+    expect(result.data.options).toEqual(expect.arrayContaining([
+      expect.objectContaining({ value: 'c-zhangs', label: '张三(c-zhangs)', count: expect.any(Number) }),
+    ]))
+  })
+
+  it('rejects a wrong token and creates a new latest snapshot with the shared token', async () => {
+    const request = databaseComparisonServer()
+
+    const unauthorized = await request('POST', '/versions/generate', undefined, { 'x-dii-trigger-token': 'wrong' })
+    expect(unauthorized.status).toBe(401)
+    expect(unauthorized.data.errorCode).toBe('INVALID_TRIGGER_TOKEN')
+
+    const generated = await request('POST', '/versions/generate', undefined, { 'x-dii-trigger-token': 'secret' })
+    expect(generated.data).toMatchObject({ versionNo: expect.stringMatching(/^\d{8}-\d{6}$/), tableCount: 80, fieldCount: expect.any(Number) })
+    expect(generated.data.generatedAt.replace(/[-:T]/g, '').slice(0, 14))
+      .toBe(generated.data.versionNo.replace('-', ''))
+
+    const latest = await request('GET', '/versions/latest')
+    expect(latest.data.versionNo).toBe(generated.data.versionNo)
+    expect(latest.data.latest).toBe(true)
+  })
+
+  it('generates one immutable script and serves generated and ungenerated version states', async () => {
+    const request = databaseComparisonServer()
+
+    const initial = await request('GET', '/versions/20260914-160001/config-script')
+    const preGenerated = await request('GET', '/versions/20260913-143020/config-script')
+    const missingDownload = await request(
+      'GET', '/versions/20260914-160001/config-script/download',
+    )
+
+    expect(initial.data).toEqual({ generated: false })
+    expect(preGenerated.data).toMatchObject({
+      generated: true,
+      fileName: 'replay-db-compare-config-20260913-143020.sql',
+    })
+    expect(missingDownload.status).toBe(404)
+    expect(missingDownload.data.errorCode).toBe('CONFIG_SCRIPT_NOT_GENERATED')
+
+    const first = await request('POST', '/versions/20260914-160001/config-script')
+    const second = await request('POST', '/versions/20260914-160001/config-script')
+    const downloaded = await request(
+      'GET', '/versions/20260914-160001/config-script/download',
+    )
+    const generatedStatus = await request('GET', '/versions/20260914-160001/config-script')
+
+    expect(first.headers['content-type']).toContain('application/sql')
+    expect(first.headers['content-disposition']).toContain(
+      "filename*=UTF-8''replay-db-compare-config-20260914-160001.sql",
+    )
+    expect(first.data.toString()).toContain('TRUNCATE TABLE tss_bcomp_field;')
+    expect(first.data.toString()).toContain('INSERT INTO tss_bcomp_conf')
+    expect(first.data.toString()).toContain('INSERT INTO tss_bcomp_table_sql')
+    expect(second.data.equals(first.data)).toBe(true)
+    expect(downloaded.data.equals(first.data)).toBe(true)
+    expect(generatedStatus.data).toMatchObject({
+      generated: true,
+      sha256: first.headers['x-content-sha256'],
+    })
+  })
+})
+
 describe('replay issue counted header filter mock', () => {
   it('serves list and counted filters from POST JSON bodies', async () => {
     const request = replayServer()

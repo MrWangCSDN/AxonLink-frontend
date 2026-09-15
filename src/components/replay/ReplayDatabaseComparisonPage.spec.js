@@ -314,7 +314,7 @@ describe('ReplayDatabaseComparisonPage', () => {
     expect(wrapper.get('[data-testid="table-name-acct_master"]').text()).toContain('acct_master')
     expect(wrapper.get('[data-testid="table-name-acct_master"]').text()).toContain('账户主表')
     expect(wrapper.get('[data-testid="fields-acct_master"]').text()).toContain('acct_no(账号)')
-    expect(wrapper.get('[data-testid="reviser-acct_master"]').text()).toContain('张三（c-zhangs）')
+    expect(wrapper.get('[data-testid="reviser-acct_master"]').text()).toContain('张三(c-zhangs)')
 
     await wrapper.get('[data-filter-key="tableName"]').trigger('click')
     await flushPromises()

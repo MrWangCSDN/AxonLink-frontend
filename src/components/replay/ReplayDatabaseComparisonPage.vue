@@ -615,7 +615,7 @@ const mapField = field => ({
 const formatPerson = (name, username, employeeNumber) => {
   const displayName = String(name || '').trim()
   const account = String(username || employeeNumber || '').trim()
-  if (displayName && account) return `${displayName}（${account}）`
+  if (displayName && account) return `${displayName}(${account})`
   return displayName || account
 }
 const mapRegistration = registration => ({

@@ -56,10 +56,10 @@ async function verifySessionBeforeRedirect(url) {
 
 // 导出供其他 api/ 子模块复用（如 api/daoIndex.js）
 export async function request(url, options = {}) {
-  const headers = {
-    'Content-Type': 'application/json',
-    ...(options.headers || {}),
-  }
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData
+  const headers = isFormData
+    ? { ...(options.headers || {}) }
+    : { 'Content-Type': 'application/json', ...(options.headers || {}) }
   const res = await fetch(BASE + url, {
     ...options,
     headers,

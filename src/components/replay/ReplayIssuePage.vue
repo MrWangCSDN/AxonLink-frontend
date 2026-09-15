@@ -518,6 +518,11 @@
           <small v-if="dailyReportError" class="replay-daily-report-error">{{ dailyReportError }}</small>
         </template>
         <footer>
+          <button v-if="dailyReportSelectedEntry?.generated" class="replay-button replay-button-secondary" type="button" data-testid="daily-report-regenerate"
+                  :disabled="dailyReportLoading || dailyReportDownloading" @click="openReportRegenerate('daily')">
+            <RefreshCw :size="15" aria-hidden="true" />
+            重新生成
+          </button>
           <button v-if="dailyReportSelectedEntry?.generated" class="replay-button replay-button-secondary" type="button" data-testid="daily-report-mail-button"
                   :disabled="dailyReportLoading || dailyReportDownloading || dailyReportSelectedEntry?.mailStatus === 'SENDING'" @click="openDailyReportMail">
             <Mail :size="15" aria-hidden="true" />
@@ -539,14 +544,14 @@
         <header>
           <div>
             <h3 id="replay-weekly-report-title">生成周报</h3>
-            <p>选择两个已生成日报的同类批次，周报生成后永久保存并可直接下载。</p>
+            <p>选择两个存在日报数据的同类批次，周报生成后永久保存并可直接下载。</p>
           </div>
           <button class="replay-icon-button" type="button" data-testid="weekly-report-close" title="关闭周报窗口" aria-label="关闭周报窗口" :disabled="weeklyReportLoading" @click="closeWeeklyReport"><X :size="16" aria-hidden="true" /></button>
         </header>
         <p v-if="weeklyReportLoading" class="replay-loading-status">正在加载日报批次…</p>
         <template v-else-if="weeklyReportDailyBatches.length < 2 && weeklyReportReports.length === 0">
           <small v-if="weeklyReportError" class="replay-daily-report-error">{{ weeklyReportError }}</small>
-          <p v-else class="replay-empty-tip">至少需要两个同类且已生成日报的批次</p>
+          <p v-else class="replay-empty-tip">至少需要两个同类且存在日报数据的批次</p>
         </template>
         <template v-else>
           <label class="replay-daily-report-picker replay-weekly-report-history-picker">
@@ -589,6 +594,11 @@
           <small v-if="weeklyReportError" class="replay-daily-report-error">{{ weeklyReportError }}</small>
         </template>
         <footer>
+          <button v-if="weeklyReportSelectedEntry" class="replay-button replay-button-secondary" type="button" data-testid="weekly-report-regenerate"
+                  :disabled="weeklyReportLoading || weeklyReportDownloading" @click="openReportRegenerate('weekly')">
+            <RefreshCw :size="15" aria-hidden="true" />
+            重新生成
+          </button>
           <button v-if="weeklyReportSelectedEntry" class="replay-button replay-button-secondary" type="button" data-testid="weekly-report-mail-button"
                   :disabled="weeklyReportLoading || weeklyReportDownloading || weeklyReportSelectedEntry?.mailStatus === 'SENDING'" @click="openWeeklyReportMail">
             <Mail :size="15" aria-hidden="true" />
@@ -600,6 +610,27 @@
             {{ weeklyReportDownloading
               ? (weeklyReportSelectedEntry ? '下载中…' : '生成中…')
               : (weeklyReportSelectedEntry ? '下载 Excel' : '生成 Excel') }}
+          </button>
+        </footer>
+      </section>
+    </div>
+
+    <div v-if="reportRegenerateOpen" class="replay-modal-mask" :data-testid="`${reportRegenerateKind}-report-regenerate-mask`">
+      <section class="replay-import-modal replay-report-regenerate-modal" role="dialog" aria-modal="true" :data-testid="`${reportRegenerateKind}-report-regenerate-modal`">
+        <header>
+          <div>
+            <h3>重新生成{{ reportRegenerateKind === 'weekly' ? '周报' : '日报' }}</h3>
+            <p>将使用当前数据库数据覆盖已有 Excel，并重置邮件状态为未发送。</p>
+          </div>
+          <button class="replay-icon-button" type="button" :data-testid="`${reportRegenerateKind}-report-regenerate-close`" :disabled="reportRegenerateLoading" aria-label="关闭重新生成窗口" @click="closeReportRegenerate"><X :size="16" aria-hidden="true" /></button>
+        </header>
+        <label><span>操作口令</span><input v-model="reportRegenerateToken" :data-testid="`${reportRegenerateKind}-report-regenerate-token`" type="password" autocomplete="off" :disabled="reportRegenerateLoading" placeholder="X-DII-Trigger-Token" /></label>
+        <small v-if="reportRegenerateError" class="replay-daily-report-error">{{ reportRegenerateError }}</small>
+        <footer>
+          <button class="replay-button" type="button" :data-testid="`${reportRegenerateKind}-report-regenerate-cancel`" :disabled="reportRegenerateLoading" @click="closeReportRegenerate">取消</button>
+          <button class="replay-button replay-button-primary" type="button" :data-testid="`${reportRegenerateKind}-report-regenerate-submit`" :disabled="reportRegenerateLoading || !reportRegenerateToken.trim()" @click="submitReportRegenerate">
+            <RefreshCw :size="15" aria-hidden="true" />
+            {{ reportRegenerateLoading ? '重新生成中…' : '确认重新生成' }}
           </button>
         </footer>
       </section>
@@ -644,14 +675,22 @@
             <small>多个抄送人会分别显示，可单独删除</small>
           </div>
           <label><span>邮件正文</span><textarea v-model="dailyReportMailBody" :data-testid="`${reportMailKind}-report-mail-body`" rows="7" maxlength="10000" :disabled="dailyReportMailSending" placeholder="请输入邮件正文" /></label>
-          <p class="replay-daily-report-mail-attachment">附件：{{ reportMailAttachmentName }}（系统自动附加，不可删除或替换）</p>
+          <ReplayReportMailAttachments
+            :current-attachment="reportMailCurrentAttachment"
+            :selected-reports="reportMailSelectedReports"
+            :local-files="reportMailLocalFiles"
+            :disabled="dailyReportMailSending"
+            @update:selected-reports="reportMailSelectedReports = $event"
+            @update:local-files="reportMailLocalFiles = $event"
+            @validation-change="onReportMailAttachmentValidation"
+          />
           <label><span>操作口令</span><input v-model="dailyReportMailToken" :data-testid="`${reportMailKind}-report-mail-token`" type="password" autocomplete="off" :disabled="dailyReportMailSending" placeholder="X-DII-Trigger-Token" /></label>
           <small v-if="dailyReportMailError" class="replay-daily-report-error">{{ dailyReportMailError }}</small>
         </template>
         <footer>
           <button class="replay-button" type="button" :data-testid="`${reportMailKind}-report-mail-cancel`" :disabled="dailyReportMailSending" @click="closeDailyReportMail">取消</button>
           <button class="replay-button replay-button-primary" type="button" :data-testid="`${reportMailKind}-report-mail-submit`"
-                  :disabled="dailyReportMailLoading || dailyReportMailSending || !dailyReportMailSubject.trim() || (!dailyReportMailToEmails.length && !dailyReportMailTo.trim()) || !dailyReportMailBody.trim() || !dailyReportMailToken.trim()" @click="submitDailyReportMail">
+                  :disabled="dailyReportMailLoading || dailyReportMailSending || !reportMailAttachmentsValid || !dailyReportMailSubject.trim() || (!dailyReportMailToEmails.length && !dailyReportMailTo.trim()) || !dailyReportMailBody.trim() || !dailyReportMailToken.trim()" @click="submitDailyReportMail">
             <Mail :size="15" aria-hidden="true" />
             {{ dailyReportMailSending ? '发送中…' : '确认发送' }}
           </button>
@@ -837,9 +876,10 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { ArrowDownWideNarrow, ArrowUpNarrowWide, BarChart3, CalendarRange, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, Download, FileSpreadsheet, Flag, HelpCircle, History as HistoryIcon, Mail, Menu, Minus, Pencil, Save, Search, Upload, Users, X } from 'lucide-vue-next'
-import { approveReplayIssue, exportReplayIssues, getReplayImportRounds, getReplayIssueDomainPermissions, getReplayIssueDomainTransfers, getReplayIssueGroupSummaries, getReplayIssueHeaderFilterOptionCounts, getReplayIssueMailStatus, getReplayIssueOptions, getReplayIssuePersonRankings, getReplayIssuePersonSchedule, getReplayIssueReviewPermissions, getReplayIssuePlanDatePermissions, getReplayIssuePlanDateChanges, getReplayIssueRoundTracking, getReplayIssueStats, getReplayWeeklyTask, replaceReplayWeeklyTask, getReplayDailyReportBatches, downloadReplayDailyReport, getReplayDailyReportMailConfig, sendReplayDailyReportMail, getReplayWeeklyReportOptions, downloadReplayWeeklyReport, getReplayWeeklyReportMailConfig, sendReplayWeeklyReportMail, importReplayIssues, listReplayIssues, searchReplayIssueUsers, sendReplayIssueMail, updateReplayIssue, updateReplayIssueDomain, updateReplayIssuePlannedCompletionDate } from '../../api/replayIssues.js'
+import { ArrowDownWideNarrow, ArrowUpNarrowWide, BarChart3, CalendarRange, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, Download, FileSpreadsheet, Flag, HelpCircle, History as HistoryIcon, Mail, Menu, Minus, Pencil, RefreshCw, Save, Search, Upload, Users, X } from 'lucide-vue-next'
+import { approveReplayIssue, exportReplayIssues, getReplayImportRounds, getReplayIssueDomainPermissions, getReplayIssueDomainTransfers, getReplayIssueGroupSummaries, getReplayIssueHeaderFilterOptionCounts, getReplayIssueMailStatus, getReplayIssueOptions, getReplayIssuePersonRankings, getReplayIssuePersonSchedule, getReplayIssueReviewPermissions, getReplayIssuePlanDatePermissions, getReplayIssuePlanDateChanges, getReplayIssueRoundTracking, getReplayIssueStats, getReplayWeeklyTask, replaceReplayWeeklyTask, getReplayDailyReportBatches, downloadReplayDailyReport, regenerateReplayDailyReport, getReplayDailyReportMailConfig, sendReplayDailyReportMail, getReplayWeeklyReportOptions, downloadReplayWeeklyReport, regenerateReplayWeeklyReport, getReplayWeeklyReportMailConfig, sendReplayWeeklyReportMail, importReplayIssues, listReplayIssues, searchReplayIssueUsers, sendReplayIssueMail, updateReplayIssue, updateReplayIssueDomain, updateReplayIssuePlannedCompletionDate } from '../../api/replayIssues.js'
 import ReplayPlannedCompletionModal from './ReplayPlannedCompletionModal.vue'
+import ReplayReportMailAttachments from './ReplayReportMailAttachments.vue'
 import ReplayTrackingValue from './ReplayTrackingValue.vue'
 import { replayModalMotionVariables, waitForReplayModalMotion } from './replayModalMotion.js'
 
@@ -1100,6 +1140,10 @@ const dailyReportMailCcEmails = ref([])
 const dailyReportMailBody = ref('')
 const dailyReportMailToken = ref('')
 const dailyReportMailError = ref('')
+const reportMailCurrentAttachment = ref({})
+const reportMailSelectedReports = ref([])
+const reportMailLocalFiles = ref([])
+const reportMailAttachmentsValid = ref(true)
 const reportMailKind = ref('daily')
 const weeklyReportOpen = ref(false)
 const weeklyReportDailyBatches = ref([])
@@ -1111,6 +1155,11 @@ const weeklyReportLoading = ref(false)
 const weeklyReportDownloading = ref(false)
 const weeklyReportError = ref('')
 const weeklyReportSuccess = ref('')
+const reportRegenerateOpen = ref(false)
+const reportRegenerateKind = ref('daily')
+const reportRegenerateToken = ref('')
+const reportRegenerateLoading = ref(false)
+const reportRegenerateError = ref('')
 const weeklyReportHistoryMode = computed(() => Boolean(weeklyReportSelectedHistoryBatch.value))
 const weeklyReportOccupiedEndBatches = computed(() => new Set(weeklyReportReports.value.map(entry => entry.endBatchNo)))
 const weeklyReportStartOptions = computed(() => weeklyReportDailyBatches.value.filter((entry, index, entries) =>
@@ -1130,9 +1179,6 @@ const weeklyReportSelectedEntry = computed(() => weeklyReportReports.value.find(
 const weeklyReportMailStatusLabel = computed(() => ({
   UNSENT: '未发送', SENDING: '发送中', SENT: '已发送', FAILED: '发送失败',
 }[weeklyReportSelectedEntry.value?.mailStatus] || '未发送'))
-const reportMailAttachmentName = computed(() => reportMailKind.value === 'weekly'
-  ? `${weeklyReportEndBatch.value}周报.xlsx`
-  : `${dailyReportSelectedBatch.value}日报.xlsx`)
 watch(weeklyReportStartBatch, () => {
   if (weeklyReportHistoryMode.value) return
   if (!weeklyReportEndOptions.value.some(entry => entry.batchNo === weeklyReportEndBatch.value)) {
@@ -2475,7 +2521,7 @@ async function loadDailyReportBatches({ preserveSelection = false } = {}) {
 }
 
 function closeDailyReport() {
-  if (dailyReportDownloading.value || dailyReportMailOpen.value) return
+  if (dailyReportDownloading.value || dailyReportMailOpen.value || reportRegenerateOpen.value) return
   dailyReportOpen.value = false
 }
 
@@ -2545,8 +2591,45 @@ function selectWeeklyReportHistory(event) {
 }
 
 function closeWeeklyReport() {
-  if (weeklyReportDownloading.value || (dailyReportMailOpen.value && reportMailKind.value === 'weekly')) return
+  if (weeklyReportDownloading.value || reportRegenerateOpen.value
+    || (dailyReportMailOpen.value && reportMailKind.value === 'weekly')) return
   weeklyReportOpen.value = false
+}
+
+function openReportRegenerate(kind) {
+  reportRegenerateKind.value = kind
+  reportRegenerateToken.value = ''
+  reportRegenerateError.value = ''
+  reportRegenerateOpen.value = true
+}
+
+function closeReportRegenerate() {
+  if (!reportRegenerateLoading.value) reportRegenerateOpen.value = false
+}
+
+async function submitReportRegenerate() {
+  const token = reportRegenerateToken.value.trim()
+  if (!token || reportRegenerateLoading.value) return
+  reportRegenerateLoading.value = true
+  reportRegenerateError.value = ''
+  try {
+    if (reportRegenerateKind.value === 'weekly') {
+      await regenerateReplayWeeklyReport(
+        weeklyReportStartBatch.value, weeklyReportEndBatch.value, token)
+      weeklyReportSuccess.value = '周报已重新生成，邮件状态已重置'
+      reportRegenerateOpen.value = false
+      await loadWeeklyReportOptions({ preserveSelection: true, selectHistoryBatch: weeklyReportEndBatch.value })
+    } else {
+      await regenerateReplayDailyReport(dailyReportSelectedBatch.value, token)
+      dailyReportSuccess.value = '日报已重新生成，邮件状态已重置'
+      reportRegenerateOpen.value = false
+      await loadDailyReportBatches({ preserveSelection: true })
+    }
+  } catch (cause) {
+    reportRegenerateError.value = `重新生成失败：${cause?.message || cause}`
+  } finally {
+    reportRegenerateLoading.value = false
+  }
 }
 
 async function downloadSelectedWeeklyReport() {
@@ -2582,12 +2665,16 @@ async function openDailyReportMail() {
   dailyReportMailBody.value = ''
   dailyReportMailToken.value = ''
   dailyReportMailError.value = ''
+  resetReportMailAttachments()
   try {
     const config = await getReplayDailyReportMailConfig(entry.batchNo)
     dailyReportMailSubject.value = config?.subject || ''
     dailyReportMailToEmails.value = parseDailyReportMailEmails(config?.toEmails)
     dailyReportMailCcEmails.value = parseDailyReportMailEmails(config?.ccEmails)
     dailyReportMailBody.value = config?.body || ''
+    reportMailCurrentAttachment.value = config?.currentAttachment || {
+      fileName: `${entry.batchNo}日报.xlsx`, batchNo: entry.batchNo, size: 0, source: 'CURRENT_REPORT',
+    }
   } catch (cause) {
     dailyReportMailError.value = `加载邮件配置失败：${cause?.message || cause}`
   } finally {
@@ -2609,12 +2696,16 @@ async function openWeeklyReportMail() {
   dailyReportMailBody.value = ''
   dailyReportMailToken.value = ''
   dailyReportMailError.value = ''
+  resetReportMailAttachments()
   try {
     const config = await getReplayWeeklyReportMailConfig(entry.startBatchNo, entry.endBatchNo)
     dailyReportMailSubject.value = config?.subject || ''
     dailyReportMailToEmails.value = parseDailyReportMailEmails(config?.toEmails)
     dailyReportMailCcEmails.value = parseDailyReportMailEmails(config?.ccEmails)
     dailyReportMailBody.value = config?.body || ''
+    reportMailCurrentAttachment.value = config?.currentAttachment || {
+      fileName: `${entry.endBatchNo}周报.xlsx`, batchNo: entry.endBatchNo, size: 0, source: 'CURRENT_REPORT',
+    }
   } catch (cause) {
     dailyReportMailError.value = `加载邮件配置失败：${cause?.message || cause}`
   } finally {
@@ -2623,7 +2714,21 @@ async function openWeeklyReportMail() {
 }
 
 function closeDailyReportMail() {
-  if (!dailyReportMailSending.value) dailyReportMailOpen.value = false
+  if (!dailyReportMailSending.value) {
+    dailyReportMailOpen.value = false
+    resetReportMailAttachments()
+  }
+}
+
+function resetReportMailAttachments() {
+  reportMailCurrentAttachment.value = {}
+  reportMailSelectedReports.value = []
+  reportMailLocalFiles.value = []
+  reportMailAttachmentsValid.value = true
+}
+
+function onReportMailAttachmentValidation(state) {
+  reportMailAttachmentsValid.value = Boolean(state?.valid)
 }
 
 async function submitDailyReportMail() {
@@ -2633,7 +2738,8 @@ async function submitDailyReportMail() {
   const ccEmails = parseDailyReportMailEmails([...dailyReportMailCcEmails.value, dailyReportMailCc.value])
   const body = dailyReportMailBody.value.trim()
   const token = dailyReportMailToken.value.trim()
-  if (!batchNo || !subject || !toEmails.length || !body || !token || dailyReportMailSending.value) return
+  if (!batchNo || !subject || !toEmails.length || !body || !token
+      || !reportMailAttachmentsValid.value || dailyReportMailSending.value) return
   dailyReportMailToEmails.value = toEmails
   dailyReportMailCcEmails.value = ccEmails
   dailyReportMailTo.value = ''
@@ -2646,10 +2752,14 @@ async function submitDailyReportMail() {
         startBatchNo: weeklyReportStartBatch.value,
         endBatchNo: weeklyReportEndBatch.value,
         subject, toEmails, ccEmails, body,
-      }, token)
+        reportBatchNos: reportMailSelectedReports.value.map(item => item.batchNo),
+      }, reportMailLocalFiles.value, token)
       weeklyReportSuccess.value = '周报邮件已发送'
     } else {
-      await sendReplayDailyReportMail({ batchNo, subject, toEmails, ccEmails, body }, token)
+      await sendReplayDailyReportMail({
+        batchNo, subject, toEmails, ccEmails, body,
+        reportBatchNos: reportMailSelectedReports.value.map(item => item.batchNo),
+      }, reportMailLocalFiles.value, token)
       dailyReportSuccess.value = '日报邮件已发送'
     }
     dailyReportMailOpen.value = false

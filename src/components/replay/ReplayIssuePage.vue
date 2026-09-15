@@ -636,67 +636,71 @@
       </section>
     </div>
 
-    <div v-if="dailyReportMailOpen" class="replay-modal-mask replay-daily-report-mail-mask" :data-testid="`${reportMailKind}-report-mail-mask`">
-      <section class="replay-import-modal replay-daily-report-mail-modal" role="dialog" aria-modal="true" aria-labelledby="replay-daily-report-mail-title" :data-testid="`${reportMailKind}-report-mail-modal`">
-        <header>
-          <div>
-            <h3 id="replay-daily-report-mail-title">发送{{ reportMailKind === 'weekly' ? '周报' : '日报' }}邮件</h3>
-            <p>标题、收件人、抄送和正文可编辑；已生成的{{ reportMailKind === 'weekly' ? '周报' : '日报' }} Excel 将强制作为附件。</p>
-          </div>
-          <button class="replay-icon-button" type="button" :data-testid="`${reportMailKind}-report-mail-close`" title="关闭邮件窗口" aria-label="关闭邮件窗口" :disabled="dailyReportMailSending" @click="closeDailyReportMail"><X :size="16" aria-hidden="true" /></button>
-        </header>
-        <p v-if="dailyReportMailLoading" class="replay-loading-status">正在加载邮件配置…</p>
-        <template v-else>
-          <label><span>邮件标题</span><input v-model="dailyReportMailSubject" :data-testid="`${reportMailKind}-report-mail-subject`" type="text" maxlength="255" :disabled="dailyReportMailSending" /></label>
-          <div class="replay-daily-report-mail-field">
-            <span :data-testid="`${reportMailKind}-report-mail-to-label`">收件人（{{ dailyReportMailToEmails.length }}）</span>
-            <div class="replay-mail-address-editor replay-mail-address-editor-scrollable" :data-testid="`${reportMailKind}-report-mail-to-editor`" :class="{ 'is-disabled': dailyReportMailSending }">
-              <span v-for="email in dailyReportMailToEmails" :key="email" class="replay-mail-address-chip" :data-testid="`${reportMailKind}-report-mail-to-chip`">
-                <span>{{ email }}</span>
-                <button type="button" :data-testid="`${reportMailKind}-report-mail-to-remove`" :aria-label="`删除收件人 ${email}`" :disabled="dailyReportMailSending" @click="removeDailyReportMailEmail('to', email)">×</button>
-              </span>
-              <input v-model="dailyReportMailTo" :data-testid="`${reportMailKind}-report-mail-to`" type="text" :disabled="dailyReportMailSending"
-                     placeholder="输入邮箱后按回车" @keydown="onDailyReportMailEmailKeydown($event, 'to')"
-                     @input="onDailyReportMailEmailInput($event, 'to')" @paste="onDailyReportMailEmailPaste($event, 'to')" @blur="commitDailyReportMailEmails('to')" />
+    <Teleport to="body">
+      <div v-if="dailyReportMailOpen" class="replay-modal-mask replay-daily-report-mail-mask" :data-testid="`${reportMailKind}-report-mail-mask`">
+        <section class="replay-import-modal replay-daily-report-mail-modal" role="dialog" aria-modal="true" aria-labelledby="replay-daily-report-mail-title" :data-testid="`${reportMailKind}-report-mail-modal`">
+          <header>
+            <div>
+              <h3 id="replay-daily-report-mail-title">发送{{ reportMailKind === 'weekly' ? '周报' : '日报' }}邮件</h3>
+              <p>标题、收件人、抄送和正文可编辑；已生成的{{ reportMailKind === 'weekly' ? '周报' : '日报' }} Excel 将强制作为附件。</p>
             </div>
-            <small>支持回车、逗号或分号确认，也可以一次粘贴多个邮箱</small>
+            <button class="replay-icon-button" type="button" :data-testid="`${reportMailKind}-report-mail-close`" title="关闭邮件窗口" aria-label="关闭邮件窗口" :disabled="dailyReportMailSending" @click="closeDailyReportMail"><X :size="16" aria-hidden="true" /></button>
+          </header>
+          <div class="replay-daily-report-mail-content">
+            <p v-if="dailyReportMailLoading" class="replay-loading-status">正在加载邮件配置…</p>
+            <template v-else>
+              <label><span>邮件标题</span><input v-model="dailyReportMailSubject" :data-testid="`${reportMailKind}-report-mail-subject`" type="text" maxlength="255" :disabled="dailyReportMailSending" /></label>
+              <div class="replay-daily-report-mail-field">
+                <span :data-testid="`${reportMailKind}-report-mail-to-label`">收件人（{{ dailyReportMailToEmails.length }}）</span>
+                <div class="replay-mail-address-editor replay-mail-address-editor-scrollable" :data-testid="`${reportMailKind}-report-mail-to-editor`" :class="{ 'is-disabled': dailyReportMailSending }">
+                  <span v-for="email in dailyReportMailToEmails" :key="email" class="replay-mail-address-chip" :data-testid="`${reportMailKind}-report-mail-to-chip`">
+                    <span>{{ email }}</span>
+                    <button type="button" :data-testid="`${reportMailKind}-report-mail-to-remove`" :aria-label="`删除收件人 ${email}`" :disabled="dailyReportMailSending" @click="removeDailyReportMailEmail('to', email)">×</button>
+                  </span>
+                  <input v-model="dailyReportMailTo" :data-testid="`${reportMailKind}-report-mail-to`" type="text" :disabled="dailyReportMailSending"
+                         placeholder="输入邮箱后按回车" @keydown="onDailyReportMailEmailKeydown($event, 'to')"
+                         @input="onDailyReportMailEmailInput($event, 'to')" @paste="onDailyReportMailEmailPaste($event, 'to')" @blur="commitDailyReportMailEmails('to')" />
+                </div>
+                <small>支持回车、逗号或分号确认，也可以一次粘贴多个邮箱</small>
+              </div>
+              <div class="replay-daily-report-mail-field">
+                <span :data-testid="`${reportMailKind}-report-mail-cc-label`">抄送（{{ dailyReportMailCcEmails.length }}）</span>
+                <div class="replay-mail-address-editor replay-mail-address-editor-scrollable" :data-testid="`${reportMailKind}-report-mail-cc-editor`" :class="{ 'is-disabled': dailyReportMailSending }">
+                  <span v-for="email in dailyReportMailCcEmails" :key="email" class="replay-mail-address-chip" :data-testid="`${reportMailKind}-report-mail-cc-chip`">
+                    <span>{{ email }}</span>
+                    <button type="button" :data-testid="`${reportMailKind}-report-mail-cc-remove`" :aria-label="`删除抄送人 ${email}`" :disabled="dailyReportMailSending" @click="removeDailyReportMailEmail('cc', email)">×</button>
+                  </span>
+                  <input v-model="dailyReportMailCc" :data-testid="`${reportMailKind}-report-mail-cc`" type="text" :disabled="dailyReportMailSending"
+                         placeholder="可不填" @keydown="onDailyReportMailEmailKeydown($event, 'cc')"
+                         @input="onDailyReportMailEmailInput($event, 'cc')" @paste="onDailyReportMailEmailPaste($event, 'cc')" @blur="commitDailyReportMailEmails('cc')" />
+                </div>
+                <small>多个抄送人会分别显示，可单独删除</small>
+              </div>
+              <label><span>邮件正文</span><textarea v-model="dailyReportMailBody" :data-testid="`${reportMailKind}-report-mail-body`" rows="7" maxlength="10000" :disabled="dailyReportMailSending" placeholder="请输入邮件正文" /></label>
+              <ReplayReportMailAttachments
+                :current-attachment="reportMailCurrentAttachment"
+                :selected-reports="reportMailSelectedReports"
+                :local-files="reportMailLocalFiles"
+                :disabled="dailyReportMailSending"
+                @update:selected-reports="reportMailSelectedReports = $event"
+                @update:local-files="reportMailLocalFiles = $event"
+                @validation-change="onReportMailAttachmentValidation"
+              />
+              <label><span>操作口令</span><input v-model="dailyReportMailToken" :data-testid="`${reportMailKind}-report-mail-token`" type="password" autocomplete="off" :disabled="dailyReportMailSending" placeholder="X-DII-Trigger-Token" /></label>
+              <small v-if="dailyReportMailError" class="replay-daily-report-error">{{ dailyReportMailError }}</small>
+            </template>
           </div>
-          <div class="replay-daily-report-mail-field">
-            <span :data-testid="`${reportMailKind}-report-mail-cc-label`">抄送（{{ dailyReportMailCcEmails.length }}）</span>
-            <div class="replay-mail-address-editor replay-mail-address-editor-scrollable" :data-testid="`${reportMailKind}-report-mail-cc-editor`" :class="{ 'is-disabled': dailyReportMailSending }">
-              <span v-for="email in dailyReportMailCcEmails" :key="email" class="replay-mail-address-chip" :data-testid="`${reportMailKind}-report-mail-cc-chip`">
-                <span>{{ email }}</span>
-                <button type="button" :data-testid="`${reportMailKind}-report-mail-cc-remove`" :aria-label="`删除抄送人 ${email}`" :disabled="dailyReportMailSending" @click="removeDailyReportMailEmail('cc', email)">×</button>
-              </span>
-              <input v-model="dailyReportMailCc" :data-testid="`${reportMailKind}-report-mail-cc`" type="text" :disabled="dailyReportMailSending"
-                     placeholder="可不填" @keydown="onDailyReportMailEmailKeydown($event, 'cc')"
-                     @input="onDailyReportMailEmailInput($event, 'cc')" @paste="onDailyReportMailEmailPaste($event, 'cc')" @blur="commitDailyReportMailEmails('cc')" />
-            </div>
-            <small>多个抄送人会分别显示，可单独删除</small>
-          </div>
-          <label><span>邮件正文</span><textarea v-model="dailyReportMailBody" :data-testid="`${reportMailKind}-report-mail-body`" rows="7" maxlength="10000" :disabled="dailyReportMailSending" placeholder="请输入邮件正文" /></label>
-          <ReplayReportMailAttachments
-            :current-attachment="reportMailCurrentAttachment"
-            :selected-reports="reportMailSelectedReports"
-            :local-files="reportMailLocalFiles"
-            :disabled="dailyReportMailSending"
-            @update:selected-reports="reportMailSelectedReports = $event"
-            @update:local-files="reportMailLocalFiles = $event"
-            @validation-change="onReportMailAttachmentValidation"
-          />
-          <label><span>操作口令</span><input v-model="dailyReportMailToken" :data-testid="`${reportMailKind}-report-mail-token`" type="password" autocomplete="off" :disabled="dailyReportMailSending" placeholder="X-DII-Trigger-Token" /></label>
-          <small v-if="dailyReportMailError" class="replay-daily-report-error">{{ dailyReportMailError }}</small>
-        </template>
-        <footer>
-          <button class="replay-button" type="button" :data-testid="`${reportMailKind}-report-mail-cancel`" :disabled="dailyReportMailSending" @click="closeDailyReportMail">取消</button>
-          <button class="replay-button replay-button-primary" type="button" :data-testid="`${reportMailKind}-report-mail-submit`"
-                  :disabled="dailyReportMailLoading || dailyReportMailSending || !reportMailAttachmentsValid || !dailyReportMailSubject.trim() || (!dailyReportMailToEmails.length && !dailyReportMailTo.trim()) || !dailyReportMailBody.trim() || !dailyReportMailToken.trim()" @click="submitDailyReportMail">
-            <Mail :size="15" aria-hidden="true" />
-            {{ dailyReportMailSending ? '发送中…' : '确认发送' }}
-          </button>
-        </footer>
-      </section>
-    </div>
+          <footer>
+            <button class="replay-button" type="button" :data-testid="`${reportMailKind}-report-mail-cancel`" :disabled="dailyReportMailSending" @click="closeDailyReportMail">取消</button>
+            <button class="replay-button replay-button-primary" type="button" :data-testid="`${reportMailKind}-report-mail-submit`"
+                    :disabled="dailyReportMailLoading || dailyReportMailSending || !reportMailAttachmentsValid || !dailyReportMailSubject.trim() || (!dailyReportMailToEmails.length && !dailyReportMailTo.trim()) || !dailyReportMailBody.trim() || !dailyReportMailToken.trim()" @click="submitDailyReportMail">
+              <Mail :size="15" aria-hidden="true" />
+              {{ dailyReportMailSending ? '发送中…' : '确认发送' }}
+            </button>
+          </footer>
+        </section>
+      </div>
+    </Teleport>
 
     <div v-if="editOpen" class="replay-modal-mask">
       <section class="replay-edit-modal" role="dialog" aria-modal="true" aria-labelledby="replay-edit-title" data-testid="edit-modal">
@@ -3050,8 +3054,27 @@ onBeforeUnmount(() => {
 .replay-weekly-report-generated-card small { color: #b42318; font-size: 11px; }
 .replay-daily-report-mail-state { display: grid; gap: 3px; margin: 6px 0; padding: 8px 10px; border: 1px solid var(--border, #d7dee8); border-radius: 4px; color: var(--text-muted, #6b7280); background: var(--bg-page, #f7f9fc); font-size: 12px; }
 .replay-daily-report-mail-state strong { color: var(--text-secondary, #374151); }
-.replay-daily-report-mail-mask { z-index: 80; }
-.replay-daily-report-mail-modal { width: min(560px, calc(100vw - 32px)); max-width: 560px; }
+.replay-modal-mask.replay-daily-report-mail-mask { z-index: 1000; padding: 16px; }
+.replay-import-modal.replay-daily-report-mail-modal {
+  box-sizing: border-box;
+  width: min(860px, 100%);
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.replay-daily-report-mail-modal > header,
+.replay-daily-report-mail-modal > footer { flex-shrink: 0; }
+.replay-daily-report-mail-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
 .replay-daily-report-mail-field { display: grid; gap: 6px; color: var(--text-secondary, #374151); font-size: 12px; }
 .replay-daily-report-mail-field > small { color: var(--text-muted, #6b7280); font-size: 11px; }
 .replay-mail-address-editor { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 38px; padding: 5px 7px; border: 1px solid var(--border, #d7dee8); border-radius: 4px; background: var(--bg-input, #fff); transition: border-color .15s ease, box-shadow .15s ease; }

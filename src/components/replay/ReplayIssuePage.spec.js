@@ -1,4 +1,4 @@
-import { flushPromises, mount } from '@vue/test-utils'
+import { config, flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import ReplayIssuePage from './ReplayIssuePage.vue'
 import {
@@ -222,13 +222,17 @@ async function openImport(wrapper) {
   return file
 }
 
+const originalTeleportStub = config.global.stubs.teleport
+
 beforeEach(() => {
+  config.global.stubs.teleport = true
   vi.clearAllMocks()
   vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })))
   arrangeApi()
 })
 
 afterEach(() => {
+  config.global.stubs.teleport = originalTeleportStub
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })

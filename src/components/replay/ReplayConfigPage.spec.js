@@ -24,7 +24,7 @@ function arrangeApi() {
       { id: 2, tranCode: 'S2&soap', fieldName: 'status', version: 1 },
     ],
   })
-  createReplayConfig.mockResolvedValue({ id: 3 })
+  createReplayConfig.mockResolvedValue({ id: 3, version: 0 })
   listReplayConfigOperations.mockResolvedValue({
     total: 1,
     items: [
@@ -41,7 +41,7 @@ function arrangeApi() {
   })
 }
 
-describe('ReplayConfigPage', () => {
+describe('ReplayConfigPage（忽略清单）', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     arrangeApi()
@@ -51,19 +51,33 @@ describe('ReplayConfigPage', () => {
     vi.restoreAllMocks()
   })
 
-  it('loads a page with default 30 size and renders rows', async () => {
-    const wrapper = mount(ReplayConfigPage, { props: { type: 'unconditional-ignores' } })
+  it('loads the first tab with default 10 per page', async () => {
+    const wrapper = mount(ReplayConfigPage)
     await flushPromises()
 
-    expect(listReplayConfigs).toHaveBeenCalledWith('unconditional-ignores', { limit: 30, offset: 0 })
-    const rows = wrapper.findAll('tbody tr')
-    expect(rows).toHaveLength(2)
+    expect(listReplayConfigs).toHaveBeenCalledWith('unconditional-ignores', { limit: 10, offset: 0 })
+    expect(wrapper.findAll('tbody tr')).toHaveLength(2)
     expect(wrapper.text()).toContain('S1&sop')
-    expect(wrapper.text()).toContain('accountNo')
+    // 四个 tab 都在
+    expect(wrapper.find('[data-testid="tab-unconditional-ignores"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="tab-conditional-ignores"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="tab-error-code-ignores"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="tab-sort-fields"]').exists()).toBe(true)
   })
 
-  it('creates a new record from the modal', async () => {
-    const wrapper = mount(ReplayConfigPage, { props: { type: 'unconditional-ignores' } })
+  it('switches tab and reloads with the new resource type', async () => {
+    const wrapper = mount(ReplayConfigPage)
+    await flushPromises()
+
+    await wrapper.find('[data-testid="tab-conditional-ignores"]').trigger('click')
+    await flushPromises()
+
+    expect(listReplayConfigs).toHaveBeenLastCalledWith('conditional-ignores', { limit: 10, offset: 0 })
+    expect(wrapper.text()).toContain('字段索引')
+  })
+
+  it('creates a record and shows an auto-dismiss toast', async () => {
+    const wrapper = mount(ReplayConfigPage)
     await flushPromises()
 
     await wrapper.find('[data-testid="create-config"]').trigger('click')
@@ -76,11 +90,11 @@ describe('ReplayConfigPage', () => {
       tranCode: 'S3&bzjson',
       fieldName: 'accountNumber',
     })
-    expect(wrapper.find('[data-testid="notice-message"]').text()).toContain('新增成功')
+    expect(wrapper.find('[data-testid="toast"]').text()).toContain('新增成功')
   })
 
   it('rejects invalid service code before calling API', async () => {
-    const wrapper = mount(ReplayConfigPage, { props: { type: 'unconditional-ignores' } })
+    const wrapper = mount(ReplayConfigPage)
     await flushPromises()
 
     await wrapper.find('[data-testid="create-config"]').trigger('click')
@@ -93,8 +107,47 @@ describe('ReplayConfigPage', () => {
     expect(wrapper.find('[data-testid="form-error"]').text()).toContain('格式不正确')
   })
 
+  it('creates sort fields from the triple form and reports three rows', async () => {
+    createReplayConfig.mockResolvedValue([{ id: 11 }, { id: 12 }, { id: 13 }])
+    const wrapper = mount(ReplayConfigPage)
+    await flushPromises()
+
+    await wrapper.find('[data-testid="tab-sort-fields"]').trigger('click')
+    await flushPromises()
+    await wrapper.find('[data-testid="create-config"]').trigger('click')
+    await wrapper.find('[data-testid="form-tranCode"]').setValue('6208')
+    await wrapper.find('[data-testid="form-oldSortField"]').setValue('accounts.accountNo')
+    await wrapper.find('[data-testid="form-newSortField"]').setValue('loans(loanNo,loanType)')
+    await wrapper.find('form.replay-edit-grid').trigger('submit')
+    await flushPromises()
+
+    expect(createReplayConfig).toHaveBeenCalledWith('sort-fields', {
+      tranCode: '6208',
+      oldSortField: 'accounts.accountNo',
+      newSortField: 'loans(loanNo,loanType)',
+    })
+    expect(wrapper.find('[data-testid="toast"]').text()).toContain('新增成功（3 条）')
+  })
+
+  it('rejects a malformed sort field before calling API', async () => {
+    const wrapper = mount(ReplayConfigPage)
+    await flushPromises()
+
+    await wrapper.find('[data-testid="tab-sort-fields"]').trigger('click')
+    await flushPromises()
+    await wrapper.find('[data-testid="create-config"]').trigger('click')
+    await wrapper.find('[data-testid="form-tranCode"]').setValue('6208')
+    await wrapper.find('[data-testid="form-oldSortField"]').setValue('accounts')
+    await wrapper.find('[data-testid="form-newSortField"]').setValue('loans.loanNo')
+    await wrapper.find('form.replay-edit-grid').trigger('submit')
+    await flushPromises()
+
+    expect(createReplayConfig).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-testid="form-error"]').text()).toContain('格式不正确')
+  })
+
   it('opens history drawer and renders changes', async () => {
-    const wrapper = mount(ReplayConfigPage, { props: { type: 'unconditional-ignores' } })
+    const wrapper = mount(ReplayConfigPage)
     await flushPromises()
 
     await wrapper.find('[data-testid="history-1"]').trigger('click')
@@ -104,18 +157,5 @@ describe('ReplayConfigPage', () => {
     const drawer = wrapper.find('[data-testid="history-drawer"]')
     expect(drawer.text()).toContain('张三')
     expect(drawer.text()).toContain('服务码')
-  })
-
-  it('renders conditional schema with backend-managed index column', async () => {
-    listReplayConfigs.mockResolvedValue({
-      total: 1,
-      items: [{ id: 4, origTrcd: 'S1&sop', fieldRmoveName: 'accounts', fieldFileIndx: 1, fieldFileFlag: 2, version: 0 }],
-    })
-    const wrapper = mount(ReplayConfigPage, { props: { type: 'conditional-ignores' } })
-    await flushPromises()
-
-    expect(listReplayConfigs).toHaveBeenCalledWith('conditional-ignores', { limit: 30, offset: 0 })
-    expect(wrapper.text()).toContain('字段索引')
-    expect(wrapper.text()).toContain('对象或数组')
   })
 })

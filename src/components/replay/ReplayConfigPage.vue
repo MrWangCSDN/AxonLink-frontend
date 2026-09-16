@@ -1,47 +1,55 @@
 <template>
-  <section class="replay-page replay-config-page" :aria-label="schema.title" :data-testid="`replay-config-${type}`">
+  <section class="replay-page replay-config-page" aria-label="忽略清单" data-testid="replay-ignore-list">
     <header class="replay-toolbar">
       <div class="replay-toolbar-title">
         <div>
-          <h2>{{ schema.title }}</h2>
-          <p>{{ schema.subtitle }}</p>
+          <h2>忽略清单</h2>
+          <p>无条件忽略 / 有条件忽略 / 错误码忽略 / 排序字段</p>
         </div>
       </div>
-      <div class="replay-toolbar-actions">
-        <button class="replay-button" type="button" data-testid="batch-delete" :disabled="!selectedIds.length || loading" @click="batchDelete">
-          批量删除{{ selectedIds.length ? `（${selectedIds.length}）` : '' }}
-        </button>
-        <button class="replay-button replay-button-primary" type="button" data-testid="create-config" @click="openCreate">新增</button>
-      </div>
     </header>
+
+    <nav class="replay-tabs" role="tablist" aria-label="忽略清单分类">
+      <button
+        v-for="tab in TABS"
+        :key="tab.key"
+        type="button"
+        role="tab"
+        class="replay-tab"
+        :class="{ active: activeTab === tab.key }"
+        :aria-selected="activeTab === tab.key ? 'true' : 'false'"
+        :data-testid="`tab-${tab.key}`"
+        @click="switchTab(tab.key)"
+      >
+        {{ tab.label }}
+      </button>
+    </nav>
 
     <form class="replay-filters" @submit.prevent="search">
       <div class="replay-filter-group">
         <span class="replay-filter-group-label">内部核心交易码</span>
-        <label class="replay-field">
-          <input v-model.trim="internalTransactionCode" data-testid="internal-transaction-code" type="search" placeholder="精确匹配" />
-        </label>
+        <input v-model.trim="internalTransactionCode" class="replay-control" data-testid="internal-transaction-code" type="search" placeholder="精确匹配" />
       </div>
       <div class="replay-filter-group">
         <span class="replay-filter-group-label">配置字段</span>
-        <label v-for="filter in schema.filters" :key="filter.key" class="replay-field">
-          <span>{{ filter.label }}</span>
-          <select v-if="filter.kind === 'flag'" v-model="filters[filter.key]" :data-testid="`filter-${filter.key}`">
+        <template v-for="filter in schema.filters" :key="filter.key">
+          <select v-if="filter.kind === 'flag'" v-model="filters[filter.key]" class="replay-control" :data-testid="`filter-${filter.key}`">
             <option value="">全部</option>
             <option value="1">普通字段</option>
             <option value="2">对象或数组</option>
           </select>
-          <input v-else v-model.trim="filters[filter.key]" :data-testid="`filter-${filter.key}`" type="search" :placeholder="filter.label" />
-        </label>
+          <input v-else v-model.trim="filters[filter.key]" class="replay-control" :data-testid="`filter-${filter.key}`" type="search" :placeholder="filter.label" />
+        </template>
       </div>
       <div class="replay-filter-actions">
         <button class="replay-button replay-button-primary" type="submit" data-testid="search">查询</button>
         <button class="replay-button" type="button" data-testid="reset" @click="reset">重置</button>
+        <button class="replay-button replay-button-danger" type="button" data-testid="batch-delete" :disabled="!selectedIds.length || loading" @click="batchDelete">
+          批量删除{{ selectedIds.length ? `（${selectedIds.length}）` : '' }}
+        </button>
+        <button class="replay-button replay-button-primary" type="button" data-testid="create-config" @click="openCreate">新增</button>
       </div>
     </form>
-
-    <div v-if="error" class="replay-message replay-error" data-testid="error-message">{{ error }}</div>
-    <div v-else-if="notice" class="replay-message" data-testid="notice-message">{{ notice }}</div>
 
     <div class="replay-table-viewport">
       <table class="replay-table">
@@ -99,7 +107,7 @@
           <button class="replay-icon-button" type="button" data-testid="close-edit" :disabled="saving" @click="closeEdit">关闭</button>
         </header>
         <form class="replay-edit-grid" @submit.prevent="submitForm">
-          <label v-for="field in schema.form" :key="field.key" class="replay-field" :class="{ 'replay-field-wide': field.kind === 'textarea' }">
+          <label v-for="field in activeForm" :key="field.key" class="replay-field" :class="{ 'replay-field-wide': field.kind === 'textarea' }">
             <span>{{ field.label }}<em v-if="field.required"> *</em></span>
             <select v-if="field.kind === 'select'" v-model.number="draft[field.key]" :data-testid="`form-${field.key}`">
               <option v-for="option in field.options" :key="option.value" :value="option.value">{{ option.label }}</option>
@@ -107,6 +115,7 @@
             <textarea v-else-if="field.kind === 'textarea'" v-model="draft[field.key]" :data-testid="`form-${field.key}`" rows="3" :placeholder="field.placeholder || ''"></textarea>
             <input v-else v-model.trim="draft[field.key]" :data-testid="`form-${field.key}`" type="text" :placeholder="field.placeholder || ''" />
           </label>
+          <p v-if="createHint" class="replay-field-wide replay-hint">{{ createHint }}</p>
           <div v-if="formError" class="replay-message replay-error replay-field-wide" data-testid="form-error">{{ formError }}</div>
           <div class="replay-form-actions replay-field-wide">
             <button class="replay-button" type="button" :disabled="saving" @click="closeEdit">取消</button>
@@ -122,8 +131,7 @@
           <h3>操作历史</h3>
           <button class="replay-icon-button" type="button" data-testid="close-history" @click="closeHistory">关闭</button>
         </header>
-        <p v-if="historyError" class="replay-message replay-error">{{ historyError }}</p>
-        <p v-else-if="historyLoading" class="replay-state">加载中...</p>
+        <p v-if="historyLoading" class="replay-state">加载中...</p>
         <p v-else-if="!historyItems.length" class="replay-state">暂无操作记录</p>
         <ol v-else class="replay-history-list">
           <li v-for="operation in historyItems" :key="operation.id" class="replay-history-item">
@@ -146,11 +154,17 @@
         </ol>
       </aside>
     </div>
+
+    <transition name="replay-toast">
+      <div v-if="toast.visible" class="replay-toast" :class="`replay-toast-${toast.kind}`" role="status" data-testid="toast">
+        {{ toast.text }}
+      </div>
+    </transition>
   </section>
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import {
   batchDeleteReplayConfigs,
   createReplayConfig,
@@ -162,10 +176,22 @@ import {
 
 const SERVICE_CODE_PATTERN = /^[0-9A-Za-z]+&(sop|soap|bzjson)$/
 
+const TABS = [
+  { key: 'unconditional-ignores', label: '无条件忽略' },
+  { key: 'conditional-ignores', label: '有条件忽略' },
+  { key: 'error-code-ignores', label: '错误码忽略' },
+  { key: 'sort-fields', label: '排序字段' },
+]
+
+const SORT_CREATE_FORM = [
+  { key: 'tranCode', label: '4 位交易码', kind: 'text', required: true, placeholder: '如 6208' },
+  { key: 'oldSortField', label: '老核心排序字段', kind: 'text', required: true, placeholder: 'A.B 或 A(B,C)' },
+  { key: 'newSortField', label: '新核心排序字段', kind: 'text', required: true, placeholder: 'A.B 或 A(B,C)' },
+]
+
 const SCHEMAS = {
   'unconditional-ignores': {
     title: '无条件忽略',
-    subtitle: '按服务码忽略指定字段',
     filters: [
       { key: 'tranCode', label: '服务码', kind: 'text' },
       { key: 'fieldName', label: '忽略字段', kind: 'text' },
@@ -181,7 +207,6 @@ const SCHEMAS = {
   },
   'conditional-ignores': {
     title: '有条件忽略',
-    subtitle: '按服务码与主备条件忽略字段，字段索引由后端分配',
     filters: [
       { key: 'origTrcd', label: '服务码', kind: 'text' },
       { key: 'fieldRmoveName', label: '忽略字段', kind: 'text' },
@@ -208,7 +233,6 @@ const SCHEMAS = {
   },
   'error-code-ignores': {
     title: '错误码忽略',
-    subtitle: '按服务码忽略老/新核心错误码',
     filters: [
       { key: 'serviceCode', label: '服务码', kind: 'text' },
       { key: 'oldRespCode', label: '老核心错误码', kind: 'text' },
@@ -233,7 +257,6 @@ const SCHEMAS = {
   },
   'sort-fields': {
     title: '排序字段',
-    subtitle: '按对象或数组节点配置排序字段',
     filters: [
       { key: 'origTrcd', label: '服务码', kind: 'text' },
       { key: 'origArryName', label: '对象/数组名称', kind: 'text' },
@@ -252,24 +275,17 @@ const SCHEMAS = {
   },
 }
 
-const props = defineProps({
-  type: { type: String, required: true },
-})
-
-const schema = computed(() => SCHEMAS[props.type])
+const activeTab = ref(TABS[0].key)
+const schema = computed(() => SCHEMAS[activeTab.value])
+const isSortTab = computed(() => activeTab.value === 'sort-fields')
 
 const items = ref([])
 const total = ref(0)
 const page = ref(0)
-const pageSize = ref(30)
+const pageSize = ref(10)
 const loading = ref(false)
-const error = ref('')
-const notice = ref('')
 const internalTransactionCode = ref('')
 const filters = reactive({})
-for (const filter of schema.value.filters) {
-  filters[filter.key] = ''
-}
 const selectedIds = ref([])
 
 const editOpen = ref(false)
@@ -279,14 +295,28 @@ const formError = ref('')
 const draft = reactive({})
 
 const historyOpen = ref(false)
-const historyRow = ref(null)
 const historyItems = ref([])
 const historyLoading = ref(false)
-const historyError = ref('')
+
+const toast = reactive({ visible: false, kind: 'success', text: '' })
+let toastTimer = null
 
 const pageCount = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
 const allSelected = computed(() => items.value.length > 0 && items.value.every((row) => selectedIds.value.includes(row.id)))
 const editTitle = computed(() => `${editingRow.value ? '修改' : '新增'}${schema.value.title}`)
+const isSortCreate = computed(() => isSortTab.value && !editingRow.value)
+const activeForm = computed(() => (isSortCreate.value ? SORT_CREATE_FORM : schema.value.form))
+const createHint = computed(() => (isSortCreate.value
+  ? '保存后按映射生成 3 条：&sop 用老核心排序字段，&soap 与 &bzjson 用新核心排序字段。'
+  : ''))
+
+function showToast(text, kind = 'success') {
+  toast.text = text
+  toast.kind = kind
+  toast.visible = true
+  if (toastTimer) clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => { toast.visible = false }, kind === 'error' ? 5000 : 3000)
+}
 
 function displayValue(column, row) {
   const value = row[column.key]
@@ -306,6 +336,14 @@ function operationLabel(type) {
   return { CREATE: '新增', UPDATE: '修改', DELETE: '删除' }[type] || type
 }
 
+function resetFilters() {
+  for (const key of Object.keys(filters)) delete filters[key]
+  for (const filter of schema.value.filters) {
+    filters[filter.key] = ''
+  }
+  internalTransactionCode.value = ''
+}
+
 function requestParams() {
   const params = {
     limit: pageSize.value,
@@ -321,19 +359,27 @@ function requestParams() {
 
 async function load() {
   loading.value = true
-  error.value = ''
   try {
-    const result = await listReplayConfigs(props.type, requestParams())
+    const result = await listReplayConfigs(activeTab.value, requestParams())
     items.value = result?.items || []
     total.value = result?.total || 0
     selectedIds.value = []
   } catch (cause) {
     items.value = []
     total.value = 0
-    error.value = `加载失败：${cause?.message || cause}`
+    showToast(`加载失败：${cause?.message || cause}`, 'error')
   } finally {
     loading.value = false
   }
+}
+
+function switchTab(key) {
+  if (activeTab.value === key) return
+  activeTab.value = key
+  page.value = 0
+  selectedIds.value = []
+  resetFilters()
+  return load()
 }
 
 function search() {
@@ -342,8 +388,7 @@ function search() {
 }
 
 function reset() {
-  internalTransactionCode.value = ''
-  for (const filter of schema.value.filters) filters[filter.key] = filter.kind === 'flag' ? '' : ''
+  resetFilters()
   page.value = 0
   return load()
 }
@@ -371,7 +416,7 @@ function toggleAll() {
 
 function resetDraft() {
   for (const key of Object.keys(draft)) delete draft[key]
-  for (const field of schema.value.form) {
+  for (const field of activeForm.value) {
     draft[field.key] = field.kind === 'select' ? field.options[0].value : ''
   }
 }
@@ -398,16 +443,27 @@ function closeEdit() {
   editOpen.value = false
 }
 
+function isValidSortField(value) {
+  const text = String(value ?? '').trim()
+  if (/^[^(]+\([^)]+\)$/.test(text)) return true
+  const dot = text.indexOf('.')
+  return dot > 0 && dot < text.length - 1
+}
+
 function validateDraft() {
-  for (const field of schema.value.form) {
-    if (!field.required) continue
+  for (const field of activeForm.value) {
     const value = draft[field.key]
-    if (value === undefined || value === null || value === '' || (typeof value === 'string' && !value.trim())) {
+    if (field.required && (value === undefined || value === null || String(value).trim() === '')) {
       return `${field.label}不能为空`
     }
     if (field.kind === 'serviceCode' && !SERVICE_CODE_PATTERN.test(String(value).trim())) {
       return `${field.label}格式不正确，应为 <服务码>&sop|&soap|&bzjson`
     }
+  }
+  if (isSortCreate.value) {
+    if (!isValidSortField(draft.oldSortField)) return '老核心排序字段格式不正确，应为 A.B 或 A(B,C)'
+    if (!isValidSortField(draft.newSortField)) return '新核心排序字段格式不正确，应为 A.B 或 A(B,C)'
+    return ''
   }
   return schema.value.validate ? schema.value.validate(draft) : ''
 }
@@ -423,22 +479,23 @@ async function submitForm() {
   formError.value = ''
   try {
     const payload = {}
-    for (const field of schema.value.form) {
+    for (const field of activeForm.value) {
       const value = draft[field.key]
       payload[field.key] = field.kind !== 'textarea' && typeof value === 'string' ? value.trim() : value
     }
     if (editingRow.value) {
       payload.version = editingRow.value.version
-      await updateReplayConfig(props.type, editingRow.value.id, payload)
-      notice.value = '修改成功'
+      await updateReplayConfig(activeTab.value, editingRow.value.id, payload)
+      showToast('修改成功')
     } else {
-      await createReplayConfig(props.type, payload)
-      notice.value = '新增成功'
+      const created = await createReplayConfig(activeTab.value, payload)
+      showToast(Array.isArray(created) ? `新增成功（${created.length} 条）` : '新增成功')
     }
     editOpen.value = false
     await load()
   } catch (cause) {
     formError.value = cause?.message || '保存失败'
+    showToast(cause?.message || '保存失败', 'error')
   } finally {
     saving.value = false
   }
@@ -449,14 +506,12 @@ async function removeRow(row) {
       && !window.confirm(`确认删除该条${schema.value.title}配置？此操作不可恢复。`)) {
     return
   }
-  error.value = ''
-  notice.value = ''
   try {
-    await deleteReplayConfig(props.type, row.id, row.version)
-    notice.value = '删除成功'
+    await deleteReplayConfig(activeTab.value, row.id, row.version)
+    showToast('删除成功')
     await load()
   } catch (cause) {
-    error.value = `删除失败：${cause?.message || cause}`
+    showToast(`删除失败：${cause?.message || cause}`, 'error')
   }
 }
 
@@ -471,28 +526,24 @@ async function batchDelete() {
     .map((id) => byId.get(id))
     .filter(Boolean)
     .map((row) => ({ id: row.id, version: row.version }))
-  error.value = ''
-  notice.value = ''
   try {
-    const result = await batchDeleteReplayConfigs(props.type, payload)
-    notice.value = `删除成功：${result?.deletedCount ?? payload.length} 条`
+    const result = await batchDeleteReplayConfigs(activeTab.value, payload)
+    showToast(`删除成功：${result?.deletedCount ?? payload.length} 条`)
     await load()
   } catch (cause) {
-    error.value = `批量删除失败：${cause?.message || cause}`
+    showToast(`批量删除失败：${cause?.message || cause}`, 'error')
   }
 }
 
 async function openHistory(row) {
-  historyRow.value = row
   historyOpen.value = true
   historyItems.value = []
-  historyError.value = ''
   historyLoading.value = true
   try {
-    const result = await listReplayConfigOperations(props.type, row.id, { limit: 100, offset: 0 })
+    const result = await listReplayConfigOperations(activeTab.value, row.id, { limit: 100, offset: 0 })
     historyItems.value = result?.items || []
   } catch (cause) {
-    historyError.value = `加载历史失败：${cause?.message || cause}`
+    showToast(`加载历史失败：${cause?.message || cause}`, 'error')
   } finally {
     historyLoading.value = false
   }
@@ -502,7 +553,14 @@ function closeHistory() {
   historyOpen.value = false
 }
 
-onMounted(load)
+onMounted(() => {
+  resetFilters()
+  return load()
+})
+
+onUnmounted(() => {
+  if (toastTimer) clearTimeout(toastTimer)
+})
 </script>
 
 <style scoped>
@@ -513,16 +571,23 @@ onMounted(load)
 .replay-button,.replay-icon-button{min-height:34px;padding:0 12px;border:1px solid var(--border,#d1d5db);background:var(--bg-card,#fff);color:inherit;cursor:pointer;font-size:13px}
 .replay-button:disabled{opacity:.55;cursor:not-allowed}
 .replay-button-primary{background:#0b70db;border-color:#0b70db;color:#fff}
+.replay-button-danger{background:#d92d20;border-color:#d92d20;color:#fff}
+.replay-button-danger:disabled{background:#fda29b;border-color:#fda29b;color:#fff;opacity:1}
 .replay-button-compact{min-height:28px;padding:0 8px;font-size:12px}
-.replay-filters{display:flex;flex-wrap:wrap;align-items:flex-end;gap:16px;padding:12px 20px;background:var(--bg-card,#fff);border-bottom:1px solid var(--border,#e5e7eb)}
-.replay-filter-group{display:flex;align-items:flex-end;gap:8px;padding:8px 12px;border:1px dashed var(--border,#d1d5db);border-radius:6px}
-.replay-filter-group-label{font-size:12px;color:var(--text-muted,#6b7280);white-space:nowrap}
-.replay-filter-actions{display:flex;gap:8px;margin-left:auto}
+.replay-tabs{display:flex;gap:4px;padding:0 20px;background:var(--bg-card,#fff);border-bottom:1px solid var(--border,#e5e7eb)}
+.replay-tab{min-height:40px;padding:0 14px;border:none;border-bottom:2px solid transparent;background:transparent;color:var(--text-muted,#6b7280);cursor:pointer;font-size:13px}
+.replay-tab.active{border-bottom-color:#0b70db;color:#0b70db;font-weight:600}
+.replay-filters{display:flex;flex-wrap:wrap;align-items:center;gap:16px;padding:12px 20px;background:var(--bg-card,#fff);border-bottom:1px solid var(--border,#e5e7eb)}
+.replay-filter-group{display:flex;align-items:center;gap:8px}
+.replay-filter-group-label{font-size:13px;font-weight:600;color:var(--text-primary,#1f2937);white-space:nowrap}
+.replay-filter-actions{display:flex;align-items:center;gap:8px;margin-left:auto}
+.replay-control{height:34px;min-width:150px;padding:0 10px;border:1px solid var(--border,#d1d5db);background:var(--bg-card,#fff);color:inherit;font-size:13px;box-sizing:border-box}
 .replay-field{display:grid;gap:5px;font-size:12px;min-width:150px}
 .replay-field em{color:#d92d20;font-style:normal}
 .replay-field input,.replay-field select,.replay-field textarea{height:34px;padding:0 10px;border:1px solid var(--border,#d1d5db);background:var(--bg-card,#fff);color:inherit;font-size:13px;box-sizing:border-box}
 .replay-field textarea{height:auto;padding:8px 10px;resize:vertical;font-family:inherit}
-.replay-message{margin:8px 20px;padding:8px 12px;border-radius:6px;background:#eef7ee;color:#24713d;font-size:13px}
+.replay-hint{margin:0;color:var(--text-muted,#6b7280);font-size:12px}
+.replay-message{margin:0;padding:8px 12px;border-radius:6px;background:#eef7ee;color:#24713d;font-size:13px}
 .replay-error{background:#fff1f0;color:#b42318}
 .replay-table-viewport{flex:1 1 auto;min-height:0;overflow:auto;padding:12px 20px}
 .replay-table{width:100%;border-collapse:collapse;background:var(--bg-card,#fff);table-layout:fixed}
@@ -554,9 +619,14 @@ onMounted(load)
 .replay-history-update{background:#fff7e6;color:#b54708}
 .replay-history-changes{width:100%;border-collapse:collapse}
 .replay-history-changes th,.replay-history-changes td{padding:6px 8px;border-bottom:1px solid var(--border,#eef0f3);font-size:12px;text-align:left;word-break:break-all}
+.replay-toast{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:2000;min-width:180px;max-width:70vw;padding:10px 16px;border-radius:6px;font-size:13px;box-shadow:0 6px 18px rgba(0,0,0,.18);background:#24713d;color:#fff}
+.replay-toast-error{background:#b42318}
+.replay-toast-enter-active,.replay-toast-leave-active{transition:opacity .2s ease}
+.replay-toast-enter-from,.replay-toast-leave-to{opacity:0}
 @media (max-width:768px){
   .replay-toolbar{align-items:flex-start;flex-wrap:wrap}
   .replay-toolbar-actions{width:100%;justify-content:flex-end}
+  .replay-tabs{overflow-x:auto}
   .replay-edit-grid{grid-template-columns:1fr}
   .replay-history-drawer{width:100%}
 }

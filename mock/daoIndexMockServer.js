@@ -1391,6 +1391,9 @@ const REPLAY_CONFIG_ZNZX_SERVICE = [
   { tranCode: 'Y444', esfServiceCode: 'S120034071CorpInfo.QryTrdCrclr' },
   { tranCode: 'Y444', esfServiceCode: 'S120034071CorpInfoQry' },
   { tranCode: 'Z999', esfServiceCode: 'S120033800.LoanQuery' },
+  { tranCode: 'Y555', esfServiceCode: 'S120090012.Account.Detail.Qry' },
+  { tranCode: 'Z111', esfServiceCode: 'S120077001.Transfer.Apply' },
+  { tranCode: 'X222', esfServiceCode: 'S120055900.Card.Info.Qry' },
 ]
 
 const REPLAY_CONFIG_META = {
@@ -1571,25 +1574,106 @@ function replayConfigFilterRows(store, type, query) {
     else rows = rows.filter(row => String(row[key] ?? '').includes(raw))
   }
   rows.sort((left, right) => {
-    for (const key of meta.order) {
-      const compared = replayConfigCompare(left[key], right[key])
-      if (compared !== 0) return compared
-    }
-    return left.id - right.id
+    const compared = replayConfigCompare(right.updatedAt, left.updatedAt)
+    if (compared !== 0) return compared
+    return right.id - left.id
   })
   return rows
 }
 
 function replayConfigLimit(raw) {
-  if (raw === undefined || raw === '') return 30
+  if (raw === undefined || raw === '') return 10
   const value = Number(raw)
   return [10, 30, 50, 100].includes(value) ? value : null
+}
+
+function parseReplaySortField(value) {
+  const text = String(value ?? '').trim()
+  const bracket = text.match(/^([^(]+)\(([^)]+)\)$/)
+  if (bracket) {
+    const arryName = bracket[1].trim()
+    const fieldName = bracket[2].trim()
+    if (arryName && fieldName) return { arryName, fieldName }
+    return null
+  }
+  const dot = text.indexOf('.')
+  if (dot > 0 && dot < text.length - 1) {
+    const arryName = text.slice(0, dot).trim()
+    const fieldName = text.slice(dot + 1).trim()
+    if (arryName && fieldName) return { arryName, fieldName }
+  }
+  return null
+}
+
+function createReplaySortFields(store, res, body) {
+  const tranCode = String(body.tranCode ?? '').trim()
+  if (!tranCode) return replayConfigFail(res, 400, '交易码不能为空')
+  const oldParsed = parseReplaySortField(body.oldSortField)
+  if (!oldParsed) return replayConfigFail(res, 400, '老核心排序字段格式不正确，应为 A.B 或 A(B,C)')
+  const newParsed = parseReplaySortField(body.newSortField)
+  if (!newParsed) return replayConfigFail(res, 400, '新核心排序字段格式不正确，应为 A.B 或 A(B,C)')
+
+  const mappings = REPLAY_CONFIG_ZNZX_SERVICE.filter(item => item.tranCode === tranCode)
+  if (!mappings.length) return replayConfigFail(res, 400, `交易码无映射：${tranCode}`)
+
+  const drafts = []
+  const seen = new Set()
+  const add = (origTrcd, parsed) => {
+    const key = `${origTrcd}|${parsed.arryName}|${parsed.fieldName}`
+    if (!seen.has(key)) {
+      seen.add(key)
+      drafts.push({ origTrcd, arryName: parsed.arryName, fieldName: parsed.fieldName })
+    }
+  }
+  for (const mapping of mappings) {
+    const base = mapping.esfServiceCode.replace(/\./g, '')
+    if (!base) continue
+    add(`${base}&sop`, oldParsed)
+    add(`${base}&soap`, newParsed)
+    add(`${base}&bzjson`, newParsed)
+  }
+  if (!drafts.length) return replayConfigFail(res, 400, `交易码无映射：${tranCode}`)
+
+  for (const draft of drafts) {
+    if (replayConfigIsDuplicate('sort-fields', {
+      origTrcd: draft.origTrcd, origArryName: draft.arryName, origFieldName: draft.fieldName,
+    }, store.data['sort-fields'])) {
+      return replayConfigFail(res, 409, '配置已存在')
+    }
+  }
+
+  const created = []
+  for (const draft of drafts) {
+    const timestamp = replayConfigTimestamp()
+    const row = {
+      id: replayConfigNextId(store),
+      ...REPLAY_CONFIG_META['sort-fields'].fixed,
+      origTrcd: draft.origTrcd,
+      origArryName: draft.arryName,
+      origFieldName: draft.fieldName,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      version: 0,
+    }
+    store.data['sort-fields'].push(row)
+    store.operations['sort-fields'].push(
+      replayConfigOperation(store, 'sort-fields', row.id, 'CREATE',
+        replayConfigChanges('sort-fields', null, row, false)),
+    )
+    created.push(row)
+  }
+  return ok(res, created)
 }
 
 function replayConfigFail(res, status, message) {
   res.setHeader('Content-Type', 'application/json; charset=utf-8')
   res.statusCode = status
   res.end(JSON.stringify({ code: status, message }))
+}
+
+function replayConfigSeedTime(index) {
+  const base = Date.UTC(2026, 8, 16, 10, 0, 0)
+  return new Date(base - index * 37 * 60000).toISOString().slice(0, 23)
 }
 
 function createReplayConfigStore() {
@@ -1599,8 +1683,8 @@ function createReplayConfigStore() {
     store.operations[type] = []
   }
   const seed = (type, rows) => {
-    for (const partial of rows) {
-      const timestamp = replayConfigTimestamp()
+    rows.forEach((partial, index) => {
+      const timestamp = replayConfigSeedTime(index)
       const id = replayConfigNextId(store)
       const row = {
         id,
@@ -1614,26 +1698,76 @@ function createReplayConfigStore() {
       store.operations[type].push(
         replayConfigOperation(store, type, id, 'CREATE', replayConfigChanges(type, null, row, false)),
       )
-    }
+    })
   }
-  const code = 'S120034071CorpInfoQryTrdCrclr'
+
+  const corp = 'S120034071CorpInfoQryTrdCrclr'
   const loan = 'S120033800LoanQuery'
+  const account = 'S120090012AccountDetailQry'
+  const transfer = 'S120077001TransferApply'
+  const card = 'S120055900CardInfoQry'
+
   seed('unconditional-ignores', [
-    { tranCode: `${code}&sop`, fieldName: 'accountNo' },
-    { tranCode: `${code}&soap`, fieldName: 'customerName' },
+    { tranCode: `${corp}&sop`, fieldName: 'accountNo' },
+    { tranCode: `${corp}&soap`, fieldName: 'customerName' },
+    { tranCode: `${corp}&bzjson`, fieldName: 'idCardNo' },
+    { tranCode: `${loan}&sop`, fieldName: 'loanNo' },
+    { tranCode: `${loan}&soap`, fieldName: 'repaymentDate' },
+    { tranCode: `${loan}&bzjson`, fieldName: 'overdueFlag' },
+    { tranCode: `${account}&sop`, fieldName: 'balance' },
+    { tranCode: `${account}&soap`, fieldName: 'availableBalance' },
+    { tranCode: `${account}&bzjson`, fieldName: 'branchCode' },
+    { tranCode: `${transfer}&sop`, fieldName: 'payeeAccount' },
+    { tranCode: `${transfer}&soap`, fieldName: 'payerAccount' },
+    { tranCode: `${transfer}&bzjson`, fieldName: 'transferAmount' },
+    { tranCode: `${card}&sop`, fieldName: 'cardNo' },
+    { tranCode: `${card}&soap`, fieldName: 'mobileNo' },
   ])
+
   seed('conditional-ignores', [
-    { origTrcd: `${code}&soap`, fieldRmoveName: 'accounts', fieldFileIndx: 1, fieldFileFlag: 2, origFieldCond: "status == '0'", destFieldCond: null },
-    { origTrcd: `${code}&soap`, fieldRmoveName: 'accountType', fieldFileIndx: 2, fieldFileFlag: 1, origFieldCond: null, destFieldCond: "state == '1'" },
+    { origTrcd: `${corp}&sop`, fieldRmoveName: 'customerList', fieldFileIndx: 1, fieldFileFlag: 2, origFieldCond: "customerLevel >= '02'", destFieldCond: null },
+    { origTrcd: `${corp}&soap`, fieldRmoveName: 'accounts', fieldFileIndx: 1, fieldFileFlag: 2, origFieldCond: "status == '0'", destFieldCond: null },
+    { origTrcd: `${corp}&soap`, fieldRmoveName: 'accountType', fieldFileIndx: 2, fieldFileFlag: 1, origFieldCond: null, destFieldCond: "state == '1'" },
+    { origTrcd: `${corp}&bzjson`, fieldRmoveName: 'idList', fieldFileIndx: 1, fieldFileFlag: 2, origFieldCond: null, destFieldCond: "certType == '01'" },
+    { origTrcd: `${loan}&sop`, fieldRmoveName: 'loanItems', fieldFileIndx: 1, fieldFileFlag: 2, origFieldCond: "loanStatus == 'N'", destFieldCond: null },
+    { origTrcd: `${loan}&soap`, fieldRmoveName: 'repayments', fieldFileIndx: 1, fieldFileFlag: 2, origFieldCond: null, destFieldCond: "repayStatus == '1'" },
+    { origTrcd: `${account}&sop`, fieldRmoveName: 'details', fieldFileIndx: 1, fieldFileFlag: 2, origFieldCond: "txnAmount > '10000'", destFieldCond: null },
+    { origTrcd: `${account}&soap`, fieldRmoveName: 'freezeList', fieldFileIndx: 1, fieldFileFlag: 2, origFieldCond: null, destFieldCond: "freezeFlag == '1'" },
+    { origTrcd: `${transfer}&sop`, fieldRmoveName: 'feeDetail', fieldFileIndx: 1, fieldFileFlag: 1, origFieldCond: null, destFieldCond: "feeType == '02'" },
+    { origTrcd: `${transfer}&bzjson`, fieldRmoveName: 'payeeList', fieldFileIndx: 1, fieldFileFlag: 2, origFieldCond: "payeeType == '01'", destFieldCond: null },
+    { origTrcd: `${card}&sop`, fieldRmoveName: 'mobileNo', fieldFileIndx: 1, fieldFileFlag: 1, origFieldCond: null, destFieldCond: null },
+    { origTrcd: `${card}&bzjson`, fieldRmoveName: 'cardList', fieldFileIndx: 1, fieldFileFlag: 2, origFieldCond: "cardStatus == '1'", destFieldCond: null },
   ])
+
   seed('error-code-ignores', [
-    { serviceCode: `${code}&bzjson`, oldRespCode: 'E001', newRespCode: 'N001' },
+    { serviceCode: `${corp}&sop`, oldRespCode: 'E100', newRespCode: 'N100' },
+    { serviceCode: `${corp}&soap`, oldRespCode: 'E101', newRespCode: null },
+    { serviceCode: `${corp}&bzjson`, oldRespCode: 'E001', newRespCode: 'N001' },
     { serviceCode: `${loan}&sop`, oldRespCode: null, newRespCode: 'N002' },
+    { serviceCode: `${loan}&soap`, oldRespCode: 'E102', newRespCode: 'N102' },
+    { serviceCode: `${account}&sop`, oldRespCode: 'E200', newRespCode: 'N200' },
+    { serviceCode: `${account}&soap`, oldRespCode: null, newRespCode: 'N201' },
+    { serviceCode: `${transfer}&bzjson`, oldRespCode: 'E300', newRespCode: 'N300' },
+    { serviceCode: `${transfer}&sop`, oldRespCode: 'E301', newRespCode: 'N301' },
+    { serviceCode: `${card}&soap`, oldRespCode: 'E400', newRespCode: null },
+    { serviceCode: `${card}&bzjson`, oldRespCode: null, newRespCode: 'N401' },
   ])
+
   seed('sort-fields', [
-    { origTrcd: `${code}&bzjson`, origArryName: 'accounts', origFieldName: 'accountNo' },
+    { origTrcd: `${corp}&sop`, origArryName: 'accounts', origFieldName: 'accountNo' },
+    { origTrcd: `${corp}&soap`, origArryName: 'accounts', origFieldName: 'accountNo' },
+    { origTrcd: `${corp}&bzjson`, origArryName: 'accounts', origFieldName: 'accountNo' },
     { origTrcd: `${loan}&sop`, origArryName: 'loanItems', origFieldName: 'loanNo' },
+    { origTrcd: `${loan}&soap`, origArryName: 'loanItems', origFieldName: 'loanNo,loanType' },
+    { origTrcd: `${loan}&bzjson`, origArryName: 'loanItems', origFieldName: 'loanNo,loanType' },
+    { origTrcd: `${account}&sop`, origArryName: 'details', origFieldName: 'txnDate' },
+    { origTrcd: `${account}&soap`, origArryName: 'details', origFieldName: 'txnDate,txnTime' },
+    { origTrcd: `${account}&bzjson`, origArryName: 'details', origFieldName: 'txnDate,txnTime' },
+    { origTrcd: `${transfer}&sop`, origArryName: 'feeDetail', origFieldName: 'feeNo' },
+    { origTrcd: `${transfer}&soap`, origArryName: 'feeDetail', origFieldName: 'feeNo' },
+    { origTrcd: `${transfer}&bzjson`, origArryName: 'feeDetail', origFieldName: 'feeNo' },
   ])
+
   return store
 }
 
@@ -1683,6 +1817,9 @@ function handleReplayConfig(req, res, query, path, store) {
 
   if (req.method === 'POST' && !idPart) {
     return readJsonBody(req).then(body => {
+      if (type === 'sort-fields') {
+        return createReplaySortFields(store, res, body)
+      }
       const validated = replayConfigValidateBody(type, body)
       if (validated.error) return replayConfigFail(res, 400, validated.error)
       const candidate = { ...meta.fixed, ...validated.value }

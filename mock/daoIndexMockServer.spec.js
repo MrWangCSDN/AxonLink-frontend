@@ -536,10 +536,13 @@ describe('replay config management mock', () => {
     const request = replayConfigServer()
     const all = await request('GET', '/unconditional-ignores')
     expect(all.status).toBe(200)
-    expect(all.body.data.total).toBe(2)
+    expect(all.body.data.total).toBeGreaterThan(10)
+    // 默认每页 10 条
+    expect(all.body.data.items).toHaveLength(10)
 
     const mapped = await request('GET', '/unconditional-ignores?internalTransactionCode=Y444')
-    expect(mapped.body.data.total).toBe(2)
+    expect(mapped.body.data.total).toBeGreaterThan(0)
+    expect(mapped.body.data.total).toBeLessThan(all.body.data.total)
 
     const unmapped = await request('GET', '/unconditional-ignores?internalTransactionCode=NOPE')
     expect(unmapped.body.data.total).toBe(0)
@@ -551,6 +554,7 @@ describe('replay config management mock', () => {
 
   it('creates, rejects duplicates and validates service code', async () => {
     const request = replayConfigServer()
+    const baseline = (await request('GET', '/unconditional-ignores')).body.data.total
     const created = await request('POST', '/unconditional-ignores', {
       tranCode: 'S900TestQry&sop', fieldName: 'accountNo',
     })
@@ -569,7 +573,7 @@ describe('replay config management mock', () => {
     expect(invalid.status).toBe(400)
 
     const list = await request('GET', '/unconditional-ignores')
-    expect(list.body.data.total).toBe(3)
+    expect(list.body.data.total).toBe(baseline + 1)
   })
 
   it('updates with optimistic lock and exposes history changes', async () => {
@@ -598,6 +602,7 @@ describe('replay config management mock', () => {
 
   it('deletes with version and rolls back inconsistent batch delete', async () => {
     const request = replayConfigServer()
+    const baseline = (await request('GET', '/unconditional-ignores')).body.data.total
     const list = await request('GET', '/unconditional-ignores')
     const [first, second] = list.body.data.items
 
@@ -605,13 +610,13 @@ describe('replay config management mock', () => {
       items: [{ id: first.id, version: first.version }, { id: second.id, version: 99 }],
     })
     expect(badBatch.status).toBe(409)
-    expect((await request('GET', '/unconditional-ignores')).body.data.total).toBe(2)
+    expect((await request('GET', '/unconditional-ignores')).body.data.total).toBe(baseline)
 
     const goodBatch = await request('POST', '/unconditional-ignores/batch-delete', {
       items: [{ id: first.id, version: first.version }, { id: second.id, version: second.version }],
     })
     expect(goodBatch.body.data.deletedCount).toBe(2)
-    expect((await request('GET', '/unconditional-ignores')).body.data.total).toBe(0)
+    expect((await request('GET', '/unconditional-ignores')).body.data.total).toBe(baseline - 2)
   })
 
   it('allocates conditional index per service code', async () => {
@@ -634,5 +639,24 @@ describe('replay config management mock', () => {
     })
     expect(invalid.status).toBe(400)
     expect(invalid.body.message).toContain('不能同时为空')
+  })
+
+  it('expands sort field creation into three rows and rejects unknown tran code', async () => {
+    const request = replayConfigServer()
+    const created = await request('POST', '/sort-fields', {
+      tranCode: 'Z999', oldSortField: 'accounts.accountNo', newSortField: 'loans(loanNo,loanType)',
+    })
+    expect(created.status).toBe(200)
+    expect(created.body.data).toHaveLength(3)
+    expect(created.body.data.map((row) => row.origTrcd)).toEqual([
+      'S120033800LoanQuery&sop', 'S120033800LoanQuery&soap', 'S120033800LoanQuery&bzjson',
+    ])
+    expect(created.body.data[0]).toMatchObject({ origArryName: 'accounts', origFieldName: 'accountNo' })
+    expect(created.body.data[1]).toMatchObject({ origArryName: 'loans', origFieldName: 'loanNo,loanType' })
+
+    const unmapped = await request('POST', '/sort-fields', {
+      tranCode: '9999', oldSortField: 'a.b', newSortField: 'c.d',
+    })
+    expect(unmapped.status).toBe(400)
   })
 })

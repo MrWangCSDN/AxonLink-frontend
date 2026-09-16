@@ -258,23 +258,7 @@
         class="impact-main"
       />
       <ReplayConfigPage
-        v-if="currentPage === 'replay-config-unconditional'"
-        type="unconditional-ignores"
-        class="impact-main"
-      />
-      <ReplayConfigPage
-        v-if="currentPage === 'replay-config-conditional'"
-        type="conditional-ignores"
-        class="impact-main"
-      />
-      <ReplayConfigPage
-        v-if="currentPage === 'replay-config-error-code'"
-        type="error-code-ignores"
-        class="impact-main"
-      />
-      <ReplayConfigPage
-        v-if="currentPage === 'replay-config-sort-field'"
-        type="sort-fields"
+        v-if="currentPage === 'replay-ignore-list'"
         class="impact-main"
       />
       <ReplayDatabaseComparisonPage

@@ -1415,7 +1415,7 @@ const REPLAY_CONFIG_META = {
       { key: 'fieldName', column: 'field_name', label: '忽略字段', required: true },
     ],
     fixed: { enableFlag: 1 },
-    filters: ['tranCode', 'fieldName'],
+    filters: ['tranCode', 'fieldName', 'reviewStatus'],
     order: ['tranCode', 'fieldName'],
     unique: ['tranCode', 'fieldName'],
   },
@@ -1431,7 +1431,7 @@ const REPLAY_CONFIG_META = {
     indexField: 'fieldFileIndx',
     indexColumn: 'field_file_indx',
     indexScope: 'origTrcd',
-    filters: ['origTrcd', 'fieldRmoveName', 'fieldFileFlag'],
+    filters: ['origTrcd', 'fieldRmoveName', 'fieldFileFlag', 'reviewStatus'],
     order: ['origTrcd', 'fieldFileIndx'],
     unique: ['origTrcd', 'fieldRmoveName', 'fieldFileIndx'],
   },
@@ -1442,7 +1442,7 @@ const REPLAY_CONFIG_META = {
       { key: 'newRespCode', column: 'new_resp_code', label: '新核心错误码' },
     ],
     fixed: { enabled: 1 },
-    filters: ['serviceCode', 'oldRespCode', 'newRespCode'],
+    filters: ['serviceCode', 'oldRespCode', 'newRespCode', 'reviewStatus'],
     order: ['serviceCode', 'oldRespCode', 'newRespCode'],
     unique: ['serviceCode', 'oldRespCode', 'newRespCode'],
   },
@@ -1453,7 +1453,7 @@ const REPLAY_CONFIG_META = {
       { key: 'origFieldName', column: 'orig_field_name', label: '排序字段', required: true },
     ],
     fixed: { tranMode: 1 },
-    filters: ['origTrcd', 'origArryName', 'origFieldName'],
+    filters: ['origTrcd', 'origArryName', 'origFieldName', 'reviewStatus'],
     order: ['origTrcd', 'origArryName', 'origFieldName'],
     unique: ['origTrcd', 'origArryName', 'origFieldName'],
   },
@@ -1528,6 +1528,14 @@ function replayConfigPerson(code) {
   return REPLAY_CONFIG_PERSONS.find(person => person.oldTransactionCode === mapping.tranCode) || null
 }
 
+function replayConfigIsOwner(type, row) {
+  const serviceField = REPLAY_CONFIG_META[type].fields.find(field => field.serviceCode).key
+  const person = replayConfigPerson(row[serviceField])
+  if (!person) return false
+  const owners = String(person.bankOwnerEmpNos || '').split(/[、,，;；]/).map(item => item.trim())
+  return owners.includes(REPLAY_CONFIG_MOCK_OPERATOR.empNo)
+}
+
 function replayConfigEnrich(type, row) {
   const serviceField = REPLAY_CONFIG_META[type].fields.find(field => field.serviceCode).key
   const person = replayConfigPerson(row[serviceField])
@@ -1537,9 +1545,12 @@ function replayConfigEnrich(type, row) {
     reason = '无审核人'
   } else if (status === 1) {
     reason = '已审核'
-  } else {
-    const owners = String(person.bankOwnerEmpNos || '').split(/[、,，;；]/).map(item => item.trim())
-    if (!owners.includes(REPLAY_CONFIG_MOCK_OPERATOR.empNo)) reason = '仅行方负责人可审核'
+  } else if (!replayConfigIsOwner(type, row)) {
+    const names = String(person.bankOwner || '')
+      .split(/[、,，;；]/)
+      .map(item => item.replace(/[（(][^）)]*[）)]/g, '').trim())
+      .filter(Boolean)
+    reason = names.length ? `没有权限，请联系${names.join('、')}进行审核` : '没有审核权限'
   }
   return {
     ...row,
@@ -1620,6 +1631,7 @@ function replayConfigFilterRows(store, type, query) {
     const raw = query[key]
     if (raw === undefined || raw === '') continue
     if (key === 'fieldFileFlag') rows = rows.filter(row => Number(row[key]) === Number(raw))
+    else if (key === 'reviewStatus') rows = rows.filter(row => String(row.reviewStatus ?? 0) === String(raw))
     else rows = rows.filter(row => String(row[key] ?? '').includes(raw))
   }
   rows.sort((left, right) => {
@@ -1835,10 +1847,12 @@ function handleReplayConfig(req, res, query, path, store) {
       const row = store.data[type].find(candidate => candidate.id === id)
       if (!row) return replayConfigFail(res, 404, '记录不存在')
       if (row.version !== body.version) return replayConfigFail(res, 409, '数据已被其他用户修改，请刷新后重试')
-      const hint = replayConfigEnrich(type, row)
-      if (!hint.canReview) {
-        const status = hint.reviewDisabledReason === '已审核' ? 409 : 403
-        return replayConfigFail(res, status, hint.reviewDisabledReason)
+      if (row.reviewStatus === 1) {
+        return ok(res, replayConfigEnrich(type, row))
+      }
+      if (!replayConfigIsOwner(type, row)) {
+        const hint = replayConfigEnrich(type, row)
+        return replayConfigFail(res, 403, hint.reviewDisabledReason)
       }
       row.reviewStatus = 1
       row.version += 1
@@ -1919,7 +1933,10 @@ function handleReplayConfig(req, res, query, path, store) {
       const validated = replayConfigValidateBody(type, body)
       if (validated.error) return replayConfigFail(res, 400, validated.error)
       if (row.version !== body.version) return replayConfigFail(res, 409, '数据已被其他用户修改，请刷新后重试')
-      const next = { ...row, ...validated.value, reviewStatus: 0 }
+      if (row.reviewStatus === 1 && !replayConfigIsOwner(type, row)) {
+        return replayConfigFail(res, 403, '该记录已审核，仅限审核人员修改')
+      }
+      const next = { ...row, ...validated.value }
       if (meta.indexField && next[meta.indexScope] !== row[meta.indexScope]) {
         next[meta.indexField] = replayConfigNextIndex(store, type, next[meta.indexScope])
       }

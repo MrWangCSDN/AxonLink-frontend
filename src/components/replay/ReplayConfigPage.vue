@@ -38,6 +38,11 @@
             <option value="1">普通字段</option>
             <option value="2">对象或数组</option>
           </select>
+          <select v-else-if="filter.kind === 'review'" v-model="filters[filter.key]" class="replay-control" :data-testid="`filter-${filter.key}`">
+            <option value="">全部</option>
+            <option value="0">未审核</option>
+            <option value="1">已审核</option>
+          </select>
           <input v-else v-model.trim="filters[filter.key]" class="replay-control" :data-testid="`filter-${filter.key}`" type="search" :placeholder="filter.label" />
         </template>
       </div>
@@ -227,6 +232,7 @@ const SCHEMAS = {
     filters: [
       { key: 'tranCode', label: '服务码', kind: 'text' },
       { key: 'fieldName', label: '忽略字段', kind: 'text' },
+      { key: 'reviewStatus', label: '审核状态', kind: 'review' },
     ],
     columns: [
       { key: 'tranCode', label: '服务码' },
@@ -248,6 +254,7 @@ const SCHEMAS = {
       { key: 'origTrcd', label: '服务码', kind: 'text' },
       { key: 'fieldRmoveName', label: '忽略字段', kind: 'text' },
       { key: 'fieldFileFlag', label: '字段标识', kind: 'flag' },
+      { key: 'reviewStatus', label: '审核状态', kind: 'review' },
     ],
     columns: [
       { key: 'origTrcd', label: '服务码' },
@@ -279,6 +286,7 @@ const SCHEMAS = {
       { key: 'serviceCode', label: '服务码', kind: 'text' },
       { key: 'oldRespCode', label: '老核心错误码', kind: 'text' },
       { key: 'newRespCode', label: '新核心错误码', kind: 'text' },
+      { key: 'reviewStatus', label: '审核状态', kind: 'review' },
     ],
     columns: [
       { key: 'serviceCode', label: '服务码' },
@@ -309,6 +317,7 @@ const SCHEMAS = {
       { key: 'origTrcd', label: '服务码', kind: 'text' },
       { key: 'origArryName', label: '对象/数组名称', kind: 'text' },
       { key: 'origFieldName', label: '排序字段', kind: 'text' },
+      { key: 'reviewStatus', label: '审核状态', kind: 'review' },
     ],
     columns: [
       { key: 'origTrcd', label: '服务码' },

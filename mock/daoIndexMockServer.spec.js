@@ -641,7 +641,7 @@ describe('replay config management mock', () => {
     expect(invalid.body.message).toContain('不能同时为空')
   })
 
-  it('supports review by bank owner and resets status after edit', async () => {
+  it('supports review by bank owner, is idempotent and keeps approval after edit', async () => {
     const request = replayConfigServer()
     const list = await request('GET', '/unconditional-ignores?limit=10')
     const target = list.body.data.items.find((row) => row.canReview)
@@ -655,23 +655,41 @@ describe('replay config management mock', () => {
     expect(reviewed.body.data.reviewStatus).toBe(1)
     expect(reviewed.body.data.canReview).toBe(false)
 
+    // 已审核再点：幂等返回，不报错、版本不变
     const again = await request('POST', `/unconditional-ignores/${target.id}/review`, {
       version: reviewed.body.data.version,
     })
-    expect(again.status).toBe(409)
+    expect(again.status).toBe(200)
+    expect(again.body.data.reviewStatus).toBe(1)
+    expect(again.body.data.version).toBe(reviewed.body.data.version)
 
+    // 审核人修改后保留已审核
     const updated = await request('PATCH', `/unconditional-ignores/${target.id}`, {
       tranCode: target.tranCode, fieldName: 'reopenedField', version: reviewed.body.data.version,
     })
-    expect(updated.body.data.reviewStatus).toBe(0)
+    expect(updated.body.data.reviewStatus).toBe(1)
 
-    const unreviewable = list.body.data.items.find((row) => !row.canReview && row.reviewDisabledReason === '仅行方负责人可审核')
+    // 无权限提示带审核人姓名
+    const unreviewable = list.body.data.items.find((row) => !row.canReview && row.reviewStatus === 0)
     if (unreviewable) {
+      expect(unreviewable.reviewDisabledReason).toContain('没有权限，请联系')
       const forbidden = await request('POST', `/unconditional-ignores/${unreviewable.id}/review`, {
         version: unreviewable.version,
       })
       expect(forbidden.status).toBe(403)
     }
+  })
+
+  it('filters rows by review status', async () => {
+    const request = replayConfigServer()
+    const before = await request('GET', '/unconditional-ignores?limit=100')
+    const target = before.body.data.items.find((row) => row.canReview)
+    await request('POST', `/unconditional-ignores/${target.id}/review`, { version: target.version })
+
+    const approved = await request('GET', '/unconditional-ignores?reviewStatus=1')
+    expect(approved.body.data.total).toBe(1)
+    const pending = await request('GET', '/unconditional-ignores?reviewStatus=0')
+    expect(pending.body.data.total).toBe(before.body.data.total - 1)
   })
 
   it('expands sort field creation into three rows and rejects unknown tran code', async () => {

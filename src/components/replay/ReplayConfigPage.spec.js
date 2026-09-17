@@ -207,7 +207,7 @@ describe('ReplayConfigPage（忽略清单）', () => {
       total: 1,
       items: [{
         id: 1, tranCode: 'S1&sop', fieldName: 'accountNo', version: 0, reviewStatus: 0,
-        canReview: false, reviewDisabledReason: '仅行方负责人可审核',
+        canReview: false, reviewDisabledReason: '没有权限，请联系李四进行审核',
       }],
     })
     const wrapper = mount(ReplayConfigPage)
@@ -215,7 +215,20 @@ describe('ReplayConfigPage（忽略清单）', () => {
 
     const button = wrapper.find('[data-testid="review-1"]')
     expect(button.attributes('disabled')).toBeDefined()
-    expect(button.attributes('title')).toBe('仅行方负责人可审核')
+    expect(button.attributes('title')).toBe('没有权限，请联系李四进行审核')
+  })
+
+  it('sends the reviewStatus filter to the list API', async () => {
+    const wrapper = mount(ReplayConfigPage)
+    await flushPromises()
+
+    await wrapper.find('[data-testid="filter-reviewStatus"]').setValue('1')
+    await wrapper.find('form.replay-filters').trigger('submit')
+    await flushPromises()
+
+    expect(listReplayConfigs).toHaveBeenLastCalledWith('unconditional-ignores', {
+      limit: 10, offset: 0, reviewStatus: '1',
+    })
   })
 
   it('opens history drawer and renders changes', async () => {

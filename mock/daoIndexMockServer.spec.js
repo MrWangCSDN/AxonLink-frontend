@@ -641,6 +641,39 @@ describe('replay config management mock', () => {
     expect(invalid.body.message).toContain('不能同时为空')
   })
 
+  it('supports review by bank owner and resets status after edit', async () => {
+    const request = replayConfigServer()
+    const list = await request('GET', '/unconditional-ignores?limit=10')
+    const target = list.body.data.items.find((row) => row.canReview)
+    expect(target).toBeTruthy()
+    expect(target.oldTransactionCode).toBeTruthy()
+    expect(target.developer).toBeTruthy()
+    expect(target.bankOwner).toBeTruthy()
+
+    const reviewed = await request('POST', `/unconditional-ignores/${target.id}/review`, { version: target.version })
+    expect(reviewed.status).toBe(200)
+    expect(reviewed.body.data.reviewStatus).toBe(1)
+    expect(reviewed.body.data.canReview).toBe(false)
+
+    const again = await request('POST', `/unconditional-ignores/${target.id}/review`, {
+      version: reviewed.body.data.version,
+    })
+    expect(again.status).toBe(409)
+
+    const updated = await request('PATCH', `/unconditional-ignores/${target.id}`, {
+      tranCode: target.tranCode, fieldName: 'reopenedField', version: reviewed.body.data.version,
+    })
+    expect(updated.body.data.reviewStatus).toBe(0)
+
+    const unreviewable = list.body.data.items.find((row) => !row.canReview && row.reviewDisabledReason === '仅行方负责人可审核')
+    if (unreviewable) {
+      const forbidden = await request('POST', `/unconditional-ignores/${unreviewable.id}/review`, {
+        version: unreviewable.version,
+      })
+      expect(forbidden.status).toBe(403)
+    }
+  })
+
   it('expands sort field creation into three rows and rejects unknown tran code', async () => {
     const request = replayConfigServer()
     const created = await request('POST', '/sort-fields', {

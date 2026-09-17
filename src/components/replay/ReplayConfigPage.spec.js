@@ -5,6 +5,7 @@ import {
   createReplayConfig,
   listReplayConfigOperations,
   listReplayConfigs,
+  reviewReplayConfig,
 } from '../../api/replayConfigs.js'
 
 vi.mock('../../api/replayConfigs.js', () => ({
@@ -14,6 +15,7 @@ vi.mock('../../api/replayConfigs.js', () => ({
   deleteReplayConfig: vi.fn(),
   batchDeleteReplayConfigs: vi.fn(),
   listReplayConfigOperations: vi.fn(),
+  reviewReplayConfig: vi.fn(),
 }))
 
 function arrangeApi() {
@@ -35,7 +37,10 @@ function arrangeApi() {
         operatorRealName: '张三',
         operationSource: 'MANUAL',
         createdAt: '2026-09-11T10:20:30',
-        changes: [{ field: 'tran_code', label: '服务码', oldValue: null, newValue: 'S1&sop' }],
+        changes: [
+          { field: 'tran_code', label: '服务码', oldValue: null, newValue: 'S1&sop' },
+          { field: 'review_status', label: '审核状态', oldValue: '0', newValue: '1' },
+        ],
       },
     ],
   })
@@ -48,6 +53,7 @@ describe('ReplayConfigPage（忽略清单）', () => {
   })
 
   afterEach(() => {
+    vi.unstubAllGlobals()
     vi.restoreAllMocks()
   })
 
@@ -146,6 +152,72 @@ describe('ReplayConfigPage（忽略清单）', () => {
     expect(wrapper.find('[data-testid="form-error"]').text()).toContain('格式不正确')
   })
 
+  it('reviews a row when permission allows', async () => {
+    listReplayConfigs.mockResolvedValue({
+      total: 1,
+      items: [{
+        id: 1, tranCode: 'S1&sop', fieldName: 'accountNo', version: 0, reviewStatus: 0,
+        oldTransactionCode: 'Y444', developer: '张三', bankOwner: '李四',
+        canReview: true, reviewDisabledReason: null,
+      }],
+    })
+    reviewReplayConfig.mockResolvedValue({ id: 1, reviewStatus: 1 })
+    const wrapper = mount(ReplayConfigPage)
+    await flushPromises()
+
+    const button = wrapper.find('[data-testid="review-1"]')
+    expect(button.attributes('disabled')).toBeUndefined()
+    await button.trigger('click')
+    const modal = wrapper.find('[data-testid="confirm-modal"]')
+    expect(modal.exists()).toBe(true)
+    expect(modal.text()).toContain('服务码')
+    expect(modal.text()).toContain('S1&sop')
+    expect(modal.text()).toContain('accountNo')
+    expect(reviewReplayConfig).not.toHaveBeenCalled()
+
+    await wrapper.find('[data-testid="confirm-ok"]').trigger('click')
+    await flushPromises()
+
+    expect(reviewReplayConfig).toHaveBeenCalledWith('unconditional-ignores', 1, 0)
+    expect(wrapper.find('[data-testid="toast"]').text()).toContain('审核通过')
+    expect(wrapper.find('[data-testid="confirm-modal"]').exists()).toBe(false)
+  })
+
+  it('cancels the review confirmation without calling API', async () => {
+    listReplayConfigs.mockResolvedValue({
+      total: 1,
+      items: [{
+        id: 1, tranCode: 'S1&sop', fieldName: 'accountNo', version: 0, reviewStatus: 0,
+        canReview: true, reviewDisabledReason: null,
+      }],
+    })
+    const wrapper = mount(ReplayConfigPage)
+    await flushPromises()
+
+    await wrapper.find('[data-testid="review-1"]').trigger('click')
+    await wrapper.find('[data-testid="confirm-cancel"]').trigger('click')
+    await flushPromises()
+
+    expect(reviewReplayConfig).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-testid="confirm-modal"]').exists()).toBe(false)
+  })
+
+  it('disables review button without permission', async () => {
+    listReplayConfigs.mockResolvedValue({
+      total: 1,
+      items: [{
+        id: 1, tranCode: 'S1&sop', fieldName: 'accountNo', version: 0, reviewStatus: 0,
+        canReview: false, reviewDisabledReason: '仅行方负责人可审核',
+      }],
+    })
+    const wrapper = mount(ReplayConfigPage)
+    await flushPromises()
+
+    const button = wrapper.find('[data-testid="review-1"]')
+    expect(button.attributes('disabled')).toBeDefined()
+    expect(button.attributes('title')).toBe('仅行方负责人可审核')
+  })
+
   it('opens history drawer and renders changes', async () => {
     const wrapper = mount(ReplayConfigPage)
     await flushPromises()
@@ -157,5 +229,7 @@ describe('ReplayConfigPage（忽略清单）', () => {
     const drawer = wrapper.find('[data-testid="history-drawer"]')
     expect(drawer.text()).toContain('张三')
     expect(drawer.text()).toContain('服务码')
+    expect(drawer.text()).toContain('未审核')
+    expect(drawer.text()).toContain('已审核')
   })
 })

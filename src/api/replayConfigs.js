@@ -30,6 +30,14 @@ export function updateReplayConfig(type, id, body) {
   })
 }
 
+/** 审核通过某类回放配置（需 version 乐观锁）。 */
+export function reviewReplayConfig(type, id, version) {
+  return request(`${PREFIX}/${type}/${encodeURIComponent(id)}/review`, {
+    method: 'POST',
+    body: JSON.stringify({ version }),
+  })
+}
+
 /** 单条物理删除（携带 version 乐观锁）。 */
 export function deleteReplayConfig(type, id, version) {
   return request(`${PREFIX}/${type}/${encodeURIComponent(id)}?version=${encodeURIComponent(version)}`, {

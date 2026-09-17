@@ -1396,6 +1396,18 @@ const REPLAY_CONFIG_ZNZX_SERVICE = [
   { tranCode: 'X222', esfServiceCode: 'S120055900.Card.Info.Qry' },
 ]
 
+// 人员清单 mock：key 为 old_transaction_code（等于 znzx_service.tran_code）
+const REPLAY_CONFIG_PERSONS = [
+  { oldTransactionCode: 'Y444', developer: '张三', bankOwner: '李四', bankOwnerEmpNos: 'c-lisi' },
+  { oldTransactionCode: 'Z999', developer: '王五', bankOwner: '赵六', bankOwnerEmpNos: 'c-zhaoliu' },
+  { oldTransactionCode: 'Y555', developer: '钱七', bankOwner: '孙八', bankOwnerEmpNos: 'c-sunb' },
+  { oldTransactionCode: 'Z111', developer: '周九', bankOwner: '吴十', bankOwnerEmpNos: 'c-wus' },
+  { oldTransactionCode: 'X222', developer: '郑一', bankOwner: '王二', bankOwnerEmpNos: 'c-wange' },
+]
+
+// mock 登录人身份（工号用于审核权限比对）
+const REPLAY_CONFIG_MOCK_OPERATOR = { username: 'mock-user', realName: 'Mock 用户', empNo: 'c-lisi' }
+
 const REPLAY_CONFIG_META = {
   'unconditional-ignores': {
     fields: [
@@ -1499,7 +1511,44 @@ function replayConfigChanges(type, before, after, onlyChanged) {
       push(meta.indexColumn || meta.indexField, '字段索引', oldIndex, newIndex)
     }
   }
+  const oldReview = before ? (before.reviewStatus ?? null) : null
+  const newReview = after ? (after.reviewStatus ?? null) : null
+  if ((!onlyChanged && (oldReview !== null || newReview !== null)) || (onlyChanged && oldReview !== newReview)) {
+    push('review_status', '审核状态', oldReview, newReview)
+  }
   return changes
+}
+
+/** 最终服务码 → 人员清单（去后缀 → znzx_service → old_transaction_code）。 */
+function replayConfigPerson(code) {
+  if (!code) return null
+  const base = String(code).replace(/&(sop|soap|bzjson)$/, '')
+  const mapping = REPLAY_CONFIG_ZNZX_SERVICE.find(item => item.esfServiceCode.replace(/\./g, '') === base)
+  if (!mapping) return null
+  return REPLAY_CONFIG_PERSONS.find(person => person.oldTransactionCode === mapping.tranCode) || null
+}
+
+function replayConfigEnrich(type, row) {
+  const serviceField = REPLAY_CONFIG_META[type].fields.find(field => field.serviceCode).key
+  const person = replayConfigPerson(row[serviceField])
+  const status = Number(row.reviewStatus ?? 0)
+  let reason = null
+  if (!person) {
+    reason = '无审核人'
+  } else if (status === 1) {
+    reason = '已审核'
+  } else {
+    const owners = String(person.bankOwnerEmpNos || '').split(/[、,，;；]/).map(item => item.trim())
+    if (!owners.includes(REPLAY_CONFIG_MOCK_OPERATOR.empNo)) reason = '仅行方负责人可审核'
+  }
+  return {
+    ...row,
+    oldTransactionCode: person ? person.oldTransactionCode : null,
+    developer: person ? person.developer : null,
+    bankOwner: person ? person.bankOwner : null,
+    canReview: reason === null,
+    reviewDisabledReason: reason,
+  }
 }
 
 function replayConfigOperation(store, type, configId, operationType, changes) {
@@ -1662,7 +1711,7 @@ function createReplaySortFields(store, res, body) {
     )
     created.push(row)
   }
-  return ok(res, created)
+  return ok(res, created.map(row => replayConfigEnrich('sort-fields', row)))
 }
 
 function replayConfigFail(res, status, message) {
@@ -1690,6 +1739,7 @@ function createReplayConfigStore() {
         id,
         ...REPLAY_CONFIG_META[type].fixed,
         ...partial,
+        reviewStatus: 0,
         createdAt: timestamp,
         updatedAt: timestamp,
         version: 0,
@@ -1779,6 +1829,27 @@ function handleReplayConfig(req, res, query, path, store) {
   const meta = REPLAY_CONFIG_META[type]
   if (!meta) return replayConfigFail(res, 404, '资源类型不存在')
 
+  if (req.method === 'POST' && idPart && sub === 'review') {
+    return readJsonBody(req).then(body => {
+      const id = Number(idPart)
+      const row = store.data[type].find(candidate => candidate.id === id)
+      if (!row) return replayConfigFail(res, 404, '记录不存在')
+      if (row.version !== body.version) return replayConfigFail(res, 409, '数据已被其他用户修改，请刷新后重试')
+      const hint = replayConfigEnrich(type, row)
+      if (!hint.canReview) {
+        const status = hint.reviewDisabledReason === '已审核' ? 409 : 403
+        return replayConfigFail(res, status, hint.reviewDisabledReason)
+      }
+      row.reviewStatus = 1
+      row.version += 1
+      row.updatedAt = replayConfigTimestamp()
+      store.operations[type].push(replayConfigOperation(store, type, id, 'REVIEW', [
+        { field: 'review_status', label: '审核状态', oldValue: '0', newValue: '1' },
+      ]))
+      return ok(res, replayConfigEnrich(type, row))
+    })
+  }
+
   if (req.method === 'POST' && idPart === 'batch-delete') {
     return readJsonBody(req).then(body => {
       const items = Array.isArray(body.items) ? body.items : []
@@ -1828,12 +1899,15 @@ function handleReplayConfig(req, res, query, path, store) {
         return replayConfigFail(res, 409, '配置已存在')
       }
       const timestamp = replayConfigTimestamp()
-      const row = { id: replayConfigNextId(store), ...candidate, createdAt: timestamp, updatedAt: timestamp, version: 0 }
+      const row = {
+        id: replayConfigNextId(store), ...candidate, reviewStatus: 0,
+        createdAt: timestamp, updatedAt: timestamp, version: 0,
+      }
       store.data[type].push(row)
       store.operations[type].push(
         replayConfigOperation(store, type, row.id, 'CREATE', replayConfigChanges(type, null, row, false)),
       )
-      return ok(res, row)
+      return ok(res, replayConfigEnrich(type, row))
     })
   }
 
@@ -1845,18 +1919,18 @@ function handleReplayConfig(req, res, query, path, store) {
       const validated = replayConfigValidateBody(type, body)
       if (validated.error) return replayConfigFail(res, 400, validated.error)
       if (row.version !== body.version) return replayConfigFail(res, 409, '数据已被其他用户修改，请刷新后重试')
-      const next = { ...row, ...validated.value }
+      const next = { ...row, ...validated.value, reviewStatus: 0 }
       if (meta.indexField && next[meta.indexScope] !== row[meta.indexScope]) {
         next[meta.indexField] = replayConfigNextIndex(store, type, next[meta.indexScope])
       }
       const changes = replayConfigChanges(type, row, next, true)
-      if (!changes.length) return ok(res, row)
+      if (!changes.length) return ok(res, replayConfigEnrich(type, row))
       if (replayConfigIsDuplicate(type, next, store.data[type], id)) return replayConfigFail(res, 409, '配置已存在')
       next.version = row.version + 1
       next.updatedAt = replayConfigTimestamp()
       Object.assign(row, next)
       store.operations[type].push(replayConfigOperation(store, type, id, 'UPDATE', changes))
-      return ok(res, row)
+      return ok(res, replayConfigEnrich(type, row))
     })
   }
 
@@ -1880,7 +1954,7 @@ function handleReplayConfig(req, res, query, path, store) {
     const offset = Number(query.offset || 0)
     if (offset < 0) return replayConfigFail(res, 400, '偏移量不能小于 0')
     const rows = replayConfigFilterRows(store, type, query)
-    return ok(res, { total: rows.length, items: rows.slice(offset, offset + limit) })
+    return ok(res, { total: rows.length, items: rows.slice(offset, offset + limit).map(row => replayConfigEnrich(type, row)) })
   }
 
   return replayConfigFail(res, 404, '接口不存在')

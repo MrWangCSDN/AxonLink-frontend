@@ -68,6 +68,14 @@
             </td>
             <td class="replay-operation-column">
               <div class="replay-operation-buttons">
+                <button
+                  class="replay-button replay-button-compact"
+                  type="button"
+                  :data-testid="`review-${row.id}`"
+                  :disabled="!row.canReview"
+                  :title="row.reviewDisabledReason || '审核通过'"
+                  @click="reviewRow(row)"
+                >审核</button>
                 <button class="replay-button replay-button-compact" type="button" :data-testid="`edit-${row.id}`" @click="openEdit(row)">修改</button>
                 <button class="replay-button replay-button-compact" type="button" :data-testid="`delete-${row.id}`" @click="removeRow(row)">删除</button>
                 <button class="replay-button replay-button-compact" type="button" :data-testid="`history-${row.id}`" @click="openHistory(row)">历史</button>
@@ -145,14 +153,30 @@
               <tbody>
                 <tr v-for="change in operation.changes" :key="change.field">
                   <td>{{ change.label }}</td>
-                  <td>{{ change.oldValue ?? '-' }}</td>
-                  <td>{{ change.newValue ?? '-' }}</td>
+                  <td>{{ formatChangeValue(change, change.oldValue) }}</td>
+                  <td>{{ formatChangeValue(change, change.newValue) }}</td>
                 </tr>
               </tbody>
             </table>
           </li>
         </ol>
       </aside>
+    </div>
+
+    <div v-if="confirmOpen" class="replay-modal-mask" @click.self="!confirming && closeConfirm()">
+      <section class="replay-confirm-modal" role="alertdialog" aria-modal="true" aria-label="操作确认" data-testid="confirm-modal">
+        <p class="replay-confirm-text">{{ confirmText }}</p>
+        <dl v-if="confirmDetails.length" class="replay-confirm-detail">
+          <div v-for="item in confirmDetails" :key="item.label" class="replay-confirm-row">
+            <dt>{{ item.label }}</dt>
+            <dd>{{ item.value }}</dd>
+          </div>
+        </dl>
+        <div class="replay-confirm-actions">
+          <button class="replay-button" type="button" data-testid="confirm-cancel" :disabled="confirming" @click="closeConfirm">取消</button>
+          <button class="replay-button replay-button-primary" type="button" data-testid="confirm-ok" :disabled="confirming" @click="confirmAction">{{ confirming ? '处理中...' : '确定' }}</button>
+        </div>
+      </section>
     </div>
 
     <transition name="replay-toast">
@@ -171,8 +195,16 @@ import {
   deleteReplayConfig,
   listReplayConfigOperations,
   listReplayConfigs,
+  reviewReplayConfig,
   updateReplayConfig,
 } from '../../api/replayConfigs.js'
+
+const REVIEW_COLUMNS = [
+  { key: 'oldTransactionCode', label: '老核心交易码' },
+  { key: 'developer', label: '开发人员' },
+  { key: 'bankOwner', label: '行方负责人' },
+  { key: 'reviewStatus', label: '审核状态', display: 'review' },
+]
 
 const SERVICE_CODE_PATTERN = /^[0-9A-Za-z]+&(sop|soap|bzjson)$/
 
@@ -199,6 +231,11 @@ const SCHEMAS = {
     columns: [
       { key: 'tranCode', label: '服务码' },
       { key: 'fieldName', label: '忽略字段' },
+      ...REVIEW_COLUMNS,
+    ],
+    confirmFields: [
+      { key: 'tranCode', label: '服务码' },
+      { key: 'fieldName', label: '忽略字段' },
     ],
     form: [
       { key: 'tranCode', label: '服务码', kind: 'serviceCode', required: true, placeholder: '如 S120034071CorpInfoQryTrdCrclr&sop' },
@@ -219,6 +256,11 @@ const SCHEMAS = {
       { key: 'fieldFileFlag', label: '字段标识', display: 'flag' },
       { key: 'origFieldCond', label: '主系统字段忽略条件', long: true },
       { key: 'destFieldCond', label: '备系统字段忽略条件', long: true },
+      ...REVIEW_COLUMNS,
+    ],
+    confirmFields: [
+      { key: 'origTrcd', label: '服务码' },
+      { key: 'fieldRmoveName', label: '忽略字段' },
     ],
     form: [
       { key: 'origTrcd', label: '服务码', kind: 'serviceCode', required: true },
@@ -239,6 +281,12 @@ const SCHEMAS = {
       { key: 'newRespCode', label: '新核心错误码', kind: 'text' },
     ],
     columns: [
+      { key: 'serviceCode', label: '服务码' },
+      { key: 'oldRespCode', label: '老核心错误码' },
+      { key: 'newRespCode', label: '新核心错误码' },
+      ...REVIEW_COLUMNS,
+    ],
+    confirmFields: [
       { key: 'serviceCode', label: '服务码' },
       { key: 'oldRespCode', label: '老核心错误码' },
       { key: 'newRespCode', label: '新核心错误码' },
@@ -263,6 +311,12 @@ const SCHEMAS = {
       { key: 'origFieldName', label: '排序字段', kind: 'text' },
     ],
     columns: [
+      { key: 'origTrcd', label: '服务码' },
+      { key: 'origArryName', label: '对象/数组名称' },
+      { key: 'origFieldName', label: '排序字段' },
+      ...REVIEW_COLUMNS,
+    ],
+    confirmFields: [
       { key: 'origTrcd', label: '服务码' },
       { key: 'origArryName', label: '对象/数组名称' },
       { key: 'origFieldName', label: '排序字段' },
@@ -298,6 +352,12 @@ const historyOpen = ref(false)
 const historyItems = ref([])
 const historyLoading = ref(false)
 
+const confirmOpen = ref(false)
+const confirmText = ref('')
+const confirmDetails = ref([])
+const confirming = ref(false)
+let confirmHandler = null
+
 const toast = reactive({ visible: false, kind: 'success', text: '' })
 let toastTimer = null
 
@@ -324,6 +384,10 @@ function displayValue(column, row) {
     if (value === 1) return '普通字段'
     if (value === 2) return '对象或数组'
   }
+  if (column.display === 'review') {
+    if (value === 1) return '已审核'
+    if (value === 0) return '未审核'
+  }
   return value === null || value === undefined || value === '' ? '-' : value
 }
 
@@ -333,7 +397,16 @@ function formatTime(value) {
 }
 
 function operationLabel(type) {
-  return { CREATE: '新增', UPDATE: '修改', DELETE: '删除' }[type] || type
+  return { CREATE: '新增', UPDATE: '修改', DELETE: '删除', REVIEW: '审核' }[type] || type
+}
+
+function formatChangeValue(change, value) {
+  if (value === null || value === undefined || value === '') return '-'
+  if (change.field === 'review_status') {
+    if (String(value) === '1') return '已审核'
+    if (String(value) === '0') return '未审核'
+  }
+  return value
 }
 
 function resetFilters() {
@@ -501,6 +574,51 @@ async function submitForm() {
   }
 }
 
+function openConfirm(text, details, handler) {
+  confirmText.value = text
+  confirmDetails.value = details || []
+  confirmHandler = handler
+  confirmOpen.value = true
+}
+
+function closeConfirm() {
+  if (confirming.value) return
+  confirmOpen.value = false
+  confirmDetails.value = []
+  confirmHandler = null
+}
+
+async function confirmAction() {
+  if (!confirmHandler || confirming.value) return
+  const handler = confirmHandler
+  confirming.value = true
+  try {
+    await handler()
+  } finally {
+    confirming.value = false
+    confirmOpen.value = false
+    confirmDetails.value = []
+    confirmHandler = null
+  }
+}
+
+function reviewRow(row) {
+  if (!row.canReview) return
+  const details = (schema.value.confirmFields || []).map((field) => ({
+    label: field.label,
+    value: row[field.key] === null || row[field.key] === undefined || row[field.key] === '' ? '-' : row[field.key],
+  }))
+  openConfirm('确认审核通过该条配置？', details, async () => {
+    try {
+      await reviewReplayConfig(activeTab.value, row.id, row.version)
+      showToast('审核通过')
+      await load()
+    } catch (cause) {
+      showToast(`审核失败：${cause?.message || cause}`, 'error')
+    }
+  })
+}
+
 async function removeRow(row) {
   if (typeof window !== 'undefined' && typeof window.confirm === 'function'
       && !window.confirm(`确认删除该条${schema.value.title}配置？此操作不可恢复。`)) {
@@ -594,7 +712,7 @@ onUnmounted(() => {
 .replay-table th,.replay-table td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--border,#e5e7eb);font-size:13px;word-break:break-all;vertical-align:top}
 .replay-table thead th{position:sticky;top:0;z-index:2;background:#0d6672;color:#fff}
 .replay-select-column{width:44px}
-.replay-operation-column{width:210px;white-space:nowrap}
+.replay-operation-column{width:262px;white-space:nowrap}
 .replay-operation-buttons{display:flex;gap:5px}
 .replay-cell-long{max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .replay-state{text-align:center;color:var(--text-muted,#6b7280);padding:28px 0}
@@ -619,6 +737,13 @@ onUnmounted(() => {
 .replay-history-update{background:#fff7e6;color:#b54708}
 .replay-history-changes{width:100%;border-collapse:collapse}
 .replay-history-changes th,.replay-history-changes td{padding:6px 8px;border-bottom:1px solid var(--border,#eef0f3);font-size:12px;text-align:left;word-break:break-all}
+.replay-confirm-modal{width:min(360px,calc(100vw - 32px));display:grid;gap:18px;padding:20px;background:var(--bg-card,#fff);border-radius:8px;box-shadow:0 12px 32px rgba(0,0,0,.2)}
+.replay-confirm-text{margin:0;font-size:14px;color:var(--text-primary,#1f2937)}
+.replay-confirm-detail{margin:0;display:grid;gap:6px}
+.replay-confirm-row{display:grid;grid-template-columns:88px 1fr;gap:8px;font-size:13px}
+.replay-confirm-row dt{color:var(--text-muted,#6b7280)}
+.replay-confirm-row dd{margin:0;color:var(--text-primary,#1f2937);word-break:break-all}
+.replay-confirm-actions{display:flex;justify-content:flex-end;gap:8px}
 .replay-toast{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:2000;min-width:180px;max-width:70vw;padding:10px 16px;border-radius:6px;font-size:13px;box-shadow:0 6px 18px rgba(0,0,0,.18);background:#24713d;color:#fff}
 .replay-toast-error{background:#b42318}
 .replay-toast-enter-active,.replay-toast-leave-active{transition:opacity .2s ease}

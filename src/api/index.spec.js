@@ -36,7 +36,7 @@ describe('flowtran domain chain export API', () => {
 
     expect(fetch).toHaveBeenCalledWith(
       '/api/flowtran/domains/public/chains/export',
-      { headers: { 'X-DII-Trigger-Token': 'secret' } },
+      { credentials: 'same-origin', headers: { 'X-DII-Trigger-Token': 'secret' } },
     )
   })
 
@@ -117,7 +117,7 @@ describe('401 session verification', () => {
 
   it.each([401, 200])('keeps the editor route when a %s save response reports 401 but the session is valid', async status => {
     fetch.mockResolvedValueOnce(reply(status, 401))
-      .mockResolvedValueOnce(reply(200, 200, { username: 'dii-token' }))
+      .mockResolvedValueOnce(reply(200, 200, { username: 'c-wangsh8' }))
     await expect(request('/ai/parallel-replay/database-comparison-fields/3', { method: 'PUT' }))
       .rejects.toMatchObject({ status, code: 401 })
     expect(fetch).toHaveBeenLastCalledWith('/api/auth/me', expect.any(Object))

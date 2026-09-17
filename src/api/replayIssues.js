@@ -156,7 +156,14 @@ export function getReplayDailyReportMailConfig(batchNo) {
 
 export function getReplayReportAttachmentOptions(params = {}) {
   const query = queryString(params)
-  return request(`${PREFIX}/daily-report/attachment-options${query ? `?${query}` : ''}`)
+  return request(`${PREFIX}/report-attachments/options${query ? `?${query}` : ''}`)
+}
+
+export function previewReplayReportMailBody(currentReport, generatedReports = []) {
+  return request(`${PREFIX}/report-mail/body-preview`, {
+    method: 'POST',
+    body: JSON.stringify({ currentReport, generatedReports }),
+  })
 }
 
 function reportMailForm(mail, files) {
@@ -242,6 +249,7 @@ export async function importReplayIssues(file, token, replayType = 'QUERY') {
 
   const response = await fetch('/api/ai/parallel-replay/issues/import', {
     method: 'POST',
+    credentials: 'same-origin',
     headers: { 'X-DII-Trigger-Token': token || '' },
     body: formData,
   })

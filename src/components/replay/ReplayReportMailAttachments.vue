@@ -7,7 +7,7 @@
       </div>
       <div class="mail-attachments__actions">
         <button type="button" data-testid="mail-add-generated" :disabled="disabled" @click="openSelector">
-          添加已生成日报
+          添加已生成报告
         </button>
         <label :class="{ 'is-disabled': disabled }">
           添加本地 Excel
@@ -23,12 +23,12 @@
         <div><strong>{{ currentAttachment?.fileName || '当前报表.xlsx' }}</strong><small>系统自动附加，不可删除或替换</small></div>
         <em>{{ formatSize(attachmentSize(currentAttachment)) }}</em>
       </div>
-      <div v-for="report in selectedReports" :key="report.batchNo" class="mail-attachment-row">
-        <span class="mail-attachment-row__type">{{ report.family || '日报' }}</span>
-        <div><strong>{{ report.fileName }}</strong><small>{{ report.batchNo }}</small></div>
+      <div v-for="report in selectedReports" :key="reportKey(report)" class="mail-attachment-row">
+        <span class="mail-attachment-row__type">{{ reportLabel(report) }}</span>
+        <div><strong>{{ report.fileName }}</strong><small>{{ reportRange(report) }}</small></div>
         <em>{{ formatSize(attachmentSize(report)) }}</em>
         <button type="button" :disabled="disabled" :aria-label="`删除附件 ${report.fileName}`"
-                @click="removeReport(report.batchNo)">删除</button>
+                @click="removeReport(report)">删除</button>
       </div>
       <div v-for="(file, index) in localFiles" :key="`${file.name}-${file.size}-${index}`" class="mail-attachment-row">
         <span class="mail-attachment-row__type">本地</span>
@@ -46,22 +46,27 @@
                @input="scheduleSearch" />
         <select v-model="family" :disabled="loading || disabled" @change="changeFamily">
           <option value="ALL">全部</option>
-          <option value="RPT">查询日报</option>
-          <option value="DZ">账务日报</option>
+          <option value="RPT">查询</option>
+          <option value="DZ">账务</option>
+        </select>
+        <select v-model="period" :disabled="loading || disabled" @change="changeFamily">
+          <option value="ALL">全部周期</option>
+          <option value="DAILY">日报</option>
+          <option value="WEEKLY">周报</option>
         </select>
         <button type="button" :disabled="disabled" @click="selectorOpen = false">完成</button>
       </div>
-      <p v-if="loading" class="mail-selector__state">正在加载日报…</p>
+      <p v-if="loading" class="mail-selector__state">正在加载报告…</p>
       <p v-else-if="loadError" class="mail-selector__state is-error">{{ loadError }}</p>
-      <p v-else-if="!options.length" class="mail-selector__state">没有找到已生成日报</p>
+      <p v-else-if="!options.length" class="mail-selector__state">没有找到已生成报告</p>
       <div v-else class="mail-selector__options">
-        <button v-for="option in options" :key="option.batchNo" type="button"
-                :data-testid="`mail-generated-option-${option.batchNo}`"
-                :disabled="disabled || option.batchNo === currentAttachment?.batchNo || isSelected(option.batchNo)"
+        <button v-for="option in options" :key="reportKey(option)" type="button"
+                :data-testid="`mail-generated-option-${reportKey(option)}`"
+                :disabled="disabled || reportKey(option) === reportKey(currentAttachment) || isSelected(option)"
                 @click="addReport(option)">
-          <span><strong>{{ option.fileName }}</strong><small>{{ option.batchNo }}</small></span>
-          <em v-if="option.batchNo === currentAttachment?.batchNo" data-testid="mail-generated-current-hint">当前附件</em>
-          <em v-else-if="isSelected(option.batchNo)">已添加</em>
+          <span><strong>{{ option.fileName }}</strong><small>{{ reportLabel(option) }} · {{ reportRange(option) }}</small></span>
+          <em v-if="reportKey(option) === reportKey(currentAttachment)" data-testid="mail-generated-current-hint">当前附件</em>
+          <em v-else-if="isSelected(option)">已添加</em>
           <em v-else>{{ formatSize(attachmentSize(option)) }}</em>
         </button>
       </div>
@@ -92,6 +97,7 @@ const emit = defineEmits(['update:selectedReports', 'update:localFiles', 'valida
 const selectorOpen = ref(false)
 const keyword = ref('')
 const family = ref('ALL')
+const period = ref('ALL')
 const page = ref(0)
 const size = 20
 const total = ref(0)
@@ -102,6 +108,11 @@ const localSelectionError = ref('')
 let searchTimer
 
 const attachmentSize = item => Number(item?.size ?? item?.fileSize ?? 0)
+const reportKey = item => [item?.period || 'DAILY', item?.startBatchNo || '', item?.endBatchNo || item?.batchNo || ''].join('|')
+const reportLabel = item => `${item?.family === 'DZ' ? '账务' : '查询'}${item?.period === 'WEEKLY' ? '周报' : '日报'}`
+const reportRange = item => item?.period === 'WEEKLY'
+  ? `${item?.startBatchNo || ''} - ${item?.endBatchNo || ''}`
+  : (item?.endBatchNo || item?.batchNo || '')
 const totalSize = computed(() => attachmentSize(props.currentAttachment)
   + props.selectedReports.reduce((sum, item) => sum + attachmentSize(item), 0)
   + props.localFiles.reduce((sum, file) => sum + Number(file?.size || 0), 0))
@@ -133,14 +144,14 @@ async function loadOptions() {
   loadError.value = ''
   try {
     const result = await getReplayReportAttachmentOptions({
-      keyword: keyword.value.trim(), family: family.value, page: page.value, size,
+      keyword: keyword.value.trim(), family: family.value, period: period.value, page: page.value, size,
     })
     options.value = result?.items || []
     total.value = Number(result?.total || 0)
   } catch (cause) {
     options.value = []
     total.value = 0
-    loadError.value = `加载已生成日报失败：${cause?.message || cause}`
+    loadError.value = `加载已生成报告失败：${cause?.message || cause}`
   } finally {
     loading.value = false
   }
@@ -169,17 +180,17 @@ function goPage(nextPage) {
   loadOptions()
 }
 
-function isSelected(batchNo) {
-  return props.selectedReports.some(item => item.batchNo === batchNo)
+function isSelected(report) {
+  return props.selectedReports.some(item => reportKey(item) === reportKey(report))
 }
 
 function addReport(option) {
-  if (option.batchNo === props.currentAttachment?.batchNo || isSelected(option.batchNo)) return
+  if (reportKey(option) === reportKey(props.currentAttachment) || isSelected(option)) return
   emit('update:selectedReports', [...props.selectedReports, option])
 }
 
-function removeReport(batchNo) {
-  emit('update:selectedReports', props.selectedReports.filter(item => item.batchNo !== batchNo))
+function removeReport(report) {
+  emit('update:selectedReports', props.selectedReports.filter(item => reportKey(item) !== reportKey(report)))
 }
 
 function onLocalFiles(event) {

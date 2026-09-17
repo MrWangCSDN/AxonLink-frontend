@@ -112,6 +112,7 @@
                   <th>表英文名 / 中文名</th>
                   <th>领域</th>
                   <th>比对字段</th>
+                  <th>查询条件</th>
                   <th>修订人</th>
                   <th>小组负责人</th>
                   <th>登记日期</th>
@@ -126,12 +127,17 @@
                       {{ formatField(field) }}<b v-if="field.primaryKey">主键</b><i v-if="index < row.fields.length - 1">、</i>
                     </span>
                   </td>
+                  <td
+                    class="query-condition-cell"
+                    :data-testid="`history-query-condition-${row.tableName}`"
+                    :title="queryConditionText(row)"
+                  >{{ queryConditionText(row) }}</td>
                   <td>{{ personLabel(row.reviserName, row.reviserUsername, row.reviserEmpNo) }}</td>
                   <td>{{ personLabel(row.groupOwnerName, row.groupOwnerUsername, row.groupOwnerEmpNo) }}</td>
                   <td>{{ row.registeredDate || '-' }}</td>
                 </tr>
                 <tr v-if="!loadingSnapshot && !snapshot.items.length">
-                  <td colspan="6" class="empty-state">暂无快照数据</td>
+                  <td colspan="7" class="empty-state">暂无快照数据</td>
                 </tr>
               </tbody>
             </table>
@@ -197,6 +203,21 @@ const formatDateTime = value => value ? value.replace('T', ' ') : '-'
 const formatField = field => field.columnComment
   ? `${field.columnName}(${field.columnComment})`
   : field.columnName
+const queryConditionText = row => {
+  const parts = []
+  const whereSql = String(row?.whereSql || '').trim().replace(/^where\s+/i, '')
+  if (whereSql) parts.push(`WHERE ${whereSql}`)
+  if (row?.compareLimit !== null && row?.compareLimit !== undefined && row?.compareLimit !== '') {
+    const primaryKeys = [...(row.fields || [])]
+      .filter(field => field.primaryKey)
+      .sort((left, right) => (left.primaryKeyOrder ?? left.comparisonOrder ?? Number.MAX_SAFE_INTEGER)
+        - (right.primaryKeyOrder ?? right.comparisonOrder ?? Number.MAX_SAFE_INTEGER))
+      .map(field => field.columnName)
+    if (primaryKeys.length) parts.push(`ORDER BY ${primaryKeys.join(', ')}`)
+    parts.push(`LIMIT ${row.compareLimit}`)
+  }
+  return parts.join(' ') || '全表'
+}
 const personLabel = (name, username, fallback) => {
   const account = username || fallback
   if (!name && !account) return '-'
@@ -388,15 +409,16 @@ watch(() => props.open, value => {
 .script-error ul { max-height: 92px; margin: 6px 0 0; padding-left: 20px; overflow: auto; }
 .script-error li + li { margin-top: 3px; }
 .snapshot-table-shell { min-height: 0; margin: 0 18px; overflow: auto; border: 1px solid #dbe2e9; border-radius: 5px; background: #fff; }
-table { width: 100%; min-width: 970px; border-collapse: collapse; table-layout: fixed; color: #465361; font-size: 12px; }
+table { width: 100%; min-width: 1080px; border-collapse: collapse; table-layout: fixed; color: #465361; font-size: 12px; }
 th { position: sticky; top: 0; z-index: 1; padding: 10px; border-right: 1px solid rgba(255,255,255,.72); color: #fff; background: #168478; text-align: left; }
-th:nth-child(1) { width: 190px; } th:nth-child(2) { width: 90px; } th:nth-child(3) { width: 390px; } th:nth-child(4), th:nth-child(5) { width: 105px; } th:nth-child(6) { width: 100px; }
+th:nth-child(1) { width: 190px; } th:nth-child(2) { width: 90px; } th:nth-child(3) { width: 330px; } th:nth-child(4) { width: 180px; } th:nth-child(5), th:nth-child(6) { width: 105px; } th:nth-child(7) { width: 100px; }
 td { padding: 10px; border-right: 1px solid #edf1f4; border-bottom: 1px solid #e6ebef; vertical-align: top; overflow-wrap: anywhere; }
 td strong, td small { display: block; }
 td small { margin-top: 3px; color: #86919c; }
 .field-cell span { display: inline; line-height: 1.8; }
 .field-cell b { margin-left: 4px; color: #c83f3f; font-size: 10px; }
 .field-cell i { color: #86919c; font-style: normal; }
+.query-condition-cell { color: #526474; line-height: 1.6; white-space: normal; }
 .empty-state { padding: 24px; color: #929ca6; text-align: center; }
 .history-pager { display: flex; align-items: center; justify-content: flex-end; gap: 10px; min-height: 50px; padding: 8px 18px; color: #6e7a86; font-size: 12px; }
 .history-pager label { display: flex; align-items: center; gap: 5px; }

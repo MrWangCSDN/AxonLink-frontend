@@ -25,6 +25,7 @@ import {
   regenerateReplayDailyReport,
   getReplayDailyReportMailConfig,
   getReplayReportAttachmentOptions,
+  previewReplayReportMailBody,
   sendReplayDailyReportMail,
   getReplayWeeklyReportOptions,
   downloadReplayWeeklyReport,
@@ -251,6 +252,7 @@ describe('replay issues API', () => {
     expect(fetch.mock.calls[1][0]).toBe('/api/ai/parallel-replay/issues/weekly-task')
     expect(fetch.mock.calls[1][1]).toMatchObject({
       method: 'PUT',
+      credentials: 'same-origin',
       headers: {
         'Content-Type': 'application/json',
         'X-DII-Trigger-Token': 'secret',
@@ -300,7 +302,7 @@ describe('replay issues API', () => {
       .mockResolvedValueOnce(jsonResponse({ code: 200, data: { subject: '对公分布式核心回放问题日报-20260908' } }))
       .mockResolvedValueOnce(jsonResponse({ code: 200, data: { status: 'SENT' } }))
 
-    await getReplayReportAttachmentOptions({ keyword: '202609', family: 'DZ', page: 1, size: 10 })
+    await getReplayReportAttachmentOptions({ keyword: '202609', period: 'WEEKLY', family: 'DZ', page: 1, size: 10 })
     await getReplayDailyReportMailConfig('RPT20260908-01')
     const mail = {
       batchNo: 'RPT20260908-01', subject: '自定义标题',
@@ -310,17 +312,33 @@ describe('replay issues API', () => {
     const files = [new File(['a'], '补充A.xlsx'), new File(['b'], '补充B.xls')]
     await sendReplayDailyReportMail(mail, files, 'secret')
 
-    expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues/daily-report/attachment-options?keyword=202609&family=DZ&page=1&size=10')
+    expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues/report-attachments/options?keyword=202609&period=WEEKLY&family=DZ&page=1&size=10')
     expect(fetch.mock.calls[1][0]).toBe('/api/ai/parallel-replay/issues/daily-report/mail-config?batchNo=RPT20260908-01')
     expect(fetch.mock.calls[2][0]).toBe('/api/ai/parallel-replay/issues/daily-report/mail-send')
     expect(fetch.mock.calls[2][1]).toMatchObject({
       method: 'POST',
+      credentials: 'same-origin',
       headers: { 'X-DII-Trigger-Token': 'secret' },
     })
     const form = fetch.mock.calls[2][1].body
     expect(form).toBeInstanceOf(FormData)
     expect(form.getAll('files')).toEqual(files)
     expect(JSON.parse(await form.get('mail').text())).toEqual(mail)
+  })
+
+  it('previews report mail body from current and selected generated reports', async () => {
+    global.fetch = vi.fn().mockResolvedValue(jsonResponse({ code: 200, data: { body: '自动正文' } }))
+    const currentReport = { period: 'DAILY', startBatchNo: null, endBatchNo: 'RPT20260916-01' }
+    const accountingReport = { period: 'DAILY', startBatchNo: null, endBatchNo: 'DZ20260916-01' }
+
+    await previewReplayReportMailBody(currentReport, [accountingReport])
+
+    expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues/report-mail/body-preview')
+    expect(fetch.mock.calls[0][1]).toMatchObject({ method: 'POST' })
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({
+      currentReport,
+      generatedReports: [accountingReport],
+    })
   })
 
   it('regenerates daily and weekly reports with POST token headers', async () => {
@@ -333,11 +351,11 @@ describe('replay issues API', () => {
 
     expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues/daily-report/regenerate?batchNo=RPT20260908-01')
     expect(fetch.mock.calls[0][1]).toMatchObject({
-      method: 'POST', headers: { 'X-DII-Trigger-Token': 'secret' },
+      method: 'POST', credentials: 'same-origin', headers: { 'X-DII-Trigger-Token': 'secret' },
     })
     expect(fetch.mock.calls[1][0]).toBe('/api/ai/parallel-replay/issues/weekly-report/regenerate?startBatchNo=RPT20260901-01&endBatchNo=RPT20260908-01')
     expect(fetch.mock.calls[1][1]).toMatchObject({
-      method: 'POST', headers: { 'X-DII-Trigger-Token': 'secret' },
+      method: 'POST', credentials: 'same-origin', headers: { 'X-DII-Trigger-Token': 'secret' },
     })
   })
 
@@ -360,6 +378,7 @@ describe('replay issues API', () => {
     expect(fetch.mock.calls[2][0]).toBe('/api/ai/parallel-replay/issues/weekly-report/mail-send')
     expect(fetch.mock.calls[2][1]).toMatchObject({
       method: 'POST',
+      credentials: 'same-origin',
       headers: { 'X-DII-Trigger-Token': 'secret' },
     })
     const form = fetch.mock.calls[2][1].body

@@ -85,6 +85,7 @@ export function downloadVersionConfigScript(versionNo) {
 export async function generateVersion(token = '') {
   const response = await fetch(`/api${PREFIX}/versions/generate`, {
     method: 'POST',
+    credentials: 'same-origin',
     headers: { 'X-DII-Trigger-Token': token || '' },
   })
   let payload = null
@@ -143,6 +144,7 @@ export async function importInitialExcel(file, token = '') {
   form.append('file', file)
   const response = await fetch(`/api${PREFIX}/import`, {
     method: 'POST',
+    credentials: 'same-origin',
     headers: { 'X-DII-Trigger-Token': token || '' },
     body: form,
   })

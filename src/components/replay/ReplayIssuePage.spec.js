@@ -28,6 +28,7 @@ import {
   regenerateReplayDailyReport,
   getReplayDailyReportMailConfig,
   getReplayReportAttachmentOptions,
+  previewReplayReportMailBody,
   sendReplayDailyReportMail,
   getReplayWeeklyReportOptions,
   downloadReplayWeeklyReport,
@@ -70,6 +71,7 @@ vi.mock('../../api/replayIssues.js', () => ({
   regenerateReplayDailyReport: vi.fn(),
   getReplayDailyReportMailConfig: vi.fn(),
   getReplayReportAttachmentOptions: vi.fn(),
+  previewReplayReportMailBody: vi.fn(),
   sendReplayDailyReportMail: vi.fn(),
   getReplayWeeklyReportOptions: vi.fn(),
   downloadReplayWeeklyReport: vi.fn(),
@@ -155,6 +157,7 @@ function arrangeApi({ total = 4607, items = [fixtureRow] } = {}) {
     currentAttachment: { fileName: 'RPT20260903-01日报.xlsx', size: 1024, source: 'CURRENT_REPORT', batchNo: 'RPT20260903-01' },
   })
   getReplayReportAttachmentOptions.mockResolvedValue({ items: [], page: 0, size: 20, total: 0 })
+  previewReplayReportMailBody.mockResolvedValue({ body: '自动查询正文' })
   sendReplayDailyReportMail.mockResolvedValue({ status: 'SENT', sentAt: '2026-09-08T12:00:00' })
   getReplayWeeklyReportOptions.mockResolvedValue({ dailyBatches: [], weeklyReports: [] })
   downloadReplayWeeklyReport.mockResolvedValue({ fileName: 'RPT20260908-01周报.xlsx' })
@@ -1371,7 +1374,7 @@ describe('ReplayIssuePage', () => {
     expect(sendReplayWeeklyReportMail).toHaveBeenCalledWith({
       startBatchNo: 'RPT20260901-01', endBatchNo: 'RPT20260908-01',
       subject: '自定义周报标题', toEmails: ['owner@example.com'],
-      ccEmails: ['leader@example.com'], body: '请查收周报', reportBatchNos: [],
+      ccEmails: ['leader@example.com'], body: '请查收周报', generatedReports: [],
     }, [], 'secret')
     expect(wrapper.find('[data-testid="weekly-report-mail-modal"]').exists()).toBe(false)
     expect(wrapper.get('[data-testid="weekly-report-modal"]').text()).toContain('已发送')
@@ -1526,7 +1529,7 @@ describe('ReplayIssuePage', () => {
     await wrapper.get('[data-testid="daily-report-mail-subject"]').setValue('自定义日报标题')
     await wrapper.get('[data-testid="daily-report-mail-to"]').setValue('owner@example.com；new@example.com')
     await wrapper.get('[data-testid="daily-report-mail-cc"]').setValue('copy@example.com')
-    expect(wrapper.get('[data-testid="daily-report-mail-body"]').element.value).toBe('各位好，附件为本批次回放问题日报，请查收。')
+    expect(wrapper.get('[data-testid="daily-report-mail-body"]').element.value).toBe('自动查询正文')
     await wrapper.get('[data-testid="daily-report-mail-body"]').setValue('各位好，请查收日报。')
     await wrapper.get('[data-testid="daily-report-mail-token"]').setValue('secret')
     await wrapper.get('[data-testid="daily-report-mail-submit"]').trigger('click')
@@ -1534,7 +1537,7 @@ describe('ReplayIssuePage', () => {
     expect(sendReplayDailyReportMail).toHaveBeenCalledWith({
       batchNo: 'RPT20260903-01', subject: '自定义日报标题',
       toEmails: ['owner@example.com', 'new@example.com'], ccEmails: ['leader@example.com', 'copy@example.com'],
-      body: '各位好，请查收日报。', reportBatchNos: [],
+      body: '各位好，请查收日报。', generatedReports: [],
     }, [], 'secret')
     expect(wrapper.get('[data-testid="daily-report-mail-submit"]').text()).toContain('发送中')
 
@@ -1545,6 +1548,105 @@ describe('ReplayIssuePage', () => {
     expect(wrapper.get('[data-testid="daily-report-modal"]').exists()).toBe(true)
     expect(wrapper.get('[data-testid="daily-report-mail-status"]').text()).toContain('已发送')
     expect(wrapper.get('[data-testid="daily-report-mail-button"]').text()).toContain('重新发送')
+  })
+
+  it('regenerates the editable body when generated attachments change but not for local files', async () => {
+    getReplayDailyReportBatches.mockResolvedValue([
+      { batchNo: 'RPT20260903-01', previousBatchNo: 'RPT20260902-01', canGenerate: true, generated: true, mailStatus: 'UNSENT' },
+    ])
+    getReplayReportAttachmentOptions.mockResolvedValue({
+      items: [{ period: 'DAILY', batchNo: 'DZ20260902-01', endBatchNo: 'DZ20260902-01', family: 'DZ', fileName: '账务日报-20260902.xlsx', fileSize: 2048 }],
+      page: 0, size: 20, total: 1,
+    })
+    previewReplayReportMailBody.mockImplementation((currentReport, generatedReports) => Promise.resolve({
+      body: generatedReports.length ? '自动查询和账务正文' : '自动查询正文',
+    }))
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="open-daily-report"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="daily-report-mail-button"]').trigger('click')
+    await flushPromises()
+    const body = wrapper.get('[data-testid="daily-report-mail-body"]')
+    expect(body.element.value).toBe('自动查询正文')
+    await body.setValue('用户手工正文')
+
+    await wrapper.get('[data-testid="mail-add-generated"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="mail-generated-option-DAILY||DZ20260902-01"]').trigger('click')
+    await flushPromises()
+    expect(previewReplayReportMailBody).toHaveBeenCalledTimes(2)
+    expect(wrapper.get('[data-testid="daily-report-mail-body"]').element.value).toBe('自动查询和账务正文')
+
+    await wrapper.get('[data-testid="daily-report-mail-body"]').setValue('再次手工修改')
+    const local = new File(['excel'], '本地补充.xlsx')
+    const input = wrapper.get('[data-testid="mail-local-files"]')
+    Object.defineProperty(input.element, 'files', { configurable: true, value: [local] })
+    await input.trigger('change')
+    await flushPromises()
+    expect(previewReplayReportMailBody).toHaveBeenCalledTimes(2)
+    expect(wrapper.get('[data-testid="daily-report-mail-body"]').element.value).toBe('再次手工修改')
+  })
+
+  it('keeps the last body and blocks sending when attachment body preview fails', async () => {
+    getReplayDailyReportBatches.mockResolvedValue([
+      { batchNo: 'RPT20260903-01', previousBatchNo: 'RPT20260902-01', canGenerate: true, generated: true, mailStatus: 'UNSENT' },
+    ])
+    getReplayReportAttachmentOptions.mockResolvedValue({
+      items: [{ period: 'DAILY', batchNo: 'DZ20260902-01', endBatchNo: 'DZ20260902-01', family: 'DZ', fileName: '账务日报-20260902.xlsx', fileSize: 2048 }],
+      page: 0, size: 20, total: 1,
+    })
+    previewReplayReportMailBody
+      .mockResolvedValueOnce({ body: '自动查询正文' })
+      .mockRejectedValueOnce(new Error('覆盖汇总合计不一致'))
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="open-daily-report"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="daily-report-mail-button"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="daily-report-mail-body"]').setValue('用户保留正文')
+    await wrapper.get('[data-testid="daily-report-mail-token"]').setValue('secret')
+    await wrapper.get('[data-testid="mail-add-generated"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="mail-generated-option-DAILY||DZ20260902-01"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="daily-report-mail-body"]').element.value).toBe('用户保留正文')
+    expect(wrapper.get('[data-testid="daily-report-mail-modal"]').text()).toContain('覆盖汇总合计不一致')
+    expect(wrapper.get('[data-testid="daily-report-mail-submit"]').attributes('disabled')).toBeDefined()
+  })
+
+  it('collapses blank lines when pasting and submitting a report mail body', async () => {
+    getReplayDailyReportBatches.mockResolvedValue([
+      { batchNo: 'RPT20260903-01', previousBatchNo: 'RPT20260902-01', canGenerate: true, generated: true, mailStatus: 'UNSENT' },
+    ])
+    getReplayDailyReportMailConfig.mockResolvedValue({
+      batchNo: 'RPT20260903-01', subject: '日报标题',
+      toEmails: ['owner@example.com'], ccEmails: [], body: '', status: 'UNSENT',
+    })
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="open-daily-report"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="daily-report-mail-button"]').trigger('click')
+    await flushPromises()
+
+    const body = wrapper.get('[data-testid="daily-report-mail-body"]')
+    await body.setValue('第一行\r\n\r\n第二行\n\n\n1. 第一项\r\n2. 第二项')
+    expect(body.element.value).toBe('第一行\n第二行\n1. 第一项\n2. 第二项')
+
+    await body.setValue('第一行\n\n第二行')
+    await wrapper.get('[data-testid="daily-report-mail-token"]').setValue('secret')
+    await wrapper.get('[data-testid="daily-report-mail-submit"]').trigger('click')
+    await flushPromises()
+
+    expect(sendReplayDailyReportMail).toHaveBeenCalledWith(expect.objectContaining({
+      body: '第一行\n第二行',
+    }), [], 'secret')
   })
 
   it('passes selected generated reports and local Excel files to daily mail sending', async () => {
@@ -1564,7 +1666,7 @@ describe('ReplayIssuePage', () => {
 
     await wrapper.get('[data-testid="mail-add-generated"]').trigger('click')
     await flushPromises()
-    await wrapper.get('[data-testid="mail-generated-option-DZ20260902-01"]').trigger('click')
+    await wrapper.get('[data-testid="mail-generated-option-DAILY||DZ20260902-01"]').trigger('click')
     const local = new File(['excel'], '本地补充.xlsx')
     const input = wrapper.get('[data-testid="mail-local-files"]')
     Object.defineProperty(input.element, 'files', { configurable: true, value: [local] })
@@ -1574,7 +1676,9 @@ describe('ReplayIssuePage', () => {
     await flushPromises()
 
     expect(sendReplayDailyReportMail).toHaveBeenCalledWith(expect.objectContaining({
-      batchNo: 'RPT20260903-01', reportBatchNos: ['DZ20260902-01'],
+      batchNo: 'RPT20260903-01', generatedReports: [{
+        period: 'DAILY', startBatchNo: null, endBatchNo: 'DZ20260902-01',
+      }],
     }), [local], 'secret')
   })
 
@@ -1611,7 +1715,7 @@ describe('ReplayIssuePage', () => {
     expect(sendReplayDailyReportMail).toHaveBeenCalledWith(expect.objectContaining({
       toEmails: ['owner@example.com', 'new@example.com', 'third@example.com'],
       ccEmails: ['leader@example.com'],
-      reportBatchNos: [],
+      generatedReports: [],
     }), [], 'secret')
   })
 

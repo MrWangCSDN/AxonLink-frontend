@@ -676,13 +676,13 @@
                 </div>
                 <small>多个抄送人会分别显示，可单独删除</small>
               </div>
-              <label><span>邮件正文</span><textarea v-model="dailyReportMailBody" :data-testid="`${reportMailKind}-report-mail-body`" rows="7" maxlength="10000" :disabled="dailyReportMailSending" placeholder="请输入邮件正文" /></label>
+              <label><span>邮件正文</span><textarea :value="dailyReportMailBody" :data-testid="`${reportMailKind}-report-mail-body`" rows="7" maxlength="10000" :disabled="dailyReportMailSending" placeholder="请输入邮件正文" @input="onReplayReportMailBodyInput" /></label>
               <ReplayReportMailAttachments
                 :current-attachment="reportMailCurrentAttachment"
                 :selected-reports="reportMailSelectedReports"
                 :local-files="reportMailLocalFiles"
                 :disabled="dailyReportMailSending"
-                @update:selected-reports="reportMailSelectedReports = $event"
+                @update:selected-reports="onReportMailSelectedReportsUpdate"
                 @update:local-files="reportMailLocalFiles = $event"
                 @validation-change="onReportMailAttachmentValidation"
               />
@@ -693,7 +693,7 @@
           <footer>
             <button class="replay-button" type="button" :data-testid="`${reportMailKind}-report-mail-cancel`" :disabled="dailyReportMailSending" @click="closeDailyReportMail">取消</button>
             <button class="replay-button replay-button-primary" type="button" :data-testid="`${reportMailKind}-report-mail-submit`"
-                    :disabled="dailyReportMailLoading || dailyReportMailSending || !reportMailAttachmentsValid || !dailyReportMailSubject.trim() || (!dailyReportMailToEmails.length && !dailyReportMailTo.trim()) || !dailyReportMailBody.trim() || !dailyReportMailToken.trim()" @click="submitDailyReportMail">
+                    :disabled="dailyReportMailLoading || dailyReportMailSending || reportMailBodyPreviewLoading || !!reportMailBodyPreviewError || !reportMailAttachmentsValid || !dailyReportMailSubject.trim() || (!dailyReportMailToEmails.length && !dailyReportMailTo.trim()) || !dailyReportMailBody.trim() || !dailyReportMailToken.trim()" @click="submitDailyReportMail">
               <Mail :size="15" aria-hidden="true" />
               {{ dailyReportMailSending ? '发送中…' : '确认发送' }}
             </button>
@@ -881,7 +881,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ArrowDownWideNarrow, ArrowUpNarrowWide, BarChart3, CalendarRange, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, Download, FileSpreadsheet, Flag, HelpCircle, History as HistoryIcon, Mail, Menu, Minus, Pencil, RefreshCw, Save, Search, Upload, Users, X } from 'lucide-vue-next'
-import { approveReplayIssue, exportReplayIssues, getReplayImportRounds, getReplayIssueDomainPermissions, getReplayIssueDomainTransfers, getReplayIssueGroupSummaries, getReplayIssueHeaderFilterOptionCounts, getReplayIssueMailStatus, getReplayIssueOptions, getReplayIssuePersonRankings, getReplayIssuePersonSchedule, getReplayIssueReviewPermissions, getReplayIssuePlanDatePermissions, getReplayIssuePlanDateChanges, getReplayIssueRoundTracking, getReplayIssueStats, getReplayWeeklyTask, replaceReplayWeeklyTask, getReplayDailyReportBatches, downloadReplayDailyReport, regenerateReplayDailyReport, getReplayDailyReportMailConfig, sendReplayDailyReportMail, getReplayWeeklyReportOptions, downloadReplayWeeklyReport, regenerateReplayWeeklyReport, getReplayWeeklyReportMailConfig, sendReplayWeeklyReportMail, importReplayIssues, listReplayIssues, searchReplayIssueUsers, sendReplayIssueMail, updateReplayIssue, updateReplayIssueDomain, updateReplayIssuePlannedCompletionDate } from '../../api/replayIssues.js'
+import { approveReplayIssue, exportReplayIssues, getReplayImportRounds, getReplayIssueDomainPermissions, getReplayIssueDomainTransfers, getReplayIssueGroupSummaries, getReplayIssueHeaderFilterOptionCounts, getReplayIssueMailStatus, getReplayIssueOptions, getReplayIssuePersonRankings, getReplayIssuePersonSchedule, getReplayIssueReviewPermissions, getReplayIssuePlanDatePermissions, getReplayIssuePlanDateChanges, getReplayIssueRoundTracking, getReplayIssueStats, getReplayWeeklyTask, replaceReplayWeeklyTask, getReplayDailyReportBatches, downloadReplayDailyReport, regenerateReplayDailyReport, getReplayDailyReportMailConfig, previewReplayReportMailBody, sendReplayDailyReportMail, getReplayWeeklyReportOptions, downloadReplayWeeklyReport, regenerateReplayWeeklyReport, getReplayWeeklyReportMailConfig, sendReplayWeeklyReportMail, importReplayIssues, listReplayIssues, searchReplayIssueUsers, sendReplayIssueMail, updateReplayIssue, updateReplayIssueDomain, updateReplayIssuePlannedCompletionDate } from '../../api/replayIssues.js'
 import ReplayPlannedCompletionModal from './ReplayPlannedCompletionModal.vue'
 import ReplayReportMailAttachments from './ReplayReportMailAttachments.vue'
 import ReplayTrackingValue from './ReplayTrackingValue.vue'
@@ -1148,6 +1148,9 @@ const reportMailCurrentAttachment = ref({})
 const reportMailSelectedReports = ref([])
 const reportMailLocalFiles = ref([])
 const reportMailAttachmentsValid = ref(true)
+const reportMailBodyPreviewLoading = ref(false)
+const reportMailBodyPreviewError = ref('')
+let reportMailBodyPreviewSequence = 0
 const reportMailKind = ref('daily')
 const weeklyReportOpen = ref(false)
 const weeklyReportDailyBatches = ref([])
@@ -2675,10 +2678,10 @@ async function openDailyReportMail() {
     dailyReportMailSubject.value = config?.subject || ''
     dailyReportMailToEmails.value = parseDailyReportMailEmails(config?.toEmails)
     dailyReportMailCcEmails.value = parseDailyReportMailEmails(config?.ccEmails)
-    dailyReportMailBody.value = config?.body || ''
     reportMailCurrentAttachment.value = config?.currentAttachment || {
       fileName: `${entry.batchNo}日报.xlsx`, batchNo: entry.batchNo, size: 0, source: 'CURRENT_REPORT',
     }
+    await refreshReplayReportMailBody([])
   } catch (cause) {
     dailyReportMailError.value = `加载邮件配置失败：${cause?.message || cause}`
   } finally {
@@ -2706,10 +2709,10 @@ async function openWeeklyReportMail() {
     dailyReportMailSubject.value = config?.subject || ''
     dailyReportMailToEmails.value = parseDailyReportMailEmails(config?.toEmails)
     dailyReportMailCcEmails.value = parseDailyReportMailEmails(config?.ccEmails)
-    dailyReportMailBody.value = config?.body || ''
     reportMailCurrentAttachment.value = config?.currentAttachment || {
       fileName: `${entry.endBatchNo}周报.xlsx`, batchNo: entry.endBatchNo, size: 0, source: 'CURRENT_REPORT',
     }
+    await refreshReplayReportMailBody([])
   } catch (cause) {
     dailyReportMailError.value = `加载邮件配置失败：${cause?.message || cause}`
   } finally {
@@ -2725,10 +2728,54 @@ function closeDailyReportMail() {
 }
 
 function resetReportMailAttachments() {
+  reportMailBodyPreviewSequence += 1
   reportMailCurrentAttachment.value = {}
   reportMailSelectedReports.value = []
   reportMailLocalFiles.value = []
   reportMailAttachmentsValid.value = true
+  reportMailBodyPreviewLoading.value = false
+  reportMailBodyPreviewError.value = ''
+}
+
+function reportMailRef(item, current = false) {
+  const period = item?.period || (current && reportMailKind.value === 'weekly' ? 'WEEKLY' : 'DAILY')
+  const endBatchNo = item?.endBatchNo || item?.batchNo
+    || (current && reportMailKind.value === 'weekly' ? weeklyReportEndBatch.value : dailyReportSelectedBatch.value)
+  const startBatchNo = period === 'WEEKLY'
+    ? (item?.startBatchNo || (current ? weeklyReportStartBatch.value : null))
+    : null
+  return { period, startBatchNo, endBatchNo }
+}
+
+async function refreshReplayReportMailBody(selectedReports = reportMailSelectedReports.value) {
+  const currentReport = reportMailRef(reportMailCurrentAttachment.value, true)
+  if (!currentReport.endBatchNo || (currentReport.period === 'WEEKLY' && !currentReport.startBatchNo)) {
+    reportMailBodyPreviewError.value = '当前报告附件信息不完整'
+    return
+  }
+  const sequence = ++reportMailBodyPreviewSequence
+  reportMailBodyPreviewLoading.value = true
+  reportMailBodyPreviewError.value = ''
+  try {
+    const preview = await previewReplayReportMailBody(
+      currentReport,
+      selectedReports.map(item => reportMailRef(item)),
+    )
+    if (sequence !== reportMailBodyPreviewSequence) return
+    dailyReportMailBody.value = normalizeReplayReportMailBody(preview?.body || '')
+  } catch (cause) {
+    if (sequence !== reportMailBodyPreviewSequence) return
+    reportMailBodyPreviewError.value = `生成邮件正文失败：${cause?.message || cause}`
+    dailyReportMailError.value = reportMailBodyPreviewError.value
+  } finally {
+    if (sequence === reportMailBodyPreviewSequence) reportMailBodyPreviewLoading.value = false
+  }
+}
+
+async function onReportMailSelectedReportsUpdate(reports) {
+  reportMailSelectedReports.value = Array.isArray(reports) ? reports : []
+  dailyReportMailError.value = ''
+  await refreshReplayReportMailBody(reportMailSelectedReports.value)
 }
 
 function onReportMailAttachmentValidation(state) {
@@ -2740,10 +2787,11 @@ async function submitDailyReportMail() {
   const subject = dailyReportMailSubject.value.trim()
   const toEmails = parseDailyReportMailEmails([...dailyReportMailToEmails.value, dailyReportMailTo.value])
   const ccEmails = parseDailyReportMailEmails([...dailyReportMailCcEmails.value, dailyReportMailCc.value])
-  const body = dailyReportMailBody.value.trim()
+  const body = normalizeReplayReportMailBody(dailyReportMailBody.value).trim()
   const token = dailyReportMailToken.value.trim()
   if (!batchNo || !subject || !toEmails.length || !body || !token
-      || !reportMailAttachmentsValid.value || dailyReportMailSending.value) return
+      || !reportMailAttachmentsValid.value || reportMailBodyPreviewLoading.value
+      || reportMailBodyPreviewError.value || dailyReportMailSending.value) return
   dailyReportMailToEmails.value = toEmails
   dailyReportMailCcEmails.value = ccEmails
   dailyReportMailTo.value = ''
@@ -2756,13 +2804,21 @@ async function submitDailyReportMail() {
         startBatchNo: weeklyReportStartBatch.value,
         endBatchNo: weeklyReportEndBatch.value,
         subject, toEmails, ccEmails, body,
-        reportBatchNos: reportMailSelectedReports.value.map(item => item.batchNo),
+        generatedReports: reportMailSelectedReports.value.map(item => ({
+          period: item.period || 'DAILY',
+          startBatchNo: item.period === 'WEEKLY' ? item.startBatchNo : null,
+          endBatchNo: item.endBatchNo || item.batchNo,
+        })),
       }, reportMailLocalFiles.value, token)
       weeklyReportSuccess.value = '周报邮件已发送'
     } else {
       await sendReplayDailyReportMail({
         batchNo, subject, toEmails, ccEmails, body,
-        reportBatchNos: reportMailSelectedReports.value.map(item => item.batchNo),
+        generatedReports: reportMailSelectedReports.value.map(item => ({
+          period: item.period || 'DAILY',
+          startBatchNo: item.period === 'WEEKLY' ? item.startBatchNo : null,
+          endBatchNo: item.endBatchNo || item.batchNo,
+        })),
       }, reportMailLocalFiles.value, token)
       dailyReportSuccess.value = '日报邮件已发送'
     }
@@ -2782,6 +2838,16 @@ async function submitDailyReportMail() {
   } finally {
     dailyReportMailSending.value = false
   }
+}
+
+function normalizeReplayReportMailBody(value) {
+  return String(value || '').replace(/\r\n?/g, '\n').replace(/\n[\t ]*\n+/g, '\n')
+}
+
+function onReplayReportMailBodyInput(event) {
+  const normalized = normalizeReplayReportMailBody(event?.target?.value)
+  if (event?.target && event.target.value !== normalized) event.target.value = normalized
+  dailyReportMailBody.value = normalized
 }
 
 function parseDailyReportMailEmails(value) {

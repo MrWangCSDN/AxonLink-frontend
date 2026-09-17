@@ -243,6 +243,7 @@ export async function triggerDiiBatch(env, token) {
   const url = `/api${PREFIX}/batch-analyze${qs}`
   const resp = await fetch(url, {
     method: 'POST',
+    credentials: 'same-origin',
     headers: {
       'Content-Type': 'application/json',
       'X-DII-Trigger-Token': token || '',
@@ -278,6 +279,7 @@ export async function erRebuild(env, token) {
   const qs = toQuery({ env })
   const resp = await fetch(`/api${PREFIX}/er/rebuild${qs}`, {
     method: 'POST',
+    credentials: 'same-origin',
     headers: { 'X-DII-Trigger-Token': token || '' },
   })
   const json = await resp.json().catch(() => ({}))
@@ -303,6 +305,7 @@ export async function erImport(file, env, token) {
   if (env) fd.append('env', env)
   const resp = await fetch(`/api${PREFIX}/er/import`, {
     method: 'POST',
+    credentials: 'same-origin',
     headers: { 'X-DII-Trigger-Token': token || '' },
     body: fd,
   })
@@ -336,6 +339,7 @@ export function erGraph(p = {}) {
 export async function setErStatus(id, value, token) {
   const resp = await fetch(`/api${PREFIX}/er/relations/${id}/status?value=${encodeURIComponent(value)}`, {
     method: 'POST',
+    credentials: 'same-origin',
     headers: { 'X-DII-Trigger-Token': token || '' },
   })
   const json = await resp.json().catch(() => ({}))
@@ -418,6 +422,7 @@ export async function uploadSqlPoolExcel(file, env, token) {
   // 注意：不能手动设 Content-Type；浏览器会自动加 boundary
   const resp = await fetch(`/api${PREFIX}/sql-pool/import`, {
     method: 'POST',
+    credentials: 'same-origin',
     headers: { 'X-DII-Trigger-Token': token || '' },
     body: fd,
   })
@@ -446,6 +451,7 @@ export async function toggleSqlPoolWhitelist(id, value, token) {
     `/api${PREFIX}/sql-pool/${id}/whitelist?value=${value === 0 ? 0 : 1}`,
     {
       method: 'POST',
+      credentials: 'same-origin',
       headers: { 'X-DII-Trigger-Token': token || '' },
     },
   )
@@ -543,6 +549,7 @@ export async function toggleItemWhitelist(id, value, token) {
     `/api${PREFIX}/analysis-items/${id}/whitelist?value=${value === 0 ? 0 : 1}`,
     {
       method: 'POST',
+      credentials: 'same-origin',
       headers: { 'X-DII-Trigger-Token': token || '' },
     },
   )
@@ -570,6 +577,7 @@ export async function importSlowSql(file, env, token, round) {
   if (env) fd.append('env', env)
   const resp = await fetch(`/api${PREFIX}/slow-sql/import`, {
     method: 'POST',
+    credentials: 'same-origin',
     headers: { 'X-DII-Trigger-Token': token || '' },
     body: fd,
   })
@@ -625,7 +633,7 @@ export function listSlowSqlCollectFilters() {
 export async function addSlowSqlCollectFilter(prefix, token) {
   const resp = await fetch(
     `/api${PREFIX}/slow-sql/collect-filters?prefix=${encodeURIComponent(prefix)}`,
-    { method: 'POST', headers: { 'X-DII-Trigger-Token': token || '' } },
+    { method: 'POST', credentials: 'same-origin', headers: { 'X-DII-Trigger-Token': token || '' } },
   )
   const json = await resp.json().catch(() => ({}))
   if (resp.status === 401 || json?.code === 401) {
@@ -640,7 +648,7 @@ export async function addSlowSqlCollectFilter(prefix, token) {
 /** 删除条目（口令保护） */
 export async function deleteSlowSqlCollectFilter(id, token) {
   const resp = await fetch(`/api${PREFIX}/slow-sql/collect-filters/${id}`, {
-    method: 'DELETE', headers: { 'X-DII-Trigger-Token': token || '' },
+    method: 'DELETE', credentials: 'same-origin', headers: { 'X-DII-Trigger-Token': token || '' },
   })
   const json = await resp.json().catch(() => ({}))
   if (resp.status === 401 || json?.code === 401) {

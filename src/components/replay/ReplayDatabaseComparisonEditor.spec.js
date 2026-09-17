@@ -1,6 +1,7 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 import ReplayDatabaseComparisonEditor from './ReplayDatabaseComparisonEditor.vue'
+import ReplayDatabaseComparisonScopeEditor from './ReplayDatabaseComparisonScopeEditor.vue'
 
 const registrations = [{
   id: 12,
@@ -645,5 +646,53 @@ describe('ReplayDatabaseComparisonEditor', () => {
     expect(wrapper.emitted('save')?.[0]?.[0]).toMatchObject({
       mode: 'reregister', id: 77, version: 4, fieldNames: ['acct_no'],
     })
+  })
+
+  it('loads and saves the structured comparison scope', async () => {
+    const registration = {
+      ...registrations[0],
+      whereCondition: {
+        connector: 'AND',
+        groups: [{ connector: 'AND', conditions: [
+          { columnName: 'status_cd', operator: 'EQ', values: ['1'] },
+        ] }],
+      },
+      compareLimit: 1000,
+    }
+    const wrapper = mount(ReplayDatabaseComparisonEditor, {
+      props: { registrations: [registration], initialRegistration: registration },
+    })
+    const scope = wrapper.findComponent(ReplayDatabaseComparisonScopeEditor)
+    expect(scope.props('compareLimit')).toBe(1000)
+    scope.vm.$emit('update:compareLimit', 2000)
+    await wrapper.get('[data-testid="submit-registration"]').trigger('click')
+    await Promise.resolve()
+
+    expect(wrapper.emitted('save')?.[0]?.[0]).toMatchObject({
+      whereCondition: registration.whereCondition,
+      compareLimit: 2000,
+    })
+  })
+
+  it('warns when the ordered primary keys used by a limited comparison changed', () => {
+    const registration = {
+      ...registrations[0],
+      compareLimit: 1000,
+      metadataValidation: {
+        status: 'ORDERING_PRIMARY_KEY_CHANGED',
+        orderingPrimaryKeyChanged: true,
+        savedOrderingPrimaryKeyNames: ['acct_no', 'tenant_id'],
+        currentOrderingPrimaryKeyNames: ['tenant_id', 'acct_no'],
+      },
+    }
+
+    const wrapper = mount(ReplayDatabaseComparisonEditor, {
+      props: { registrations: [registration], initialRegistration: registration },
+    })
+
+    const warning = wrapper.get('[data-testid="ordering-primary-key-warning"]')
+    expect(warning.text()).toContain('排序主键已变更')
+    expect(warning.text()).toContain('原顺序：acct_no、tenant_id')
+    expect(warning.text()).toContain('当前顺序：tenant_id、acct_no')
   })
 })

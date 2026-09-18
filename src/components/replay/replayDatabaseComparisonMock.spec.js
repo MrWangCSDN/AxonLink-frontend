@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { getMockColumns, searchMockTables } from './replayDatabaseComparisonMock.js'
+import { getMockColumns, mockScopeExamples, searchMockTables } from './replayDatabaseComparisonMock.js'
 
 describe('replay database comparison metadata mock', () => {
   const registrations = [{
@@ -57,5 +57,15 @@ describe('replay database comparison metadata mock', () => {
     const columns = getMockColumns('no_primary_key_registered')
     expect(columns.length).toBeGreaterThan(0)
     expect(columns.some(column => column.primaryKey)).toBe(false)
+  })
+
+  it('provides deterministic full, condition, limit and drift scope examples', () => {
+    expect(Object.keys(mockScopeExamples)).toEqual([
+      'fullTable', 'conditionOnly', 'limitOnly', 'conditionAndLimit', 'missingConditionField',
+    ])
+    expect(mockScopeExamples.conditionOnly.whereCondition).toBeTruthy()
+    expect(mockScopeExamples.limitOnly.compareLimit).toBe(1000)
+    expect(mockScopeExamples.missingConditionField.metadataValidation.missingConditionFieldNames)
+      .toEqual(['legacy_status'])
   })
 })

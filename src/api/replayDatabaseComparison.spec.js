@@ -112,7 +112,7 @@ describe('replayDatabaseComparison api', () => {
     await expect(generateVersion('secret')).resolves.toEqual({ versionNo: '20260914-142530' })
     expect(fetch).toHaveBeenLastCalledWith(
       '/api/ai/parallel-replay/database-comparison-fields/versions/generate',
-      { method: 'POST', headers: { 'X-DII-Trigger-Token': 'secret' } },
+      { method: 'POST', credentials: 'same-origin', headers: { 'X-DII-Trigger-Token': 'secret' } },
     )
 
     fetch.mockResolvedValueOnce({
@@ -146,6 +146,7 @@ describe('replayDatabaseComparison api', () => {
     const [url, options] = fetch.mock.calls[0]
     expect(url).toBe('/api/ai/parallel-replay/database-comparison-fields/import')
     expect(options.method).toBe('POST')
+    expect(options.credentials).toBe('same-origin')
     expect(options.headers).toEqual({ 'X-DII-Trigger-Token': 'secret' })
     expect(options.body).toBeInstanceOf(FormData)
     expect(options.body.get('file')).toBe(file)

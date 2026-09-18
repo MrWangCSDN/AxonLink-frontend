@@ -16,6 +16,30 @@ const commonColumns = [
   ['remark', '备注', 'VARCHAR(500)'],
 ]
 
+const statusCondition = columnName => ({
+  connector: 'AND',
+  groups: [{ connector: 'AND', conditions: [
+    { columnName, operator: 'EQ', values: ['1'] },
+  ] }],
+})
+
+export const mockScopeExamples = {
+  fullTable: { whereCondition: null, whereConditionConfigured: false, compareLimit: null },
+  conditionOnly: { whereCondition: statusCondition('status_cd'), whereConditionConfigured: true, compareLimit: null },
+  limitOnly: { whereCondition: null, whereConditionConfigured: false, compareLimit: 1000 },
+  conditionAndLimit: { whereCondition: statusCondition('status_cd'), whereConditionConfigured: true, compareLimit: 1000 },
+  missingConditionField: {
+    whereCondition: statusCondition('legacy_status'),
+    whereConditionConfigured: true,
+    compareLimit: null,
+    metadataValidation: {
+      status: 'MISSING_FIELDS',
+      missingFieldNames: [],
+      missingConditionFieldNames: ['legacy_status'],
+    },
+  },
+}
+
 const columns = (primaryName, primaryComment, extras = []) => {
   let primaryKeyOrder = 0
   return [

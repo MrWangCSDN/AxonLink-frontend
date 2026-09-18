@@ -9,7 +9,7 @@ vi.mock('../../api/replayIssues.js', () => ({
 
 const current = {
   fileName: 'RPT20260915-01日报.xlsx', size: 1024,
-  source: 'CURRENT_REPORT', batchNo: 'RPT20260915-01',
+  source: 'CURRENT_REPORT', batchNo: 'RPT20260915-01', period: 'DAILY', endBatchNo: 'RPT20260915-01',
 }
 
 describe('ReplayReportMailAttachments', () => {
@@ -17,8 +17,8 @@ describe('ReplayReportMailAttachments', () => {
     getReplayReportAttachmentOptions.mockReset()
     getReplayReportAttachmentOptions.mockResolvedValue({
       items: [
-        { batchNo: 'RPT20260915-01', family: 'RPT', fileName: '当前日报.xlsx', fileSize: 1024 },
-        { batchNo: 'DZ20260914-01', family: 'DZ', fileName: '账务日报.xlsx', fileSize: 2048 },
+        { batchNo: 'RPT20260915-01', endBatchNo: 'RPT20260915-01', period: 'DAILY', family: 'RPT', fileName: '当前日报.xlsx', fileSize: 1024 },
+        { batchNo: 'DZ20260914-01', endBatchNo: 'DZ20260914-01', period: 'DAILY', family: 'DZ', fileName: '账务日报.xlsx', fileSize: 2048 },
       ], page: 0, size: 20, total: 2,
     })
   })
@@ -33,10 +33,10 @@ describe('ReplayReportMailAttachments', () => {
     await wrapper.get('[data-testid="mail-add-generated"]').trigger('click')
     await flushPromises()
     expect(getReplayReportAttachmentOptions).toHaveBeenCalledWith({
-      keyword: '', family: 'ALL', page: 0, size: 20,
+      keyword: '', family: 'ALL', period: 'ALL', page: 0, size: 20,
     })
     expect(wrapper.get('[data-testid="mail-generated-current-hint"]').text()).toContain('当前附件')
-    await wrapper.get('[data-testid="mail-generated-option-DZ20260914-01"]').trigger('click')
+    await wrapper.get('[data-testid="mail-generated-option-DAILY||DZ20260914-01"]').trigger('click')
     expect(wrapper.emitted('update:selectedReports').at(-1)[0].map(item => item.batchNo))
       .toEqual(['DZ20260914-01'])
   })

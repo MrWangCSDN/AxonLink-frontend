@@ -13,7 +13,12 @@ export function listReplayTransactionPersons(params = {}) {
 export async function importReplayTransactionPersons(file, token) {
   const form = new FormData()
   form.append('file', file)
-  const response = await fetch(`/api${PREFIX}/import`, { method: 'POST', headers: { 'X-DII-Trigger-Token': token || '' }, body: form })
+  const response = await fetch(`/api${PREFIX}/import`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'X-DII-Trigger-Token': token || '' },
+    body: form,
+  })
   const json = await response.json().catch(() => ({}))
   if (response.ok && json?.code === 200) return json.data
   const error = new Error(json?.message || `HTTP ${response.status}`)

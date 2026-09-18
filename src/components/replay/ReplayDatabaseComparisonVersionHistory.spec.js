@@ -37,8 +37,10 @@ describe('ReplayDatabaseComparisonVersionHistory', () => {
         groupOwnerUsername: 'c-lijingli',
         groupOwnerName: '李经理',
         registeredDate: '2026-09-14',
+        whereSql: "(status = '1')",
+        compareLimit: 1000,
         fields: [
-          { columnName: 'acct_no', columnComment: '账号', primaryKey: true, comparisonOrder: 1 },
+          { columnName: 'acct_no', columnComment: '账号', primaryKey: true, primaryKeyOrder: 1, comparisonOrder: 1 },
           { columnName: 'customer_no', columnComment: '客户号', primaryKey: false, comparisonOrder: 2 },
         ],
       }],
@@ -74,8 +76,35 @@ describe('ReplayDatabaseComparisonVersionHistory', () => {
     expect(wrapper.get('[data-testid="version-snapshot-table"]').text()).toContain('主键')
     expect(wrapper.get('[data-testid="version-snapshot-table"]').text()).toContain('张三(c-zhangsan)')
     expect(wrapper.get('[data-testid="version-snapshot-table"]').text()).toContain('李经理(c-lijingli)')
+    expect(wrapper.get('[data-testid="version-snapshot-table"] thead').text()).toContain('查询条件')
+    expect(wrapper.get('[data-testid="history-query-condition-acct_master"]').text())
+      .toBe("WHERE (status = '1') ORDER BY acct_no LIMIT 1000")
+    expect(wrapper.get('[data-testid="version-snapshot-table"] .field-cell').text()).not.toContain('已配置条件')
+    expect(wrapper.get('[data-testid="version-snapshot-table"] .field-cell').text()).not.toContain('限1000条')
     expect(wrapper.text()).not.toContain('母库表已删除')
     expect(wrapper.find('[data-testid^="edit-registration-"]').exists()).toBe(false)
+  })
+
+  it('renders full-table text when the version snapshot has no query scope', async () => {
+    comparisonApi.searchVersionSnapshot.mockResolvedValueOnce({
+      items: [{
+        sourceRegistrationId: 8,
+        sourceRegistrationVersion: 1,
+        tableName: 'full_table_snapshot',
+        tableComment: '全表快照',
+        domainName: '公共组',
+        registeredDate: '2026-09-14',
+        fields: [{ columnName: 'id', primaryKey: true, primaryKeyOrder: 1, comparisonOrder: 1 }],
+      }],
+      page: 0,
+      size: 50,
+      total: 1,
+    })
+
+    const wrapper = mount(ReplayDatabaseComparisonVersionHistory, { props: { open: true } })
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="history-query-condition-full_table_snapshot"]').text()).toBe('全表')
   })
 
   it('switches version without mutating the current registration page', async () => {

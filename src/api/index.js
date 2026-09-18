@@ -61,6 +61,7 @@ export async function request(url, options = {}) {
     ? { ...(options.headers || {}) }
     : { 'Content-Type': 'application/json', ...(options.headers || {}) }
   const res = await fetch(BASE + url, {
+    credentials: 'same-origin',
     ...options,
     headers,
   })
@@ -115,7 +116,7 @@ export async function request(url, options = {}) {
 
 // 导出供其他 api/ 子模块复用
 export async function download(url, fallbackFileName, options = {}) {
-  const res = await fetch(BASE + url, options)
+  const res = await fetch(BASE + url, { credentials: 'same-origin', ...options })
   if (!res.ok) {
     const body = (await res.text().catch(() => '')).trim()
     let message = body

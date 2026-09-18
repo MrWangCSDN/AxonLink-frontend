@@ -121,8 +121,26 @@
           </div>
         </section>
 
+        <section class="editor-block scope-block">
+          <div class="block-heading"><strong>3. 比对范围</strong><span>可选；不配置则全表比对</span></div>
+          <ReplayDatabaseComparisonScopeEditor
+            v-model="whereCondition"
+            v-model:compare-limit="compareLimit"
+            :columns="allColumns"
+            :primary-key-columns="primaryKeyColumnNames"
+            :disabled="isFieldMaintenanceDisabled"
+            :errors="scopeBackendErrors"
+          />
+          <div v-if="orderingPrimaryKeyWarning" class="missing-fields-warning ordering-primary-key-warning" data-testid="ordering-primary-key-warning">
+            <strong>排序主键已变更</strong>
+            <span>原顺序：{{ orderingPrimaryKeyWarning.saved.join('、') }}</span>
+            <span>当前顺序：{{ orderingPrimaryKeyWarning.current.join('、') }}</span>
+            <span>保存后将按当前母库主键顺序刷新。</span>
+          </div>
+        </section>
+
         <section class="editor-block registration-block">
-          <div class="block-heading"><strong>3. 登记信息</strong><span>带 * 为必填项</span></div>
+          <div class="block-heading"><strong>4. 登记信息</strong><span>带 * 为必填项</span></div>
           <div class="registration-form">
             <label>领域 *<select v-model="form.domain" :disabled="isFieldMaintenanceDisabled"><option value="">请选择</option><option v-for="domain in domains" :key="domain">{{ domain }}</option></select></label>
             <label>小组负责人 *
@@ -166,6 +184,8 @@ import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { Database } from 'lucide-vue-next'
 import { searchReplayIssueUsers } from '../../api/replayIssues.js'
 import { getMockColumns, searchMockTables } from './replayDatabaseComparisonMock.js'
+import ReplayDatabaseComparisonScopeEditor from './ReplayDatabaseComparisonScopeEditor.vue'
+import { normalizeConditionTree, validateScopeDraft } from './replayDatabaseComparisonScope.js'
 
 const props = defineProps({
   registrations: { type: Array, default: () => [] },
@@ -197,6 +217,16 @@ const deleteConfirmationVisible = ref(false)
 const groupOwnerOptions = ref([])
 const groupOwnerError = ref('')
 const reconciledPrimaryKeySignature = ref('')
+const whereCondition = ref(null)
+const compareLimit = ref(null)
+const orderingPrimaryKeyWarning = computed(() => {
+  const validation = selectedTable.value?.metadataValidation
+  if (!validation?.orderingPrimaryKeyChanged) return null
+  return {
+    saved: validation.savedOrderingPrimaryKeyNames || [],
+    current: validation.currentOrderingPrimaryKeyNames || [],
+  }
+})
 const form = reactive({ domain: '', groupOwnerUsername: '', groupOwnerName: '', groupOwnerDisplay: '' })
 
 const tableResults = ref([])
@@ -214,12 +244,20 @@ const isDeleteMode = computed(() => isEditing.value && selectedColumns.value.len
 const isDeleteAction = computed(() => isTableMissingCleanup.value || isDeleteMode.value)
 const missingSelectedColumns = computed(() => selectedColumns.value.filter(column => column.missingInBase))
 const hasMissingSelectedColumns = computed(() => missingSelectedColumns.value.length > 0)
+const primaryKeyColumnNames = computed(() => currentPrimaryKeys(allColumns.value).map(column => column.columnName))
+const scopeBackendErrors = computed(() => props.saveError?.type === 'SCOPE_INVALID'
+  ? props.saveError.errors || []
+  : [])
+const scopeDraftErrors = computed(() => validateScopeDraft(
+  whereCondition.value, compareLimit.value, allColumns.value,
+))
 const canSubmit = computed(() => {
   if (!selectedTable.value) return false
   if (isTableMissingCleanup.value) return true
   if (isPrimaryKeyMissing.value) return false
   if (isDeleteMode.value) return true
   if (hasMissingSelectedColumns.value) return false
+  if (scopeDraftErrors.value.length) return false
   return selectedColumns.value.length > 0 && form.domain && form.groupOwnerUsername
 })
 const availableColumns = computed(() => {
@@ -397,6 +435,8 @@ const selectTable = table => {
     form.groupOwnerUsername = registration?.groupOwnerUsername || registration?.groupOwnerEmpNo || ''
     form.groupOwnerName = registration?.groupOwnerName || registration?.groupOwner || ''
     form.groupOwnerDisplay = registration?.groupOwner || registration?.groupOwnerName || ''
+    whereCondition.value = normalizeConditionTree(registration?.whereCondition)
+    compareLimit.value = registration?.compareLimit ?? null
     groupOwnerOptions.value = []
     groupOwnerError.value = ''
     availableSelection.value = []
@@ -564,6 +604,8 @@ const submitRegistration = () => {
     domain: form.domain,
     groupOwnerUsername: form.groupOwnerUsername,
     groupOwnerName: form.groupOwnerName,
+    whereCondition: normalizeConditionTree(whereCondition.value),
+    compareLimit: compareLimit.value,
     })
   }
   const latestColumns = props.loadColumns(selectedTable.value.tableName)
@@ -589,6 +631,8 @@ const resetSelectedTable = () => {
   availableSelection.value = []
   selectedSelection.value = []
   selectedFieldKeyword.value = ''
+  whereCondition.value = null
+  compareLimit.value = null
   reconciledPrimaryKeySignature.value = ''
   tableSearchExecuted.value = tableKeywordInput.value.trim().length >= 2
   groupOwnerOptions.value = []

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import ReplayConfigPage from './ReplayConfigPage.vue'
 import {
+  batchReviewReplayConfigs,
   createReplayConfig,
   listReplayConfigOperations,
   listReplayConfigs,
@@ -14,6 +15,7 @@ vi.mock('../../api/replayConfigs.js', () => ({
   updateReplayConfig: vi.fn(),
   deleteReplayConfig: vi.fn(),
   batchDeleteReplayConfigs: vi.fn(),
+  batchReviewReplayConfigs: vi.fn(),
   listReplayConfigOperations: vi.fn(),
   reviewReplayConfig: vi.fn(),
 }))
@@ -229,6 +231,50 @@ describe('ReplayConfigPage（忽略清单）', () => {
     expect(listReplayConfigs).toHaveBeenLastCalledWith('unconditional-ignores', {
       limit: 10, offset: 0, reviewStatus: '1',
     })
+  })
+
+  it('sends reviewableByMe when 仅我负责 is checked', async () => {
+    const wrapper = mount(ReplayConfigPage)
+    await flushPromises()
+
+    await wrapper.find('[data-testid="filter-reviewable-by-me"]').setValue(true)
+    await wrapper.find('form.replay-filters').trigger('submit')
+    await flushPromises()
+
+    expect(listReplayConfigs).toHaveBeenLastCalledWith('unconditional-ignores', {
+      limit: 10, offset: 0, reviewableByMe: 'true',
+    })
+  })
+
+  it('batch reviews selected rows and reports approved/skipped', async () => {
+    listReplayConfigs.mockResolvedValue({
+      total: 2,
+      items: [
+        { id: 1, tranCode: 'S1&sop', fieldName: 'a', version: 0, reviewStatus: 0, canReview: true },
+        {
+          id: 2, tranCode: 'S2&soap', fieldName: 'b', version: 0, reviewStatus: 0,
+          canReview: false, reviewDisabledReason: '没有权限，请联系李四进行审核',
+        },
+      ],
+    })
+    batchReviewReplayConfigs.mockResolvedValue({ approvedCount: 1, skippedCount: 1 })
+    const wrapper = mount(ReplayConfigPage)
+    await flushPromises()
+
+    await wrapper.find('[data-testid="select-1"]').setValue(true)
+    await wrapper.find('[data-testid="select-2"]').setValue(true)
+    await wrapper.find('[data-testid="batch-review"]').trigger('click')
+
+    const modal = wrapper.find('[data-testid="confirm-modal"]')
+    expect(modal.text()).toContain('可审核')
+    await wrapper.find('[data-testid="confirm-ok"]').trigger('click')
+    await flushPromises()
+
+    expect(batchReviewReplayConfigs).toHaveBeenCalledWith('unconditional-ignores', [
+      { id: 1, version: 0 },
+      { id: 2, version: 0 },
+    ])
+    expect(wrapper.find('[data-testid="toast"]').text()).toContain('审核通过 1 条，跳过 1 条')
   })
 
   it('opens history drawer and renders changes', async () => {

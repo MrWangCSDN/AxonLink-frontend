@@ -38,6 +38,14 @@ export function reviewReplayConfig(type, id, version) {
   })
 }
 
+/** 批量审核，items 形如 [{ id, version }]，最多 100 条；能审的通过、其余跳过。 */
+export function batchReviewReplayConfigs(type, items) {
+  return request(`${PREFIX}/${type}/batch-review`, {
+    method: 'POST',
+    body: JSON.stringify({ items }),
+  })
+}
+
 /** 单条物理删除（携带 version 乐观锁）。 */
 export function deleteReplayConfig(type, id, version) {
   return request(`${PREFIX}/${type}/${encodeURIComponent(id)}?version=${encodeURIComponent(version)}`, {

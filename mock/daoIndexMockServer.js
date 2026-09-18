@@ -1634,6 +1634,9 @@ function replayConfigFilterRows(store, type, query) {
     else if (key === 'reviewStatus') rows = rows.filter(row => String(row.reviewStatus ?? 0) === String(raw))
     else rows = rows.filter(row => String(row[key] ?? '').includes(raw))
   }
+  if (query.reviewableByMe === 'true' || query.reviewableByMe === true) {
+    rows = rows.filter(row => replayConfigIsOwner(type, row))
+  }
   rows.sort((left, right) => {
     const compared = replayConfigCompare(right.updatedAt, left.updatedAt)
     if (compared !== 0) return compared
@@ -1840,6 +1843,31 @@ function handleReplayConfig(req, res, query, path, store) {
   const sub = segments[7]
   const meta = REPLAY_CONFIG_META[type]
   if (!meta) return replayConfigFail(res, 404, '资源类型不存在')
+
+  if (req.method === 'POST' && idPart === 'batch-review') {
+    return readJsonBody(req).then(body => {
+      const items = Array.isArray(body.items) ? body.items : []
+      if (!items.length || items.length > 100) return replayConfigFail(res, 400, '批量审核数量不合法')
+      const seen = new Set()
+      for (const item of items) {
+        if (!item || !item.id || seen.has(item.id)) return replayConfigFail(res, 400, '批量审核记录不合法')
+        seen.add(item.id)
+      }
+      let approved = 0
+      for (const item of items) {
+        const row = store.data[type].find(candidate => candidate.id === item.id)
+        if (!row || row.version !== item.version || row.reviewStatus === 1 || !replayConfigIsOwner(type, row)) continue
+        row.reviewStatus = 1
+        row.version += 1
+        row.updatedAt = replayConfigTimestamp()
+        store.operations[type].push(replayConfigOperation(store, type, row.id, 'REVIEW', [
+          { field: 'review_status', label: '审核状态', oldValue: '0', newValue: '1' },
+        ]))
+        approved++
+      }
+      return ok(res, { approvedCount: approved, skippedCount: items.length - approved })
+    })
+  }
 
   if (req.method === 'POST' && idPart && sub === 'review') {
     return readJsonBody(req).then(body => {

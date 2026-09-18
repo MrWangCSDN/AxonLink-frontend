@@ -45,10 +45,17 @@
           </select>
           <input v-else v-model.trim="filters[filter.key]" class="replay-control" :data-testid="`filter-${filter.key}`" type="search" :placeholder="filter.label" />
         </template>
+        <label class="replay-checkbox">
+          <input v-model="reviewableByMe" type="checkbox" data-testid="filter-reviewable-by-me" />
+          <span>仅我负责</span>
+        </label>
       </div>
       <div class="replay-filter-actions">
         <button class="replay-button replay-button-primary" type="submit" data-testid="search">查询</button>
         <button class="replay-button" type="button" data-testid="reset" @click="reset">重置</button>
+        <button class="replay-button replay-button-primary" type="button" data-testid="batch-review" :disabled="!selectedIds.length || loading" @click="batchReview">
+          批量审核{{ selectedIds.length ? `（${selectedIds.length}）` : '' }}
+        </button>
         <button class="replay-button replay-button-danger" type="button" data-testid="batch-delete" :disabled="!selectedIds.length || loading" @click="batchDelete">
           批量删除{{ selectedIds.length ? `（${selectedIds.length}）` : '' }}
         </button>
@@ -196,6 +203,7 @@
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import {
   batchDeleteReplayConfigs,
+  batchReviewReplayConfigs,
   createReplayConfig,
   deleteReplayConfig,
   listReplayConfigOperations,
@@ -348,6 +356,7 @@ const page = ref(0)
 const pageSize = ref(10)
 const loading = ref(false)
 const internalTransactionCode = ref('')
+const reviewableByMe = ref(false)
 const filters = reactive({})
 const selectedIds = ref([])
 
@@ -424,6 +433,7 @@ function resetFilters() {
     filters[filter.key] = ''
   }
   internalTransactionCode.value = ''
+  reviewableByMe.value = false
 }
 
 function requestParams() {
@@ -432,6 +442,7 @@ function requestParams() {
     offset: page.value * pageSize.value,
   }
   if (internalTransactionCode.value) params.internalTransactionCode = internalTransactionCode.value
+  if (reviewableByMe.value) params.reviewableByMe = 'true'
   for (const filter of schema.value.filters) {
     const value = filters[filter.key]
     if (value !== undefined && value !== null && value !== '') params[filter.key] = value
@@ -642,6 +653,29 @@ async function removeRow(row) {
   }
 }
 
+function batchReview() {
+  if (!selectedIds.value.length) return
+  const byId = new Map(items.value.map((row) => [row.id, row]))
+  const selectedRows = selectedIds.value.map((id) => byId.get(id)).filter(Boolean)
+  const reviewableCount = selectedRows.filter((row) => row.canReview).length
+  const details = [
+    { label: '已选', value: `${selectedRows.length} 条` },
+    { label: '可审核', value: `${reviewableCount} 条` },
+    { label: '将跳过', value: `${selectedRows.length - reviewableCount} 条` },
+  ]
+  openConfirm('确认批量审核选中的配置？', details, async () => {
+    if (!selectedRows.length) return
+    const payload = selectedRows.map((row) => ({ id: row.id, version: row.version }))
+    try {
+      const result = await batchReviewReplayConfigs(activeTab.value, payload)
+      showToast(`审核通过 ${result?.approvedCount ?? 0} 条，跳过 ${result?.skippedCount ?? 0} 条`)
+      await load()
+    } catch (cause) {
+      showToast(`批量审核失败：${cause?.message || cause}`, 'error')
+    }
+  })
+}
+
 async function batchDelete() {
   if (!selectedIds.value.length) return
   if (typeof window !== 'undefined' && typeof window.confirm === 'function'
@@ -709,6 +743,8 @@ onUnmounted(() => {
 .replay-filter-group-label{font-size:13px;font-weight:600;color:var(--text-primary,#1f2937);white-space:nowrap}
 .replay-filter-actions{display:flex;align-items:center;gap:8px;margin-left:auto}
 .replay-control{height:34px;min-width:150px;padding:0 10px;border:1px solid var(--border,#d1d5db);background:var(--bg-card,#fff);color:inherit;font-size:13px;box-sizing:border-box}
+.replay-checkbox{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-primary,#1f2937);white-space:nowrap}
+.replay-checkbox input{width:15px;height:15px;accent-color:#0b70db}
 .replay-field{display:grid;gap:5px;font-size:12px;min-width:150px}
 .replay-field em{color:#d92d20;font-style:normal}
 .replay-field input,.replay-field select,.replay-field textarea{height:34px;padding:0 10px;border:1px solid var(--border,#d1d5db);background:var(--bg-card,#fff);color:inherit;font-size:13px;box-sizing:border-box}

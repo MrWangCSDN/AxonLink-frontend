@@ -692,6 +692,30 @@ describe('replay config management mock', () => {
     expect(pending.body.data.total).toBe(before.body.data.total - 1)
   })
 
+  it('batch reviews own pending rows and supports reviewableByMe filter', async () => {
+    const request = replayConfigServer()
+    const list = await request('GET', '/unconditional-ignores?limit=100')
+    const mine = list.body.data.items.filter((row) => row.canReview)
+    const notMine = list.body.data.items.filter((row) => !row.canReview)
+    expect(mine.length).toBeGreaterThan(1)
+    expect(notMine.length).toBeGreaterThan(0)
+
+    const batch = await request('POST', '/unconditional-ignores/batch-review', {
+      items: [
+        { id: mine[0].id, version: mine[0].version },
+        { id: notMine[0].id, version: notMine[0].version },
+      ],
+    })
+    expect(batch.status).toBe(200)
+    expect(batch.body.data.approvedCount).toBe(1)
+    expect(batch.body.data.skippedCount).toBe(1)
+
+    const filtered = await request('GET', '/unconditional-ignores?reviewableByMe=true&limit=100')
+    expect(filtered.body.data.total).toBeGreaterThan(0)
+    expect(filtered.body.data.total).toBeLessThan(list.body.data.total)
+    expect(filtered.body.data.items.every((row) => row.oldTransactionCode === 'Y444')).toBe(true)
+  })
+
   it('expands sort field creation into three rows and rejects unknown tran code', async () => {
     const request = replayConfigServer()
     const created = await request('POST', '/sort-fields', {

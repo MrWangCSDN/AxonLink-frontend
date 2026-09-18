@@ -692,6 +692,30 @@ describe('replay config management mock', () => {
     expect(pending.body.data.total).toBe(before.body.data.total - 1)
   })
 
+  it('batch creates rows atomically and rejects on duplicate', async () => {
+    const request = replayConfigServer()
+    const baseline = (await request('GET', '/unconditional-ignores')).body.data.total
+    const created = await request('POST', '/unconditional-ignores/batch-create', {
+      items: [
+        { tranCode: 'S111A&sop', fieldName: 'f1' },
+        { tranCode: 'S111A&soap', fieldName: 'f1' },
+        { tranCode: 'S111A&bzjson', fieldName: 'f1' },
+      ],
+    })
+    expect(created.status).toBe(200)
+    expect(created.body.data).toHaveLength(3)
+    expect((await request('GET', '/unconditional-ignores')).body.data.total).toBe(baseline + 3)
+
+    const dup = await request('POST', '/unconditional-ignores/batch-create', {
+      items: [
+        { tranCode: 'S222B&sop', fieldName: 'x' },
+        { tranCode: 'S111A&sop', fieldName: 'f1' },
+      ],
+    })
+    expect(dup.status).toBe(409)
+    expect((await request('GET', '/unconditional-ignores')).body.data.total).toBe(baseline + 3)
+  })
+
   it('batch reviews own pending rows and supports reviewableByMe filter', async () => {
     const request = replayConfigServer()
     const list = await request('GET', '/unconditional-ignores?limit=100')

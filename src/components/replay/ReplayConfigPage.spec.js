@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import ReplayConfigPage from './ReplayConfigPage.vue'
 import {
+  batchCreateReplayConfigs,
   batchReviewReplayConfigs,
   createReplayConfig,
   listReplayConfigOperations,
@@ -14,6 +15,7 @@ vi.mock('../../api/replayConfigs.js', () => ({
   createReplayConfig: vi.fn(),
   updateReplayConfig: vi.fn(),
   deleteReplayConfig: vi.fn(),
+  batchCreateReplayConfigs: vi.fn(),
   batchDeleteReplayConfigs: vi.fn(),
   batchReviewReplayConfigs: vi.fn(),
   listReplayConfigOperations: vi.fn(),
@@ -84,21 +86,44 @@ describe('ReplayConfigPage（忽略清单）', () => {
     expect(wrapper.text()).toContain('字段索引')
   })
 
-  it('creates a record and shows an auto-dismiss toast', async () => {
+  it('creates rows via the multi-row modal and shows a toast', async () => {
+    batchCreateReplayConfigs.mockResolvedValue([{ id: 3 }])
     const wrapper = mount(ReplayConfigPage)
     await flushPromises()
 
     await wrapper.find('[data-testid="create-config"]').trigger('click')
-    await wrapper.find('[data-testid="form-tranCode"]').setValue('S3&bzjson')
-    await wrapper.find('[data-testid="form-fieldName"]').setValue('accountNumber')
+    // 三行独立录入
+    expect(wrapper.find('[data-testid="form-0-tranCode"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="form-2-tranCode"]').exists()).toBe(true)
+
+    await wrapper.find('[data-testid="form-0-tranCode"]').setValue('S3&sop')
+    await wrapper.find('[data-testid="form-0-fieldName"]').setValue('accountNumber')
     await wrapper.find('form.replay-edit-grid').trigger('submit')
     await flushPromises()
 
-    expect(createReplayConfig).toHaveBeenCalledWith('unconditional-ignores', {
-      tranCode: 'S3&bzjson',
-      fieldName: 'accountNumber',
-    })
-    expect(wrapper.find('[data-testid="toast"]').text()).toContain('新增成功')
+    expect(batchCreateReplayConfigs).toHaveBeenCalledWith('unconditional-ignores', [
+      { tranCode: 'S3&sop', fieldName: 'accountNumber' },
+    ])
+    expect(wrapper.find('[data-testid="toast"]').text()).toContain('新增成功（1 条）')
+  })
+
+  it('batch creates only the rows that were filled', async () => {
+    batchCreateReplayConfigs.mockResolvedValue([{ id: 3 }, { id: 4 }])
+    const wrapper = mount(ReplayConfigPage)
+    await flushPromises()
+
+    await wrapper.find('[data-testid="create-config"]').trigger('click')
+    await wrapper.find('[data-testid="form-0-tranCode"]').setValue('S3&sop')
+    await wrapper.find('[data-testid="form-0-fieldName"]').setValue('a1')
+    await wrapper.find('[data-testid="form-2-tranCode"]').setValue('S3&bzjson')
+    await wrapper.find('[data-testid="form-2-fieldName"]').setValue('a2')
+    await wrapper.find('form.replay-edit-grid').trigger('submit')
+    await flushPromises()
+
+    expect(batchCreateReplayConfigs).toHaveBeenCalledWith('unconditional-ignores', [
+      { tranCode: 'S3&sop', fieldName: 'a1' },
+      { tranCode: 'S3&bzjson', fieldName: 'a2' },
+    ])
   })
 
   it('rejects invalid service code before calling API', async () => {
@@ -106,13 +131,26 @@ describe('ReplayConfigPage（忽略清单）', () => {
     await flushPromises()
 
     await wrapper.find('[data-testid="create-config"]').trigger('click')
-    await wrapper.find('[data-testid="form-tranCode"]').setValue('bad-code')
-    await wrapper.find('[data-testid="form-fieldName"]').setValue('accountNo')
+    await wrapper.find('[data-testid="form-0-tranCode"]').setValue('bad-code')
+    await wrapper.find('[data-testid="form-0-fieldName"]').setValue('accountNo')
     await wrapper.find('form.replay-edit-grid').trigger('submit')
     await flushPromises()
 
-    expect(createReplayConfig).not.toHaveBeenCalled()
+    expect(batchCreateReplayConfigs).not.toHaveBeenCalled()
     expect(wrapper.find('[data-testid="form-error"]').text()).toContain('格式不正确')
+  })
+
+  it('warns when a row has fields but no service code', async () => {
+    const wrapper = mount(ReplayConfigPage)
+    await flushPromises()
+
+    await wrapper.find('[data-testid="create-config"]').trigger('click')
+    await wrapper.find('[data-testid="form-0-fieldName"]').setValue('accountNo')
+    await wrapper.find('form.replay-edit-grid').trigger('submit')
+    await flushPromises()
+
+    expect(batchCreateReplayConfigs).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-testid="form-error"]').text()).toContain('请先填写服务码')
   })
 
   it('creates sort fields from the triple form and reports three rows', async () => {

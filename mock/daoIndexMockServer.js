@@ -1844,6 +1844,45 @@ function handleReplayConfig(req, res, query, path, store) {
   const meta = REPLAY_CONFIG_META[type]
   if (!meta) return replayConfigFail(res, 404, '资源类型不存在')
 
+  if (req.method === 'POST' && idPart === 'batch-create') {
+    return readJsonBody(req).then(body => {
+      const items = Array.isArray(body.items) ? body.items : []
+      if (!items.length || items.length > 3) return replayConfigFail(res, 400, '单次最多新增 3 条')
+      const candidates = []
+      const indexCounter = new Map()
+      for (const item of items) {
+        const validated = replayConfigValidateBody(type, item)
+        if (validated.error) return replayConfigFail(res, 400, validated.error)
+        const candidate = { ...meta.fixed, ...validated.value }
+        if (meta.indexField) {
+          const scope = candidate[meta.indexScope]
+          const next = indexCounter.has(scope)
+            ? indexCounter.get(scope)
+            : replayConfigNextIndex(store, type, scope)
+          candidate[meta.indexField] = next
+          indexCounter.set(scope, next + 1)
+        }
+        if (replayConfigIsDuplicate(type, candidate, store.data[type])) {
+          return replayConfigFail(res, 409, '配置已存在，整批未写入')
+        }
+        candidates.push(candidate)
+      }
+      const rows = candidates.map(candidate => {
+        const timestamp = replayConfigTimestamp()
+        const row = {
+          id: replayConfigNextId(store), ...candidate, reviewStatus: 0,
+          createdAt: timestamp, updatedAt: timestamp, version: 0,
+        }
+        store.data[type].push(row)
+        store.operations[type].push(
+          replayConfigOperation(store, type, row.id, 'CREATE', replayConfigChanges(type, null, row, false)),
+        )
+        return row
+      })
+      return ok(res, rows.map(row => replayConfigEnrich(type, row)))
+    })
+  }
+
   if (req.method === 'POST' && idPart === 'batch-review') {
     return readJsonBody(req).then(body => {
       const items = Array.isArray(body.items) ? body.items : []

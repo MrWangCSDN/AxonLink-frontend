@@ -127,14 +127,17 @@
           <button class="replay-icon-button" type="button" data-testid="close-edit" :disabled="saving" @click="closeEdit">关闭</button>
         </header>
         <form class="replay-edit-grid" @submit.prevent="submitForm">
-          <label v-for="field in activeForm" :key="field.key" class="replay-field" :class="{ 'replay-field-wide': field.kind === 'textarea' }">
-            <span>{{ field.label }}<em v-if="field.required"> *</em></span>
-            <select v-if="field.kind === 'select'" v-model.number="draft[field.key]" :data-testid="`form-${field.key}`">
-              <option v-for="option in field.options" :key="option.value" :value="option.value">{{ option.label }}</option>
-            </select>
-            <textarea v-else-if="field.kind === 'textarea'" v-model="draft[field.key]" :data-testid="`form-${field.key}`" rows="3" :placeholder="field.placeholder || ''"></textarea>
-            <input v-else v-model.trim="draft[field.key]" :data-testid="`form-${field.key}`" type="text" :placeholder="field.placeholder || ''" />
-          </label>
+          <template v-for="(row, index) in formRows" :key="index">
+            <p v-if="isMultiCreate" class="replay-field-wide replay-create-row-title">第 {{ index + 1 }} 条</p>
+            <label v-for="field in activeForm" :key="field.key" class="replay-field" :class="{ 'replay-field-wide': field.kind === 'textarea' }">
+              <span>{{ field.label }}<em v-if="field.required"> *</em></span>
+              <select v-if="field.kind === 'select'" v-model.number="row[field.key]" :data-testid="fieldTestId(field, index)">
+                <option v-for="option in field.options" :key="option.value" :value="option.value">{{ option.label }}</option>
+              </select>
+              <textarea v-else-if="field.kind === 'textarea'" v-model="row[field.key]" :data-testid="fieldTestId(field, index)" rows="3" :placeholder="field.placeholder || ''"></textarea>
+              <input v-else v-model.trim="row[field.key]" :data-testid="fieldTestId(field, index)" type="text" :placeholder="field.placeholder || ''" />
+            </label>
+          </template>
           <p v-if="createHint" class="replay-field-wide replay-hint">{{ createHint }}</p>
           <div v-if="formError" class="replay-message replay-error replay-field-wide" data-testid="form-error">{{ formError }}</div>
           <div class="replay-form-actions replay-field-wide">
@@ -202,6 +205,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import {
+  batchCreateReplayConfigs,
   batchDeleteReplayConfigs,
   batchReviewReplayConfigs,
   createReplayConfig,
@@ -365,6 +369,7 @@ const editingRow = ref(null)
 const saving = ref(false)
 const formError = ref('')
 const draft = reactive({})
+const createRows = ref([])
 
 const historyOpen = ref(false)
 const historyItems = ref([])
@@ -383,10 +388,22 @@ const pageCount = computed(() => Math.max(1, Math.ceil(total.value / pageSize.va
 const allSelected = computed(() => items.value.length > 0 && items.value.every((row) => selectedIds.value.includes(row.id)))
 const editTitle = computed(() => `${editingRow.value ? '修改' : '新增'}${schema.value.title}`)
 const isSortCreate = computed(() => isSortTab.value && !editingRow.value)
+const isMultiCreate = computed(() => !isSortTab.value && !editingRow.value)
 const activeForm = computed(() => (isSortCreate.value ? SORT_CREATE_FORM : schema.value.form))
-const createHint = computed(() => (isSortCreate.value
-  ? '保存后按映射生成 3 条：&sop 用老核心排序字段，&soap 与 &bzjson 用新核心排序字段。'
-  : ''))
+const formRows = computed(() => (isMultiCreate.value ? createRows.value : [draft]))
+const createHint = computed(() => {
+  if (isSortCreate.value) {
+    return '保存后按映射生成 3 条：&sop 用老核心排序字段，&soap 与 &bzjson 用新核心排序字段。'
+  }
+  if (isMultiCreate.value) {
+    return '最多可一次新增 3 条，每条独立填写，可只填其中部分；任一条重复则整批不写入。'
+  }
+  return ''
+})
+
+function fieldTestId(field, index) {
+  return isMultiCreate.value ? `form-${index}-${field.key}` : `form-${field.key}`
+}
 
 function showToast(text, kind = 'success') {
   toast.text = text
@@ -514,10 +531,24 @@ function resetDraft() {
   }
 }
 
+function resetCreateRows() {
+  createRows.value = [0, 1, 2].map(() => {
+    const row = {}
+    for (const field of schema.value.form) {
+      row[field.key] = field.kind === 'select' ? field.options[0].value : ''
+    }
+    return row
+  })
+}
+
 function openCreate() {
   editingRow.value = null
   formError.value = ''
-  resetDraft()
+  if (isSortTab.value) {
+    resetDraft()
+  } else {
+    resetCreateRows()
+  }
   editOpen.value = true
 }
 
@@ -543,9 +574,9 @@ function isValidSortField(value) {
   return dot > 0 && dot < text.length - 1
 }
 
-function validateDraft() {
-  for (const field of activeForm.value) {
-    const value = draft[field.key]
+function validateFields(row, form) {
+  for (const field of form) {
+    const value = row[field.key]
     if (field.required && (value === undefined || value === null || String(value).trim() === '')) {
       return `${field.label}不能为空`
     }
@@ -553,6 +584,12 @@ function validateDraft() {
       return `${field.label}格式不正确，应为 <服务码>&sop|&soap|&bzjson`
     }
   }
+  return ''
+}
+
+function validateDraft() {
+  const base = validateFields(draft, activeForm.value)
+  if (base) return base
   if (isSortCreate.value) {
     if (!isValidSortField(draft.oldSortField)) return '老核心排序字段格式不正确，应为 A.B 或 A(B,C)'
     if (!isValidSortField(draft.newSortField)) return '新核心排序字段格式不正确，应为 A.B 或 A(B,C)'
@@ -561,8 +598,62 @@ function validateDraft() {
   return schema.value.validate ? schema.value.validate(draft) : ''
 }
 
+function toPayload(row, form) {
+  const payload = {}
+  for (const field of form) {
+    const value = row[field.key]
+    payload[field.key] = field.kind !== 'textarea' && typeof value === 'string' ? value.trim() : value
+  }
+  return payload
+}
+
+async function submitBatchCreate() {
+  const serviceKey = (schema.value.form.find((field) => field.kind === 'serviceCode') || {}).key
+  const items = []
+  for (let index = 0; index < createRows.value.length; index += 1) {
+    const row = createRows.value[index]
+    const serviceCode = serviceKey ? String(row[serviceKey] ?? '').trim() : ''
+    if (!serviceCode) {
+      const hasOther = schema.value.form.some((field) => field.key !== serviceKey
+        && String(row[field.key] ?? '').trim() !== '')
+      if (hasOther) {
+        formError.value = `第 ${index + 1} 条：请先填写服务码`
+        return
+      }
+      continue
+    }
+    const extra = validateFields(row, schema.value.form)
+      || (schema.value.validate ? schema.value.validate(row) : '')
+    if (extra) {
+      formError.value = `第 ${index + 1} 条：${extra}`
+      return
+    }
+    items.push(toPayload(row, schema.value.form))
+  }
+  if (!items.length) {
+    formError.value = '请至少填写一条'
+    return
+  }
+  saving.value = true
+  formError.value = ''
+  try {
+    const created = await batchCreateReplayConfigs(activeTab.value, items)
+    showToast(`新增成功（${created?.length ?? items.length} 条）`)
+    editOpen.value = false
+    await load()
+  } catch (cause) {
+    formError.value = cause?.message || '新增失败'
+    showToast(cause?.message || '新增失败', 'error')
+  } finally {
+    saving.value = false
+  }
+}
+
 async function submitForm() {
   if (saving.value) return
+  if (isMultiCreate.value) {
+    return submitBatchCreate()
+  }
   const validation = validateDraft()
   if (validation) {
     formError.value = validation
@@ -750,6 +841,8 @@ onUnmounted(() => {
 .replay-field input,.replay-field select,.replay-field textarea{height:34px;padding:0 10px;border:1px solid var(--border,#d1d5db);background:var(--bg-card,#fff);color:inherit;font-size:13px;box-sizing:border-box}
 .replay-field textarea{height:auto;padding:8px 10px;resize:vertical;font-family:inherit}
 .replay-hint{margin:0;color:var(--text-muted,#6b7280);font-size:12px}
+.replay-create-row-title{margin:0;padding-top:8px;border-top:1px dashed var(--border,#e5e7eb);font-size:13px;font-weight:600;color:var(--text-primary,#1f2937)}
+.replay-create-row-title:first-child{padding-top:0;border-top:none}
 .replay-message{margin:0;padding:8px 12px;border-radius:6px;background:#eef7ee;color:#24713d;font-size:13px}
 .replay-error{background:#fff1f0;color:#b42318}
 .replay-table-viewport{flex:1 1 auto;min-height:0;overflow:auto;padding:12px 20px}

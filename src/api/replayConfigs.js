@@ -38,6 +38,14 @@ export function reviewReplayConfig(type, id, version) {
   })
 }
 
+/** 批量新增（1~3 条，逐条独立填写）；items 为各类型的 CreateRequest。 */
+export function batchCreateReplayConfigs(type, items) {
+  return request(`${PREFIX}/${type}/batch-create`, {
+    method: 'POST',
+    body: JSON.stringify({ items }),
+  })
+}
+
 /** 批量审核，items 形如 [{ id, version }]，最多 100 条；能审的通过、其余跳过。 */
 export function batchReviewReplayConfigs(type, items) {
   return request(`${PREFIX}/${type}/batch-review`, {

@@ -2000,10 +2000,7 @@ function handleReplayConfig(req, res, query, path, store) {
       const validated = replayConfigValidateBody(type, body)
       if (validated.error) return replayConfigFail(res, 400, validated.error)
       if (row.version !== body.version) return replayConfigFail(res, 409, '数据已被其他用户修改，请刷新后重试')
-      if (row.reviewStatus === 1 && !replayConfigIsOwner(type, row)) {
-        return replayConfigFail(res, 403, '该记录已审核，仅限审核人员修改')
-      }
-      const next = { ...row, ...validated.value }
+      const next = { ...row, ...validated.value, reviewStatus: 0 }
       if (meta.indexField && next[meta.indexScope] !== row[meta.indexScope]) {
         next[meta.indexField] = replayConfigNextIndex(store, type, next[meta.indexScope])
       }

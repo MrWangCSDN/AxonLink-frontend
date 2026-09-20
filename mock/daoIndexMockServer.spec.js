@@ -641,7 +641,7 @@ describe('replay config management mock', () => {
     expect(invalid.body.message).toContain('不能同时为空')
   })
 
-  it('supports review by bank owner, is idempotent and keeps approval after edit', async () => {
+  it('supports review by bank owner, is idempotent and resets review after edit', async () => {
     const request = replayConfigServer()
     const list = await request('GET', '/unconditional-ignores?limit=10')
     const target = list.body.data.items.find((row) => row.canReview)
@@ -663,11 +663,11 @@ describe('replay config management mock', () => {
     expect(again.body.data.reviewStatus).toBe(1)
     expect(again.body.data.version).toBe(reviewed.body.data.version)
 
-    // 审核人修改后保留已审核
+    // 任何人都可以修改已审核的数据，修改后回到未审核
     const updated = await request('PATCH', `/unconditional-ignores/${target.id}`, {
       tranCode: target.tranCode, fieldName: 'reopenedField', version: reviewed.body.data.version,
     })
-    expect(updated.body.data.reviewStatus).toBe(1)
+    expect(updated.body.data.reviewStatus).toBe(0)
 
     // 无权限提示带审核人姓名
     const unreviewable = list.body.data.items.find((row) => !row.canReview && row.reviewStatus === 0)

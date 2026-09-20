@@ -120,7 +120,7 @@
       </div>
     </footer>
 
-    <div v-if="editOpen" class="replay-modal-mask" @click.self="!saving && closeEdit()">
+    <div v-if="editOpen" class="replay-modal-mask">
       <section class="replay-edit-modal" role="dialog" aria-modal="true" :aria-label="editTitle">
         <header>
           <h3>{{ editTitle }}</h3>

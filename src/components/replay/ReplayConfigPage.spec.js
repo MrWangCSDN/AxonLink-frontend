@@ -315,6 +315,29 @@ describe('ReplayConfigPage（忽略清单）', () => {
     expect(wrapper.find('[data-testid="toast"]').text()).toContain('审核通过 1 条，跳过 1 条')
   })
 
+  it('only closes the create/edit modal via buttons, not the mask', async () => {
+    const wrapper = mount(ReplayConfigPage)
+    await flushPromises()
+
+    await wrapper.find('[data-testid="create-config"]').trigger('click')
+    await wrapper.find('.replay-modal-mask').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.replay-edit-modal').exists()).toBe(true)
+
+    await wrapper.find('[data-testid="close-edit"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.replay-edit-modal').exists()).toBe(false)
+
+    await wrapper.find('[data-testid="edit-1"]').trigger('click')
+    await wrapper.find('.replay-modal-mask').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.replay-edit-modal').exists()).toBe(true)
+
+    await wrapper.findAll('button').find((b) => b.text() === '取消').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.replay-edit-modal').exists()).toBe(false)
+  })
+
   it('opens history drawer and renders changes', async () => {
     const wrapper = mount(ReplayConfigPage)
     await flushPromises()

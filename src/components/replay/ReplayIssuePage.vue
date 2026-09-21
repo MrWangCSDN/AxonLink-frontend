@@ -289,8 +289,8 @@
                 <button class="replay-button replay-button-compact" type="button" :data-testid="`tracking-${row.id}`" @click="openTracking(row)"><HistoryIcon :size="13" aria-hidden="true" />问题跟踪</button>
               </div>
               <span v-else-if="column.key === 'weekly_task'" v-show="isWeeklyTask(row)" class="replay-weekly-task-badge" data-testid="weekly-task-badge"><Flag :size="12" aria-hidden="true" />优先任务</span>
-              <button v-else-if="column.key === 'review_status' && row.review_status === '待审核'" type="button" class="replay-review-badge is-pending" :data-testid="`review-${row.id}`" :title="reviewActionTitle(row)" @click="approveReview(row)">待审核</button>
-              <span v-else-if="column.key === 'review_status' && row.review_status === '已审核'" class="replay-review-badge is-approved" :data-testid="`review-${row.id}`" :title="row.reviewer_real_name ? `审核人：${row.reviewer_real_name}` : '已审核'">已审核</span>
+              <button v-else-if="column.key === 'review_status' && isReviewStatus(row.review_status) && canReviewIssue(row)" type="button" class="replay-review-badge" :class="reviewStatusClass(row)" :data-testid="`review-${row.id}`" :title="reviewActionTitle(row)" @click="approveReview(row)">{{ reviewStatusLabel(row) }}</button>
+              <span v-else-if="column.key === 'review_status' && isReviewStatus(row.review_status)" class="replay-review-badge" :class="reviewStatusClass(row)" :data-testid="`review-${row.id}`" :title="reviewActionTitle(row)">{{ reviewStatusLabel(row) }}</span>
               <span v-else-if="column.key === 'review_status'">-</span>
               <div
                 v-else-if="column.key === 'issue_domain'"
@@ -777,6 +777,24 @@
       </section>
     </div>
 
+    <div v-if="reviewOpen" class="replay-modal-mask" @click.self="closeReview">
+      <section class="replay-edit-modal replay-review-modal" role="dialog" aria-modal="true" aria-labelledby="replay-review-title" data-testid="review-modal">
+        <header>
+          <div><h3 id="replay-review-title">{{ reviewModalTitle }}</h3><p>issue_id：{{ reviewIssue?.issue_id || '-' }}</p></div>
+          <button class="replay-icon-button" type="button" title="关闭审核窗口" aria-label="关闭审核窗口" :disabled="reviewSaving" @click="closeReview"><X :size="16" aria-hidden="true" /></button>
+        </header>
+        <label class="replay-review-reason-field">
+          <span>审核原因 <em class="replay-required-mark">*</em><small>{{ reviewReason.length }}/500</small></span>
+          <textarea v-model="reviewReason" maxlength="500" rows="5" data-testid="review-reason" placeholder="请填写审核原因" @input="reviewError = ''" />
+        </label>
+        <p v-if="reviewError" class="replay-edit-error" data-testid="review-error">{{ reviewError }}</p>
+        <footer>
+          <button class="replay-button" type="button" :disabled="reviewSaving" @click="closeReview">取消</button>
+          <button class="replay-button replay-button-primary" type="button" data-testid="submit-review" :disabled="reviewSaving" @click="submitReview"><Save :size="15" aria-hidden="true" />{{ reviewSaving ? '保存中…' : '确认' }}</button>
+        </footer>
+      </section>
+    </div>
+
     <div v-if="mailPromptOpen" class="replay-modal-mask replay-mail-prompt-mask">
       <section class="replay-mail-prompt" role="dialog" aria-modal="true" aria-labelledby="replay-mail-prompt-title" data-testid="mail-confirm-modal">
         <header>
@@ -956,7 +974,8 @@ const affectedTransactionCountSortLabel = computed(() => {
   return '按问题数升序排序'
 })
 const allStatuses = ['新建', '打开', '无需处理', '延后修复', '修复待验证', '重新打开', '已修复']
-const options = reactive({ groups: [], issueLevels: [], issueTypes, issueStatuses: allStatuses, reviewStatuses: ['待审核', '已审核'], coverageRounds: [] })
+const reviewStatusOptions = ['待审核', '已审核（未填写原因）', '已审核（已填写原因）']
+const options = reactive({ groups: [], issueLevels: [], issueTypes, issueStatuses: allStatuses, reviewStatuses: reviewStatusOptions, coverageRounds: [] })
 const stats = reactive({ total: 0, openTotal: 0, noActionTotal: 0, processingTotal: 0, pendingVerificationTotal: 0, fixedTotal: 0, groupCounts: {}, importedAt: '' })
 const reviewPermissions = reactive({ reviewableGroups: [], reviewersByGroup: {}, reviewableTransactionCodes: [] })
 const planDatePermissions = reactive({ editableGroups: [], dateLimitBypassGroups: [], editableTransactionCodes: [] })
@@ -1195,6 +1214,15 @@ watch(weeklyReportStartBatch, () => {
 const savingId = ref(null)
 const editOpen = ref(false)
 const editIssue = ref(null)
+const reviewOpen = ref(false)
+const reviewIssue = ref(null)
+const reviewReason = ref('')
+const reviewError = ref('')
+const reviewSaving = ref(false)
+const reviewModalTitle = computed(() => {
+  if (reviewIssue.value?.review_status === '待审核') return '审核无需处理问题'
+  return reviewIssue.value?.review_reason ? '更新审核原因' : '补充审核原因'
+})
 const editableStatuses = computed(() => editIssue.value?.issue_status === '重新打开'
   ? manualStatuses.filter((status) => status !== '打开')
   : manualStatuses)
@@ -2050,7 +2078,7 @@ function canReviewIssue(row) {
 
 function canEditIssue(row) {
   if (!row || row.issue_status === '已修复') return false
-  if (row.issue_status === '无需处理' && row.review_status === '已审核' && !canReviewIssue(row)) return false
+  if (row.issue_status === '无需处理' && isApprovedReviewStatus(row.review_status) && !canReviewIssue(row)) return false
   return true
 }
 
@@ -2061,7 +2089,7 @@ function editIssueTitle(row) {
 }
 
 function reviewActionTitle(row) {
-  if (canReviewIssue(row)) return '点击审核'
+  if (canReviewIssue(row)) return row?.review_status === '待审核' ? '点击审核' : '点击填写或更新审核原因'
   const names = reviewerContactNames(row)
   return names.length ? `没有权限，请联系${names.join('、')}进行审核` : '没有审核权限'
 }
@@ -2080,17 +2108,62 @@ function reviewerContactNames(row) {
 }
 
 async function approveReview(row) {
-  if (!canReviewIssue(row)) {
-    if (typeof window.alert === 'function') window.alert(reviewActionTitle(row))
+  if (!canReviewIssue(row)) return
+  reviewIssue.value = row
+  reviewReason.value = row.review_reason || ''
+  reviewError.value = ''
+  reviewOpen.value = true
+}
+
+function closeReview() {
+  if (reviewSaving.value) return
+  reviewOpen.value = false
+  reviewIssue.value = null
+  reviewReason.value = ''
+  reviewError.value = ''
+}
+
+async function submitReview() {
+  const reason = reviewReason.value.trim()
+  if (!reason) {
+    reviewError.value = '请填写审核原因'
     return
   }
-  if (typeof window.confirm === 'function' && !window.confirm(`确认将 issue_id ${row.issue_id || '-'} 审核为“已审核”？`)) return
+  if (!reviewIssue.value) return
+  reviewSaving.value = true
   try {
-    await approveReplayIssue(row.id)
+    await approveReplayIssue(reviewIssue.value.id, reason)
+    closeReviewAfterSave()
     await Promise.all([loadList({ preserveOnError: true }), loadMetadata()])
   } catch (cause) {
-    error.value = `审核失败：${cause?.message || cause}`
+    reviewError.value = cause?.message || '审核失败'
+  } finally {
+    reviewSaving.value = false
   }
+}
+
+function closeReviewAfterSave() {
+  reviewOpen.value = false
+  reviewIssue.value = null
+  reviewReason.value = ''
+  reviewError.value = ''
+}
+
+function isReviewStatus(status) {
+  return status === '待审核' || status === '已审核' || status === '已审核（未填写原因）' || status === '已审核（已填写原因）'
+}
+
+function isApprovedReviewStatus(status) {
+  return status === '已审核' || String(status || '').startsWith('已审核（')
+}
+
+function reviewStatusLabel(row) {
+  if (row?.review_status === '已审核') return row?.review_reason ? '已审核（已填写原因）' : '已审核（未填写原因）'
+  return row?.review_status || '-'
+}
+
+function reviewStatusClass(row) {
+  return reviewStatusLabel(row) === '待审核' ? 'is-pending' : 'is-approved'
 }
 
 async function openEdit(row) {
@@ -2343,7 +2416,7 @@ async function loadMetadata() {
     Object.assign(options, nextOptions || {})
     options.coverageRounds = (nextOptions?.coverageRounds || (rounds || []).map((round) => round.roundCode)).filter(Boolean)
     options.issueStatuses = allStatuses
-    options.reviewStatuses = nextOptions?.reviewStatuses || ['待审核', '已审核']
+    options.reviewStatuses = nextOptions?.reviewStatuses || reviewStatusOptions
     Object.assign(stats, nextStats || {})
     Object.assign(reviewPermissions, permissions || { reviewableGroups: [], reviewersByGroup: {}, reviewableTransactionCodes: [] })
     Object.assign(planDatePermissions, nextPlanDatePermissions || { editableGroups: [], dateLimitBypassGroups: [], editableTransactionCodes: [] })
@@ -3364,6 +3437,13 @@ button.replay-review-badge { cursor: pointer; }
 .replay-edit-modal { width: min(680px, 100%); display: grid; gap: 16px; padding: 20px; border: 1px solid var(--border, #e8edf5); border-radius: 6px; color: var(--text-primary, #1f2937); background: var(--bg-card, #fff); box-shadow: 0 16px 42px rgba(13, 20, 36, .24); }
 .replay-edit-modal header, .replay-edit-modal footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .replay-edit-modal footer { justify-content: flex-end; }
+.replay-review-modal { width: min(520px, 100%); }
+.replay-review-modal header h3, .replay-review-modal header p { margin: 0; }
+.replay-review-modal header p { margin-top: 4px; color: var(--text-muted, #6b7280); font-size: 12px; }
+.replay-review-reason-field { display: grid; gap: 6px; color: var(--text-secondary, #374151); font-size: 12px; }
+.replay-review-reason-field > span { display: flex; align-items: center; gap: 4px; }
+.replay-review-reason-field small { margin-left: auto; color: var(--text-muted, #6b7280); font-variant-numeric: tabular-nums; }
+.replay-review-reason-field textarea { width: 100%; min-height: 112px; resize: vertical; border: 1px solid var(--border, #e8edf5); border-radius: 4px; padding: 8px 9px; color: var(--text-primary, #1f2937); background: var(--bg-input, #fff); font: inherit; line-height: 1.5; }
 .replay-edit-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px 14px; }
 .replay-edit-grid label { display: grid; gap: 5px; color: var(--text-secondary, #374151); font-size: 12px; line-height: 16px; }
 .replay-edit-grid label > span { display: flex; justify-content: space-between; gap: 8px; }

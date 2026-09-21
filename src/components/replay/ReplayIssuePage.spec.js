@@ -124,7 +124,7 @@ function arrangeApi({ total = 4607, items = [fixtureRow] } = {}) {
     issueLevels: ['交易级'],
     issueTypes: ['迁移问题', '防腐问题', '代码问题', '新核心下线', '参数问题', '平台问题', '合理差异', '规则性差异问题', '外围问题', '其他问题'],
     issueStatuses: ['新建', '打开', '无需处理', '延后修复', '修复待验证', '重新打开', '已修复'],
-    reviewStatuses: ['待审核', '已审核'],
+    reviewStatuses: ['待审核', '已审核（未填写原因）', '已审核（已填写原因）'],
     coverageRounds: ['20260808-001', '20260807-001'],
   })
   getReplayIssueHeaderFilterOptionCounts.mockResolvedValue(countedOptions(['张三(c-zhangs3)', '李四(c-lisi)', '赵六(c-zhaol6)']))
@@ -1058,7 +1058,6 @@ describe('ReplayIssuePage', () => {
   })
   it('shows review status after issue status and lets the configured group reviewer approve it', async () => {
     arrangeApi({ items: [{ ...fixtureRow, issue_status: '无需处理', issue_type: '合理差异', review_status: '待审核' }] })
-    window.confirm = vi.fn(() => true)
     const wrapper = mount(ReplayIssuePage)
     await flushPromises()
 
@@ -1068,7 +1067,41 @@ describe('ReplayIssuePage', () => {
     await wrapper.get('[data-testid="review-1"]').trigger('click')
     await flushPromises()
 
-    expect(approveReplayIssue).toHaveBeenCalledWith(1)
+    expect(wrapper.get('[data-testid="review-modal"]').text()).toContain('审核无需处理问题')
+    await wrapper.get('[data-testid="submit-review"]').trigger('click')
+    expect(wrapper.get('[data-testid="review-error"]').text()).toBe('请填写审核原因')
+    await wrapper.get('[data-testid="review-reason"]').setValue('  属于合理差异  ')
+    await wrapper.get('[data-testid="submit-review"]').trigger('click')
+    await flushPromises()
+
+    expect(approveReplayIssue).toHaveBeenCalledWith(1, '属于合理差异')
+  })
+
+  it('distinguishes approved reasons and lets authorized reviewers add or update them', async () => {
+    arrangeApi({ items: [
+      { ...fixtureRow, review_status: '已审核（未填写原因）', review_reason: '' },
+      { ...fixtureRow, id: 2, review_status: '已审核（已填写原因）', review_reason: '原原因' },
+    ] })
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="review-1"]').text()).toBe('已审核（未填写原因）')
+    expect(wrapper.get('[data-testid="review-2"]').text()).toBe('已审核（已填写原因）')
+    await wrapper.get('[data-testid="review-2"]').trigger('click')
+    expect(wrapper.get('[data-testid="review-reason"]').element.value).toBe('原原因')
+    expect(wrapper.get('[data-testid="review-modal"]').text()).toContain('更新审核原因')
+  })
+
+  it('renders review status as read only for unauthorized users', async () => {
+    getReplayIssueReviewPermissions.mockResolvedValue({ reviewableGroups: [], reviewersByGroup: { 贷款组: ['审核甲'] }, reviewableTransactionCodes: [] })
+    arrangeApi({ items: [{ ...fixtureRow, review_status: '待审核' }] })
+    getReplayIssueReviewPermissions.mockResolvedValue({ reviewableGroups: [], reviewersByGroup: { 贷款组: ['审核甲'] }, reviewableTransactionCodes: [] })
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="review-1"]').element.tagName).toBe('SPAN')
+    await wrapper.get('[data-testid="review-1"]').trigger('click')
+    expect(wrapper.find('[data-testid="review-modal"]').exists()).toBe(false)
   })
 
   it('locks approved no-action rows for non-reviewers and limits editable no-action types', async () => {
@@ -1135,15 +1168,15 @@ describe('ReplayIssuePage', () => {
       { ...fixtureRow, id: 2, issue_key: 'TRAN|6208|第二个字段', issue_status: '无需处理', issue_type: '合理差异', review_status: '已审核' },
     ] })
     getReplayIssueReviewPermissions.mockResolvedValue({ reviewableGroups: [], reviewersByGroup: { 贷款组: ['审核甲'] }, reviewableTransactionCodes: ['6208'] })
-    window.confirm = vi.fn(() => true)
-
     const wrapper = mount(ReplayIssuePage)
     await flushPromises()
     expect(wrapper.get('[data-testid="edit-2"]').attributes('disabled')).toBeUndefined()
     await wrapper.get('[data-testid="review-1"]').trigger('click')
+    await wrapper.get('[data-testid="review-reason"]').setValue('科技负责人确认')
+    await wrapper.get('[data-testid="submit-review"]').trigger('click')
     await flushPromises()
 
-    expect(approveReplayIssue).toHaveBeenCalledWith(1)
+    expect(approveReplayIssue).toHaveBeenCalledWith(1, '科技负责人确认')
   })
 
   it('deduplicates technology owners and configured reviewers in the permission hint', async () => {

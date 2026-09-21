@@ -119,6 +119,30 @@ describe('ReplayDatabaseComparisonAuditDialog', () => {
     expect(wrapper.get('[data-testid="toggle-audit-event-101"]').text()).toContain('李明(001)')
   })
 
+  it('preserves complete query-condition lines in before and after cells', async () => {
+    const queryConditionEvent = {
+      ...events[0],
+      id: 105,
+      details: [{
+        id: 9,
+        changeType: 'MODIFY',
+        fieldLabel: '查询条件',
+        beforeValue: '全表',
+        afterValue: "where cst_id = '22'\norder by acct_no,cust_no\nlimit 1000",
+      }],
+    }
+    const wrapper = mount(ReplayDatabaseComparisonAuditDialog, {
+      props: { tableName: queryConditionEvent.tableName, events: [queryConditionEvent], loading: false },
+    })
+
+    await wrapper.get('[data-testid="toggle-audit-event-105"]').trigger('click')
+
+    const cells = wrapper.get('[data-testid="audit-detail-105-9"]').findAll('span')
+    expect(cells[3].classes()).toContain('audit-detail-value')
+    expect(cells[4].classes()).toContain('audit-detail-value')
+    expect(cells[4].text()).toBe("where cst_id = '22'\norder by acct_no,cust_no\nlimit 1000")
+  })
+
   it('only closes through an explicit control', async () => {
     const wrapper = mount(ReplayDatabaseComparisonAuditDialog, { props: { events, loading: false } })
 

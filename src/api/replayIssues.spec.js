@@ -188,11 +188,12 @@ describe('replay issues API', () => {
       .mockResolvedValueOnce(jsonResponse({ code: 200, data: { review_status: '已审核' } }))
 
     await getReplayIssueReviewPermissions()
-    await approveReplayIssue(42)
+    await approveReplayIssue(42, '属于合理差异')
 
     expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues/review-permissions')
     expect(fetch.mock.calls[1][0]).toBe('/api/ai/parallel-replay/issues/42/review/approve')
     expect(fetch.mock.calls[1][1]).toMatchObject({ method: 'POST' })
+    expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ reason: '属于合理差异' })
   })
 
   it('gets planned completion date permissions and saves or clears a date', async () => {

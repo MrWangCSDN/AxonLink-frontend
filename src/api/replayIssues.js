@@ -92,8 +92,11 @@ export function updateReplayIssuePlannedCompletionDate(id, plannedCompletionDate
   })
 }
 
-export function approveReplayIssue(id) {
-  return request(`${PREFIX}/${encodeURIComponent(id)}/review/approve`, { method: 'POST' })
+export function approveReplayIssue(id, reason) {
+  return request(`${PREFIX}/${encodeURIComponent(id)}/review/approve`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  })
 }
 
 export function getReplayWeeklyTask() {

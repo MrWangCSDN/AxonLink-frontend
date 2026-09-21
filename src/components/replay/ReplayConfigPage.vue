@@ -135,7 +135,7 @@
                 <option v-for="option in field.options" :key="option.value" :value="option.value">{{ option.label }}</option>
               </select>
               <textarea v-else-if="field.kind === 'textarea'" v-model="row[field.key]" :data-testid="fieldTestId(field, index)" rows="3" :placeholder="field.placeholder || ''"></textarea>
-              <input v-else v-model.trim="row[field.key]" :data-testid="fieldTestId(field, index)" type="text" :placeholder="field.placeholder || ''" />
+              <input v-else v-model.trim="row[field.key]" :data-testid="fieldTestId(field, index)" type="text" :maxlength="field.maxlength || undefined" :placeholder="field.placeholder || ''" />
             </label>
           </template>
           <p v-if="createHint" class="replay-field-wide replay-hint">{{ createHint }}</p>
@@ -236,6 +236,7 @@ const SORT_CREATE_FORM = [
   { key: 'tranCode', label: '4 位交易码', kind: 'text', required: true, placeholder: '如 6208' },
   { key: 'oldSortField', label: '老核心排序字段', kind: 'text', required: true, placeholder: 'A.B 或 A(B,C)' },
   { key: 'newSortField', label: '新核心排序字段', kind: 'text', required: true, placeholder: 'A.B 或 A(B,C)' },
+  { key: 'ignoreReason', label: '忽略原因', kind: 'text', required: true, maxlength: 512 },
 ]
 
 const SCHEMAS = {
@@ -249,6 +250,7 @@ const SCHEMAS = {
     columns: [
       { key: 'tranCode', label: '服务码' },
       { key: 'fieldName', label: '忽略字段' },
+      { key: 'ignoreReason', label: '忽略原因', long: true },
       ...REVIEW_COLUMNS,
     ],
     confirmFields: [
@@ -258,6 +260,7 @@ const SCHEMAS = {
     form: [
       { key: 'tranCode', label: '服务码', kind: 'serviceCode', required: true, placeholder: '如 S120034071CorpInfoQryTrdCrclr&sop' },
       { key: 'fieldName', label: '忽略字段', kind: 'text', required: true },
+      { key: 'ignoreReason', label: '忽略原因', kind: 'text', required: true, maxlength: 512 },
     ],
   },
   'conditional-ignores': {
@@ -275,6 +278,7 @@ const SCHEMAS = {
       { key: 'fieldFileFlag', label: '字段标识', display: 'flag' },
       { key: 'origFieldCond', label: '主系统字段忽略条件', long: true },
       { key: 'destFieldCond', label: '备系统字段忽略条件', long: true },
+      { key: 'ignoreReason', label: '忽略原因', long: true },
       ...REVIEW_COLUMNS,
     ],
     confirmFields: [
@@ -290,6 +294,7 @@ const SCHEMAS = {
       ] },
       { key: 'origFieldCond', label: '主系统字段忽略条件', kind: 'textarea' },
       { key: 'destFieldCond', label: '备系统字段忽略条件', kind: 'textarea' },
+      { key: 'ignoreReason', label: '忽略原因', kind: 'text', required: true, maxlength: 512 },
     ],
   },
   'error-code-ignores': {
@@ -304,6 +309,7 @@ const SCHEMAS = {
       { key: 'serviceCode', label: '服务码' },
       { key: 'oldRespCode', label: '老核心错误码' },
       { key: 'newRespCode', label: '新核心错误码' },
+      { key: 'ignoreReason', label: '忽略原因', long: true },
       ...REVIEW_COLUMNS,
     ],
     confirmFields: [
@@ -315,6 +321,7 @@ const SCHEMAS = {
       { key: 'serviceCode', label: '服务码', kind: 'serviceCode', required: true },
       { key: 'oldRespCode', label: '老核心错误码', kind: 'text' },
       { key: 'newRespCode', label: '新核心错误码', kind: 'text' },
+      { key: 'ignoreReason', label: '忽略原因', kind: 'text', required: true, maxlength: 512 },
     ],
     validate: (draft) => {
       if (!draft.oldRespCode && !draft.newRespCode) {
@@ -335,6 +342,7 @@ const SCHEMAS = {
       { key: 'origTrcd', label: '服务码' },
       { key: 'origArryName', label: '对象/数组名称' },
       { key: 'origFieldName', label: '排序字段' },
+      { key: 'ignoreReason', label: '忽略原因', long: true },
       ...REVIEW_COLUMNS,
     ],
     confirmFields: [
@@ -346,6 +354,7 @@ const SCHEMAS = {
       { key: 'origTrcd', label: '服务码', kind: 'serviceCode', required: true },
       { key: 'origArryName', label: '对象/数组名称', kind: 'text', required: true },
       { key: 'origFieldName', label: '排序字段', kind: 'text', required: true },
+      { key: 'ignoreReason', label: '忽略原因', kind: 'text', required: true, maxlength: 512 },
     ],
   },
 }

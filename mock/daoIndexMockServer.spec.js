@@ -556,19 +556,19 @@ describe('replay config management mock', () => {
     const request = replayConfigServer()
     const baseline = (await request('GET', '/unconditional-ignores')).body.data.total
     const created = await request('POST', '/unconditional-ignores', {
-      tranCode: 'S900TestQry&sop', fieldName: 'accountNo',
+      tranCode: 'S900TestQry&sop', fieldName: 'accountNo', ignoreReason: '测试原因',
     })
     expect(created.status).toBe(200)
     expect(created.body.data.version).toBe(0)
     expect(created.body.data.enableFlag).toBe(1)
 
     const duplicate = await request('POST', '/unconditional-ignores', {
-      tranCode: 'S900TestQry&sop', fieldName: 'accountNo',
+      tranCode: 'S900TestQry&sop', fieldName: 'accountNo', ignoreReason: '测试原因',
     })
     expect(duplicate.status).toBe(409)
 
     const invalid = await request('POST', '/unconditional-ignores', {
-      tranCode: 'bad-code', fieldName: 'accountNo',
+      tranCode: 'bad-code', fieldName: 'accountNo', ignoreReason: '测试原因',
     })
     expect(invalid.status).toBe(400)
 
@@ -582,12 +582,12 @@ describe('replay config management mock', () => {
     const row = list.body.data.items[0]
 
     const conflict = await request('PATCH', `/unconditional-ignores/${row.id}`, {
-      tranCode: row.tranCode, fieldName: 'changed', version: 99,
+      tranCode: row.tranCode, fieldName: 'changed', version: 99, ignoreReason: '测试原因',
     })
     expect(conflict.status).toBe(409)
 
     const updated = await request('PATCH', `/unconditional-ignores/${row.id}`, {
-      tranCode: row.tranCode, fieldName: 'changed', version: row.version,
+      tranCode: row.tranCode, fieldName: 'changed', version: row.version, ignoreReason: '测试原因',
     })
     expect(updated.status).toBe(200)
     expect(updated.body.data.version).toBe(1)
@@ -595,9 +595,9 @@ describe('replay config management mock', () => {
     const history = await request('GET', `/unconditional-ignores/${row.id}/operations`)
     expect(history.body.data.total).toBe(2)
     expect(history.body.data.items[0].operationType).toBe('UPDATE')
-    expect(history.body.data.items[0].changes).toEqual([
+    expect(history.body.data.items[0].changes).toEqual(expect.arrayContaining([
       expect.objectContaining({ field: 'field_name', oldValue: row.fieldName, newValue: 'changed' }),
-    ])
+    ]))
   })
 
   it('deletes with version and rolls back inconsistent batch delete', async () => {
@@ -623,11 +623,13 @@ describe('replay config management mock', () => {
     const request = replayConfigServer()
     const created = await request('POST', '/conditional-ignores', {
       origTrcd: 'S120034071CorpInfoQryTrdCrclr&soap', fieldRmoveName: 'third', fieldFileFlag: 1,
+      ignoreReason: '测试原因',
     })
     expect(created.body.data.fieldFileIndx).toBe(3)
 
     const other = await request('POST', '/conditional-ignores', {
       origTrcd: 'S777NewQry&sop', fieldRmoveName: 'first', fieldFileFlag: 2,
+      ignoreReason: '测试原因',
     })
     expect(other.body.data.fieldFileIndx).toBe(1)
   })
@@ -635,7 +637,7 @@ describe('replay config management mock', () => {
   it('rejects error code config with both codes empty', async () => {
     const request = replayConfigServer()
     const invalid = await request('POST', '/error-code-ignores', {
-      serviceCode: 'S900TestQry&sop', oldRespCode: '', newRespCode: null,
+      serviceCode: 'S900TestQry&sop', oldRespCode: '', newRespCode: null, ignoreReason: '测试原因',
     })
     expect(invalid.status).toBe(400)
     expect(invalid.body.message).toContain('不能同时为空')
@@ -666,6 +668,7 @@ describe('replay config management mock', () => {
     // 任何人都可以修改已审核的数据，修改后回到未审核
     const updated = await request('PATCH', `/unconditional-ignores/${target.id}`, {
       tranCode: target.tranCode, fieldName: 'reopenedField', version: reviewed.body.data.version,
+      ignoreReason: '测试原因',
     })
     expect(updated.body.data.reviewStatus).toBe(0)
 
@@ -697,9 +700,9 @@ describe('replay config management mock', () => {
     const baseline = (await request('GET', '/unconditional-ignores')).body.data.total
     const created = await request('POST', '/unconditional-ignores/batch-create', {
       items: [
-        { tranCode: 'S111A&sop', fieldName: 'f1' },
-        { tranCode: 'S111A&soap', fieldName: 'f1' },
-        { tranCode: 'S111A&bzjson', fieldName: 'f1' },
+        { tranCode: 'S111A&sop', fieldName: 'f1', ignoreReason: '测试原因' },
+        { tranCode: 'S111A&soap', fieldName: 'f1', ignoreReason: '测试原因' },
+        { tranCode: 'S111A&bzjson', fieldName: 'f1', ignoreReason: '测试原因' },
       ],
     })
     expect(created.status).toBe(200)
@@ -708,8 +711,8 @@ describe('replay config management mock', () => {
 
     const dup = await request('POST', '/unconditional-ignores/batch-create', {
       items: [
-        { tranCode: 'S222B&sop', fieldName: 'x' },
-        { tranCode: 'S111A&sop', fieldName: 'f1' },
+        { tranCode: 'S222B&sop', fieldName: 'x', ignoreReason: '测试原因' },
+        { tranCode: 'S111A&sop', fieldName: 'f1', ignoreReason: '测试原因' },
       ],
     })
     expect(dup.status).toBe(409)
@@ -744,6 +747,7 @@ describe('replay config management mock', () => {
     const request = replayConfigServer()
     const created = await request('POST', '/sort-fields', {
       tranCode: 'Z999', oldSortField: 'accounts.accountNo', newSortField: 'loans(loanNo,loanType)',
+      ignoreReason: '测试原因',
     })
     expect(created.status).toBe(200)
     expect(created.body.data).toHaveLength(3)
@@ -754,7 +758,7 @@ describe('replay config management mock', () => {
     expect(created.body.data[1]).toMatchObject({ origArryName: 'loans', origFieldName: 'loanNo,loanType' })
 
     const unmapped = await request('POST', '/sort-fields', {
-      tranCode: '9999', oldSortField: 'a.b', newSortField: 'c.d',
+      tranCode: '9999', oldSortField: 'a.b', newSortField: 'c.d', ignoreReason: '测试原因',
     })
     expect(unmapped.status).toBe(400)
   })

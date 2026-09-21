@@ -1413,6 +1413,7 @@ const REPLAY_CONFIG_META = {
     fields: [
       { key: 'tranCode', column: 'tran_code', label: '服务码', required: true, serviceCode: true },
       { key: 'fieldName', column: 'field_name', label: '忽略字段', required: true },
+      { key: 'ignoreReason', column: 'ignore_reason', label: '忽略原因', required: true },
     ],
     fixed: { enableFlag: 1 },
     filters: ['tranCode', 'fieldName', 'reviewStatus'],
@@ -1426,6 +1427,7 @@ const REPLAY_CONFIG_META = {
       { key: 'fieldFileFlag', column: 'field_file_flag', label: '字段标识', required: true },
       { key: 'origFieldCond', column: 'orig_field_cond', label: '主系统字段忽略条件' },
       { key: 'destFieldCond', column: 'dest_field_cond', label: '备系统字段忽略条件' },
+      { key: 'ignoreReason', column: 'ignore_reason', label: '忽略原因', required: true },
     ],
     fixed: { fieldFielState: 1 },
     indexField: 'fieldFileIndx',
@@ -1440,6 +1442,7 @@ const REPLAY_CONFIG_META = {
       { key: 'serviceCode', column: 'service_code', label: '服务码', required: true, serviceCode: true },
       { key: 'oldRespCode', column: 'old_resp_code', label: '老核心错误码' },
       { key: 'newRespCode', column: 'new_resp_code', label: '新核心错误码' },
+      { key: 'ignoreReason', column: 'ignore_reason', label: '忽略原因', required: true },
     ],
     fixed: { enabled: 1 },
     filters: ['serviceCode', 'oldRespCode', 'newRespCode', 'reviewStatus'],
@@ -1451,6 +1454,7 @@ const REPLAY_CONFIG_META = {
       { key: 'origTrcd', column: 'orig_trcd', label: '服务码', required: true, serviceCode: true },
       { key: 'origArryName', column: 'orig_arry_name', label: '对象/数组名称', required: true },
       { key: 'origFieldName', column: 'orig_field_name', label: '排序字段', required: true },
+      { key: 'ignoreReason', column: 'ignore_reason', label: '忽略原因', required: true },
     ],
     fixed: { tranMode: 1 },
     filters: ['origTrcd', 'origArryName', 'origFieldName', 'reviewStatus'],
@@ -1672,6 +1676,8 @@ function parseReplaySortField(value) {
 function createReplaySortFields(store, res, body) {
   const tranCode = String(body.tranCode ?? '').trim()
   if (!tranCode) return replayConfigFail(res, 400, '交易码不能为空')
+  const ignoreReason = String(body.ignoreReason ?? '').trim()
+  if (!ignoreReason) return replayConfigFail(res, 400, '忽略原因不能为空')
   const oldParsed = parseReplaySortField(body.oldSortField)
   if (!oldParsed) return replayConfigFail(res, 400, '老核心排序字段格式不正确，应为 A.B 或 A(B,C)')
   const newParsed = parseReplaySortField(body.newSortField)
@@ -1715,6 +1721,7 @@ function createReplaySortFields(store, res, body) {
       origTrcd: draft.origTrcd,
       origArryName: draft.arryName,
       origFieldName: draft.fieldName,
+      ignoreReason,
       createdAt: timestamp,
       updatedAt: timestamp,
       version: 0,
@@ -1754,6 +1761,7 @@ function createReplayConfigStore() {
         id,
         ...REPLAY_CONFIG_META[type].fixed,
         ...partial,
+        ignoreReason: partial.ignoreReason ?? null,
         reviewStatus: 0,
         createdAt: timestamp,
         updatedAt: timestamp,

@@ -3,8 +3,10 @@ import { flushPromises, mount } from '@vue/test-utils'
 import ReplayConfigPage from './ReplayConfigPage.vue'
 import {
   batchCreateReplayConfigs,
+  batchDeleteReplayConfigs,
   batchReviewReplayConfigs,
   createReplayConfig,
+  deleteReplayConfig,
   listReplayConfigOperations,
   listReplayConfigs,
   reviewReplayConfig,
@@ -98,11 +100,12 @@ describe('ReplayConfigPage（忽略清单）', () => {
 
     await wrapper.find('[data-testid="form-0-tranCode"]').setValue('S3&sop')
     await wrapper.find('[data-testid="form-0-fieldName"]').setValue('accountNumber')
+    await wrapper.find('[data-testid="form-0-ignoreReason"]').setValue('测试原因')
     await wrapper.find('form.replay-edit-grid').trigger('submit')
     await flushPromises()
 
     expect(batchCreateReplayConfigs).toHaveBeenCalledWith('unconditional-ignores', [
-      { tranCode: 'S3&sop', fieldName: 'accountNumber' },
+      { tranCode: 'S3&sop', fieldName: 'accountNumber', ignoreReason: '测试原因' },
     ])
     expect(wrapper.find('[data-testid="toast"]').text()).toContain('新增成功（1 条）')
   })
@@ -115,15 +118,59 @@ describe('ReplayConfigPage（忽略清单）', () => {
     await wrapper.find('[data-testid="create-config"]').trigger('click')
     await wrapper.find('[data-testid="form-0-tranCode"]').setValue('S3&sop')
     await wrapper.find('[data-testid="form-0-fieldName"]').setValue('a1')
+    await wrapper.find('[data-testid="form-0-ignoreReason"]').setValue('原因一')
     await wrapper.find('[data-testid="form-2-tranCode"]').setValue('S3&bzjson')
     await wrapper.find('[data-testid="form-2-fieldName"]').setValue('a2')
+    await wrapper.find('[data-testid="form-2-ignoreReason"]').setValue('原因二')
     await wrapper.find('form.replay-edit-grid').trigger('submit')
     await flushPromises()
 
     expect(batchCreateReplayConfigs).toHaveBeenCalledWith('unconditional-ignores', [
-      { tranCode: 'S3&sop', fieldName: 'a1' },
-      { tranCode: 'S3&bzjson', fieldName: 'a2' },
+      { tranCode: 'S3&sop', fieldName: 'a1', ignoreReason: '原因一' },
+      { tranCode: 'S3&bzjson', fieldName: 'a2', ignoreReason: '原因二' },
     ])
+  })
+
+  it('skips conditional rows that only carry the default field flag', async () => {
+    batchCreateReplayConfigs.mockResolvedValue([{ id: 3 }])
+    const wrapper = mount(ReplayConfigPage)
+    await flushPromises()
+
+    await wrapper.find('[data-testid="tab-conditional-ignores"]').trigger('click')
+    await flushPromises()
+    await wrapper.find('[data-testid="create-config"]').trigger('click')
+
+    await wrapper.find('[data-testid="form-0-origTrcd"]').setValue('S3&sop')
+    await wrapper.find('[data-testid="form-0-fieldRmoveName"]').setValue('a.b')
+    await wrapper.find('[data-testid="form-0-ignoreReason"]').setValue('条件原因')
+    await wrapper.find('form.replay-edit-grid').trigger('submit')
+    await flushPromises()
+
+    expect(batchCreateReplayConfigs).toHaveBeenCalledWith('conditional-ignores', [
+      {
+        origTrcd: 'S3&sop',
+        fieldRmoveName: 'a.b',
+        fieldFileFlag: 1,
+        origFieldCond: '',
+        destFieldCond: '',
+        ignoreReason: '条件原因',
+      },
+    ])
+  })
+
+  it('renders the ignore reason as a resizable textarea with a 512 limit', async () => {
+    const wrapper = mount(ReplayConfigPage)
+    await flushPromises()
+
+    await wrapper.find('[data-testid="create-config"]').trigger('click')
+    const createField = wrapper.find('[data-testid="form-0-ignoreReason"]')
+    expect(createField.element.tagName).toBe('TEXTAREA')
+    expect(createField.attributes('maxlength')).toBe('512')
+
+    await wrapper.find('[data-testid="close-edit"]').trigger('click')
+    await wrapper.find('[data-testid="edit-1"]').trigger('click')
+    const editField = wrapper.find('[data-testid="form-ignoreReason"]')
+    expect(editField.element.tagName).toBe('TEXTAREA')
   })
 
   it('rejects invalid service code before calling API', async () => {
@@ -153,6 +200,20 @@ describe('ReplayConfigPage（忽略清单）', () => {
     expect(wrapper.find('[data-testid="form-error"]').text()).toContain('请先填写服务码')
   })
 
+  it('requires the ignore reason for every submitted row', async () => {
+    const wrapper = mount(ReplayConfigPage)
+    await flushPromises()
+
+    await wrapper.find('[data-testid="create-config"]').trigger('click')
+    await wrapper.find('[data-testid="form-0-tranCode"]').setValue('S3&sop')
+    await wrapper.find('[data-testid="form-0-fieldName"]').setValue('accountNo')
+    await wrapper.find('form.replay-edit-grid').trigger('submit')
+    await flushPromises()
+
+    expect(batchCreateReplayConfigs).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-testid="form-error"]').text()).toContain('忽略原因不能为空')
+  })
+
   it('creates sort fields from the triple form and reports three rows', async () => {
     createReplayConfig.mockResolvedValue([{ id: 11 }, { id: 12 }, { id: 13 }])
     const wrapper = mount(ReplayConfigPage)
@@ -164,6 +225,7 @@ describe('ReplayConfigPage（忽略清单）', () => {
     await wrapper.find('[data-testid="form-tranCode"]').setValue('6208')
     await wrapper.find('[data-testid="form-oldSortField"]').setValue('accounts.accountNo')
     await wrapper.find('[data-testid="form-newSortField"]').setValue('loans(loanNo,loanType)')
+    await wrapper.find('[data-testid="form-ignoreReason"]').setValue('排序忽略原因')
     await wrapper.find('form.replay-edit-grid').trigger('submit')
     await flushPromises()
 
@@ -171,6 +233,7 @@ describe('ReplayConfigPage（忽略清单）', () => {
       tranCode: '6208',
       oldSortField: 'accounts.accountNo',
       newSortField: 'loans(loanNo,loanType)',
+      ignoreReason: '排序忽略原因',
     })
     expect(wrapper.find('[data-testid="toast"]').text()).toContain('新增成功（3 条）')
   })
@@ -185,6 +248,7 @@ describe('ReplayConfigPage（忽略清单）', () => {
     await wrapper.find('[data-testid="form-tranCode"]').setValue('6208')
     await wrapper.find('[data-testid="form-oldSortField"]').setValue('accounts')
     await wrapper.find('[data-testid="form-newSortField"]').setValue('loans.loanNo')
+    await wrapper.find('[data-testid="form-ignoreReason"]').setValue('测试原因')
     await wrapper.find('form.replay-edit-grid').trigger('submit')
     await flushPromises()
 
@@ -239,6 +303,63 @@ describe('ReplayConfigPage（忽略清单）', () => {
     await flushPromises()
 
     expect(reviewReplayConfig).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-testid="confirm-modal"]').exists()).toBe(false)
+  })
+
+  it('deletes a row through the centered confirm modal', async () => {
+    deleteReplayConfig.mockResolvedValue(undefined)
+    const wrapper = mount(ReplayConfigPage)
+    await flushPromises()
+
+    await wrapper.find('[data-testid="delete-1"]').trigger('click')
+    const modal = wrapper.find('[data-testid="confirm-modal"]')
+    expect(modal.exists()).toBe(true)
+    expect(modal.text()).toContain('此操作不可恢复')
+    expect(modal.text()).toContain('S1&sop')
+    expect(deleteReplayConfig).not.toHaveBeenCalled()
+
+    await wrapper.find('[data-testid="confirm-ok"]').trigger('click')
+    await flushPromises()
+
+    expect(deleteReplayConfig).toHaveBeenCalledWith('unconditional-ignores', 1, 0)
+    expect(wrapper.find('[data-testid="toast"]').text()).toContain('删除成功')
+    expect(wrapper.find('[data-testid="confirm-modal"]').exists()).toBe(false)
+  })
+
+  it('batch deletes through the centered confirm modal', async () => {
+    batchDeleteReplayConfigs.mockResolvedValue({ deletedCount: 2 })
+    const wrapper = mount(ReplayConfigPage)
+    await flushPromises()
+
+    await wrapper.find('[data-testid="select-1"]').setValue(true)
+    await wrapper.find('[data-testid="select-2"]').setValue(true)
+    await wrapper.find('[data-testid="batch-delete"]').trigger('click')
+
+    const modal = wrapper.find('[data-testid="confirm-modal"]')
+    expect(modal.exists()).toBe(true)
+    expect(modal.text()).toContain('已选')
+    expect(modal.text()).toContain('2 条')
+    expect(batchDeleteReplayConfigs).not.toHaveBeenCalled()
+
+    await wrapper.find('[data-testid="confirm-ok"]').trigger('click')
+    await flushPromises()
+
+    expect(batchDeleteReplayConfigs).toHaveBeenCalledWith('unconditional-ignores', [
+      { id: 1, version: 0 },
+      { id: 2, version: 1 },
+    ])
+    expect(wrapper.find('[data-testid="toast"]').text()).toContain('删除成功：2 条')
+  })
+
+  it('cancels the delete confirmation without calling API', async () => {
+    const wrapper = mount(ReplayConfigPage)
+    await flushPromises()
+
+    await wrapper.find('[data-testid="delete-1"]').trigger('click')
+    await wrapper.find('[data-testid="confirm-cancel"]').trigger('click')
+    await flushPromises()
+
+    expect(deleteReplayConfig).not.toHaveBeenCalled()
     expect(wrapper.find('[data-testid="confirm-modal"]').exists()).toBe(false)
   })
 

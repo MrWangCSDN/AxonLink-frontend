@@ -1331,7 +1331,20 @@ function databaseComparisonConfigScriptStatus(artifact) {
   }
 }
 
-function downloadDatabaseComparisonConfigScript(res, artifact) {
+function downloadDatabaseComparisonConfigScript(res, artifact, req) {
+  const target = new URL(req.url, 'http://localhost').searchParams.get('targetVersion') || 'LEGACY'
+  if (!['LEGACY', 'NEW'].includes(target)) {
+    res.statusCode = 400
+    return res.end(JSON.stringify({ code: 400, message: '配置版本无效' }))
+  }
+  if (target === 'NEW') {
+    const content = Buffer.from(artifact.content.toString().replace(
+      /^(TRUNCATE TABLE|INSERT INTO) (tss_bcomp_(?:conf|field|table_sql))(?=[;\s])/gm,
+      '$1 $2_new',
+    ))
+    artifact = { ...artifact, content, fileName: artifact.fileName.replace(/\.sql$/, '-new.sql'),
+      sha256: createHash('sha256').update(content).digest('hex') }
+  }
   res.statusCode = 200
   res.setHeader('Content-Type', 'application/sql; charset=UTF-8')
   res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(artifact.fileName)}`)
@@ -2158,12 +2171,12 @@ export function daoIndexMockPlugin() {
                   data: { errorCode: 'CONFIG_SCRIPT_NOT_GENERATED' },
                 }))
               }
-              return downloadDatabaseComparisonConfigScript(res, artifact)
+              return downloadDatabaseComparisonConfigScript(res, artifact, req)
             }
             if (req.method === 'POST' && !configScriptRoute[2]) {
               const storedArtifact = artifact || buildDatabaseComparisonConfigScript(version)
               if (!artifact) databaseComparisonConfigScripts.set(versionNo, storedArtifact)
-              return downloadDatabaseComparisonConfigScript(res, storedArtifact)
+              return downloadDatabaseComparisonConfigScript(res, storedArtifact, req)
             }
           }
           const route = versionPath.match(/^\/([^/]+)\/(search|header-filter-options)$/)

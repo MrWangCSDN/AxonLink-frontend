@@ -183,6 +183,11 @@ describe('replay database comparison version mock', () => {
     )
     const generatedStatus = await request('GET', '/versions/20260914-160001/config-script')
 
+    const newDownloaded = await request('GET', '/versions/20260914-160001/config-script/download?targetVersion=NEW')
+    expect(newDownloaded.data.toString()).toContain('TRUNCATE TABLE tss_bcomp_field_new;')
+    expect(newDownloaded.headers['content-disposition']).toContain('-new.sql')
+    expect(newDownloaded.headers['x-content-sha256']).not.toBe(first.headers['x-content-sha256'])
+
     expect(first.headers['content-type']).toContain('application/sql')
     expect(first.headers['content-disposition']).toContain(
       "filename*=UTF-8''replay-db-compare-config-20260914-160001.sql",

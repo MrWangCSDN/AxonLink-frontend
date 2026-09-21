@@ -188,12 +188,22 @@ describe('ReplayDatabaseComparisonVersionHistory', () => {
     await wrapper.get('[data-testid="config-script-action"]').trigger('click')
     await flushPromises()
 
-    expect(comparisonApi.generateVersionConfigScript).toHaveBeenCalledWith('20260914-150101')
+    expect(comparisonApi.generateVersionConfigScript).toHaveBeenCalledWith('20260914-150101', 'LEGACY')
     expect(wrapper.get('[data-testid="config-script-action"]').text()).toContain('下载配置脚本')
 
     await wrapper.get('[data-testid="config-script-action"]').trigger('click')
     await flushPromises()
-    expect(comparisonApi.downloadVersionConfigScript).toHaveBeenCalledWith('20260914-150101')
+    expect(comparisonApi.downloadVersionConfigScript).toHaveBeenCalledWith('20260914-150101', 'LEGACY')
+  })
+
+  it('downloads new table configuration when the new version is selected', async () => {
+    comparisonApi.loadVersionConfigScriptStatus.mockResolvedValue({ generated: true })
+    const wrapper = mount(ReplayDatabaseComparisonVersionHistory, { props: { open: true } })
+    await flushPromises()
+    await wrapper.get('[data-testid="config-script-target"]').setValue('NEW')
+    await wrapper.get('[data-testid="config-script-action"]').trigger('click')
+    await flushPromises()
+    expect(comparisonApi.downloadVersionConfigScript).toHaveBeenCalledWith('20260914-150101', 'NEW')
   })
 
   it('blocks duplicate clicks while script generation is running', async () => {

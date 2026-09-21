@@ -81,6 +81,13 @@
             <div class="filter-actions">
               <button type="button" class="outlined" @click="resetFilters">重置</button>
               <button type="button" class="primary" data-testid="apply-history-filters" @click="applyFilters">查询</button>
+              <label>
+                <span>SQL 配置版本</span>
+                <select v-model="scriptTargetVersion" :disabled="generatingScript" data-testid="config-script-target">
+                  <option value="LEGACY">旧版本（原表）</option>
+                  <option value="NEW">新版本（_new 表）</option>
+                </select>
+              </label>
               <button
                 type="button"
                 class="primary script-action"
@@ -182,6 +189,7 @@ const loadingVersions = ref(false)
 const loadingSnapshot = ref(false)
 const loadingScriptStatus = ref(false)
 const generatingScript = ref(false)
+const scriptTargetVersion = ref('LEGACY')
 const scriptStatus = ref({ generated: false })
 const scriptError = ref('')
 const scriptValidationErrors = ref([])
@@ -322,12 +330,12 @@ const handleConfigScript = async () => {
   scriptValidationErrors.value = []
   try {
     if (scriptStatus.value.generated) {
-      await downloadVersionConfigScript(selectedVersionNo.value)
+      await downloadVersionConfigScript(selectedVersionNo.value, scriptTargetVersion.value)
       return
     }
     generatingScript.value = true
     const versionNo = selectedVersionNo.value
-    await generateVersionConfigScript(versionNo)
+    await generateVersionConfigScript(versionNo, scriptTargetVersion.value)
     if (versionNo === selectedVersionNo.value) await loadScriptStatus(versionNo)
   } catch (error) {
     scriptError.value = error?.message || '配置脚本处理失败'

@@ -110,6 +110,15 @@ describe('replayDatabaseComparison api', () => {
     ])
   })
 
+  it('sends the NEW target and a distinct fallback filename', async () => {
+    await generateVersionConfigScript('V1', 'NEW')
+    await downloadVersionConfigScript('V1', 'NEW')
+    expect(download.mock.calls).toEqual([
+      ['/ai/parallel-replay/database-comparison-fields/versions/V1/config-script?targetVersion=NEW', 'replay-db-compare-config-V1-new.sql', { method: 'POST' }],
+      ['/ai/parallel-replay/database-comparison-fields/versions/V1/config-script/download?targetVersion=NEW', 'replay-db-compare-config-V1-new.sql'],
+    ])
+  })
+
   it('generates a version with the trigger token and preserves gate details', async () => {
     fetch.mockResolvedValueOnce({
       ok: true,

@@ -67,18 +67,18 @@ export function loadVersionConfigScriptStatus(versionNo) {
 
 const configScriptFileName = versionNo => `replay-db-compare-config-${versionNo}.sql`
 
-export function generateVersionConfigScript(versionNo) {
+export function generateVersionConfigScript(versionNo, targetVersion = 'LEGACY') {
   return download(
-    `${PREFIX}/versions/${encodeURIComponent(versionNo)}/config-script`,
-    configScriptFileName(versionNo),
+    `${PREFIX}/versions/${encodeURIComponent(versionNo)}/config-script${targetVersion === 'NEW' ? '?targetVersion=NEW' : ''}`,
+    configScriptFileName(versionNo).replace(/\.sql$/, targetVersion === 'NEW' ? '-new.sql' : '.sql'),
     { method: 'POST' },
   )
 }
 
-export function downloadVersionConfigScript(versionNo) {
+export function downloadVersionConfigScript(versionNo, targetVersion = 'LEGACY') {
   return download(
-    `${PREFIX}/versions/${encodeURIComponent(versionNo)}/config-script/download`,
-    configScriptFileName(versionNo),
+    `${PREFIX}/versions/${encodeURIComponent(versionNo)}/config-script/download${targetVersion === 'NEW' ? '?targetVersion=NEW' : ''}`,
+    configScriptFileName(versionNo).replace(/\.sql$/, targetVersion === 'NEW' ? '-new.sql' : '.sql'),
   )
 }
 

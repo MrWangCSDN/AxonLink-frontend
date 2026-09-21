@@ -45,7 +45,7 @@
             <th
               class="operation-header"
               data-testid="operation-header"
-              style="width: 130px"
+              :style="{ width: canConfigurePartitions ? '190px' : '130px' }"
             >操作</th>
           </tr>
         </thead>
@@ -160,6 +160,7 @@
             <td class="operation-cell">
               <button class="operation-button" type="button" :data-testid="`view-registration-${row.tableName}`" @click="openRegistrationDetail(row)">查看</button>
               <button class="operation-button" type="button" :data-testid="`edit-registration-${row.tableName}`" @click="openEditEditor(row)">编辑</button>
+              <button v-if="canConfigurePartitions" class="operation-button" type="button" :data-testid="`configure-partitions-${row.tableName}`" @click="openPartitioning(row)">读取配置</button>
               <button class="operation-button danger" type="button" :data-testid="`delete-registration-${row.tableName}`" @click="requestDeleteRegistration(row)">删除</button>
               <button class="operation-button" type="button" :data-testid="`audit-registration-${row.tableName}`" @click="openRegistrationAudit(row)">审计日志</button>
             </td>
@@ -246,6 +247,19 @@
           </div>
         </div>
         <footer><button type="button" :disabled="generating" @click="closeGeneration">取消</button><button type="button" class="primary" data-testid="confirm-generate-version" :disabled="!generationToken || generating" @click="submitGeneration">{{ generating ? '生成中...' : '确认生成' }}</button></footer>
+      </section>
+    </div>
+    <div v-if="partitionTarget" class="page-dialog-backdrop">
+      <section class="page-dialog compact-dialog" data-testid="partition-dialog" role="dialog" aria-modal="true" aria-labelledby="partition-dialog-title">
+        <header><h3 id="partition-dialog-title">读取配置</h3><button type="button" aria-label="关闭读取配置" :disabled="partitionSaving" @click="closePartitioning">×</button></header>
+        <div class="partition-body">
+          <p>{{ partitionTarget.tableName }}<span v-if="partitionTarget.tableComment"> · {{ partitionTarget.tableComment }}</span></p>
+          <label for="partition-count">读取分区数</label>
+          <input id="partition-count" v-model="partitionCount" data-testid="partition-count" type="number" min="1" max="256" step="1" :disabled="partitionSaving || partitionSaved" aria-describedby="partition-help" :aria-invalid="Boolean(partitionError)" />
+          <p id="partition-help" class="partition-help">填写 1 至 256 的整数，1 表示单分区读取。</p>
+          <p v-if="partitionError" class="generation-error" data-testid="partition-error" role="alert">{{ partitionError }}</p>
+        </div>
+        <footer><button type="button" data-testid="cancel-partitioning" :disabled="partitionSaving" @click="closePartitioning">取消</button><button type="button" class="primary" data-testid="save-partitioning" :disabled="partitionSaving" @click="savePartitioning">{{ partitionSaving ? '保存中...' : partitionSaved ? '重新加载列表' : '保存' }}</button></footer>
       </section>
     </div>
     <ReplayDatabaseComparisonEditor
@@ -350,6 +364,7 @@ import {
   searchRegistrations,
   synchronizePrimaryKeys,
   updateRegistration,
+  updateRegistrationPartitioning,
 } from '../../api/replayDatabaseComparison.js'
 
 defineEmits(['toggleNavigation'])
@@ -486,6 +501,12 @@ const copiedConditionTable = ref('')
 const editorOpen = ref(false)
 const editingRegistration = ref(null)
 const editorSaveError = ref(null)
+const canConfigurePartitions = ref(false)
+const partitionTarget = ref(null)
+const partitionCount = ref(1)
+const partitionSaving = ref(false)
+const partitionSaved = ref(false)
+const partitionError = ref('')
 const detailRegistration = ref(null)
 const auditDialogOpen = ref(false)
 const auditTableName = ref('')
@@ -751,6 +772,7 @@ const formatPerson = (name, username, employeeNumber) => {
 const mapRegistration = registration => ({
   id: registration.id,
   version: registration.version,
+  partitionNum: registration.partitionNum ?? 1,
   tableName: registration.tableName,
   tableComment: registration.tableComment || '',
   domain: registration.domainName || registration.domain || '',
@@ -920,6 +942,51 @@ const confirmListDelete = async () => {
   const existingIndex = rows.findIndex(row => row.tableName === deleteTarget.value.tableName)
   if (existingIndex >= 0) rows.splice(existingIndex, 1)
   deleteTarget.value = null
+}
+
+const openPartitioning = row => {
+  if (!canConfigurePartitions.value) return
+  partitionTarget.value = row
+  partitionCount.value = row.partitionNum ?? 1
+  partitionError.value = ''
+  partitionSaved.value = false
+}
+
+const closePartitioning = () => {
+  if (partitionSaving.value) return
+  partitionTarget.value = null
+}
+
+const savePartitioning = async () => {
+  if (!canConfigurePartitions.value || !partitionTarget.value || partitionSaving.value) return
+  const count = Number(partitionCount.value)
+  if (!Number.isInteger(count) || count < 1 || count > 256) {
+    partitionError.value = '读取分区数必须为 1 至 256 的整数'
+    return
+  }
+  partitionSaving.value = true
+  partitionError.value = ''
+  try {
+    if (!partitionSaved.value) {
+      await updateRegistrationPartitioning(partitionTarget.value.id, {
+        version: partitionTarget.value.version,
+        partitionNum: count,
+      })
+      partitionSaved.value = true
+    }
+    await loadPage()
+    partitionTarget.value = null
+  } catch (error) {
+    if (partitionSaved.value) {
+      partitionError.value = '读取配置已保存，列表刷新失败，请重新加载列表'
+    } else if (error.status === 409 || error.code === 409) {
+      partitionError.value = '登记已被其他人修改，请取消并重新加载页面后重试'
+    } else {
+      partitionError.value = error.message || '保存失败，请稍后重试'
+    }
+  } finally {
+    partitionSaving.value = false
+  }
 }
 
 const openAddEditor = () => {
@@ -1339,7 +1406,12 @@ onMounted(async () => {
     .then(version => { latestVersion.value = version })
     .catch(() => { latestVersion.value = null })
   if (!useMock) {
-    const initialLoadPromise = Promise.all([loadOptions(), loadPage()])
+    const initialLoadPromise = Promise.all([
+      loadOptions()
+        .then(options => { canConfigurePartitions.value = options?.canConfigurePartitions === true })
+        .catch(() => { canConfigurePartitions.value = false }),
+      loadPage(),
+    ])
     const synchronizationPromise = Promise.resolve(synchronizePrimaryKeys()).catch(() => null)
     const [, synchronization] = await Promise.all([initialLoadPromise, synchronizationPromise])
     if (Number(synchronization?.addedFieldCount || 0) > 0) await loadPage()
@@ -1442,6 +1514,11 @@ td small { margin-top: 4px; color: #7b8795; }
 .page-dialog > footer button { padding: 7px 14px; border: 1px solid #ccd5dc; border-radius: 4px; background: #fff; cursor: pointer; }
 .page-dialog > footer .danger-confirm { border-color: #d94a47; color: #fff; background: #d94a47; }
 .page-dialog > footer .primary { border-color: #168478; color: #fff; background: #168478; }
+.partition-body { display: grid; gap: 10px; padding: 18px; font-size: 13px; }
+.partition-body p { margin: 0; overflow-wrap: anywhere; line-height: 1.6; }
+.partition-body input { min-height: 36px; padding: 5px 9px; border: 1px solid #ccd5dc; border-radius: 4px; }
+.partition-help { color: #667985; }
+.page-dialog button:disabled { cursor: not-allowed; opacity: .5; }
 .initial-import-dialog { width: min(960px, calc(100vw - 40px)); }
 .initial-import-body { display: grid; gap: 12px; padding: 18px; }
 .initial-import-body p, .initial-import-body ul { margin: 0; line-height: 1.7; }

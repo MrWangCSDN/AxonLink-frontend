@@ -28,6 +28,7 @@ import {
   downloadVersionConfigScript,
   synchronizePrimaryKeys,
   updateRegistration,
+  updateRegistrationPartitioning,
 } from './replayDatabaseComparison.js'
 
 describe('replayDatabaseComparison api', () => {
@@ -81,6 +82,13 @@ describe('replayDatabaseComparison api', () => {
       ['/ai/parallel-replay/database-comparison-fields/versions/20260914-142530/header-filter-options', { method: 'POST', body: JSON.stringify({ targetColumn: 'domainName' }) }],
       ['/ai/parallel-replay/database-comparison-fields/versions/20260914-142530/config-script'],
     ])
+  })
+
+  it('uses the dedicated partition endpoint with only count and version', async () => {
+    await updateRegistrationPartitioning('table/7', { version: 3, partitionNum: 16 })
+    expect(request).toHaveBeenCalledWith('/ai/parallel-replay/database-comparison-fields/table%2F7/partitioning', {
+      method: 'PUT', body: JSON.stringify({ version: 3, partitionNum: 16 }),
+    })
   })
 
   it('generates or downloads the selected immutable version script without a token', async () => {

@@ -23,6 +23,7 @@ vi.mock('../../api/replayDatabaseComparison.js', () => ({
   searchVersionSnapshot: vi.fn(),
   synchronizePrimaryKeys: vi.fn(),
   updateRegistration: vi.fn(),
+  updateRegistrationPartitioning: vi.fn(),
 }))
 
 vi.mock('./initialImportErrorWorkbook.js', () => ({
@@ -93,10 +94,114 @@ describe('ReplayDatabaseComparisonPage', () => {
     comparisonApi.loadLatestVersion.mockResolvedValue(null)
   })
 
+  const partitionRow = { id: 3, tableName: 'acct', tableComment: '账户表', version: 7,
+    domainName: '存款组', partitionNum: 16, fieldPreview: ['id(编号)'], fieldCount: 1 }
+  const openPartitioning = async (row = partitionRow) => {
+    useRealMode([row])
+    comparisonApi.loadOptions.mockResolvedValue({ canConfigurePartitions: true })
+    const wrapper = mount(ReplayDatabaseComparisonPage)
+    await flushPromises()
+    await wrapper.get('[data-testid="configure-partitions-acct"]').trigger('click')
+    return wrapper
+  }
+
+  it.each([undefined, false, 'true', 1])('hides all partition controls without explicit permission (%s)', async permission => {
+    useRealMode([partitionRow])
+    comparisonApi.loadOptions.mockResolvedValue({ canConfigurePartitions: permission })
+    const wrapper = mount(ReplayDatabaseComparisonPage)
+    await flushPromises()
+    expect(wrapper.find('[data-testid="configure-partitions-acct"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('读取配置')
+    expect(wrapper.find('[data-testid="partition-dialog"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it.each([16, undefined])('opens a single count input using the current value or legacy default (%s)', async partitionNum => {
+    const wrapper = await openPartitioning({ ...partitionRow, partitionNum })
+    const dialog = wrapper.get('[data-testid="partition-dialog"]')
+    expect(dialog.text()).toContain('acct')
+    expect(dialog.findAll('input')).toHaveLength(1)
+    expect(dialog.findAll('select')).toHaveLength(0)
+    expect(dialog.get('input').element.value).toBe(String(partitionNum ?? 1))
+    expect(dialog.text()).not.toContain('分区字段')
+    expect(dialog.text()).not.toContain('分区策略')
+    wrapper.unmount()
+  })
+
+  it.each(['', '0', '-1', '257', '1.5'])('rejects invalid partition count %s without submitting', async value => {
+    const wrapper = await openPartitioning()
+    await wrapper.get('[data-testid="partition-count"]').setValue(value)
+    await wrapper.get('[data-testid="save-partitioning"]').trigger('click')
+    expect(comparisonApi.updateRegistrationPartitioning).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-testid="partition-error"]').text()).toContain('1 至 256')
+    expect(wrapper.find('[data-testid="partition-dialog"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it.each([1, 256])('saves a bounded count %s with the row version then refreshes the list', async count => {
+    const wrapper = await openPartitioning()
+    comparisonApi.updateRegistrationPartitioning.mockResolvedValue({ ...partitionRow, partitionNum: count, version: 8 })
+    comparisonApi.searchRegistrations.mockResolvedValue({ items: [{ ...partitionRow, partitionNum: count, version: 8 }], total: 1 })
+    await wrapper.get('[data-testid="partition-count"]').setValue(String(count))
+    await wrapper.get('[data-testid="save-partitioning"]').trigger('click')
+    await flushPromises()
+    expect(comparisonApi.updateRegistrationPartitioning).toHaveBeenCalledWith(3, { version: 7, partitionNum: count })
+    expect(comparisonApi.searchRegistrations).toHaveBeenCalledTimes(2)
+    expect(wrapper.find('[data-testid="partition-dialog"]').exists()).toBe(false)
+    await wrapper.get('[data-testid="configure-partitions-acct"]').trigger('click')
+    expect(wrapper.get('[data-testid="partition-count"]').element.value).toBe(String(count))
+    wrapper.unmount()
+  })
+
+  it('prevents repeated saves and closing while the request is pending', async () => {
+    const wrapper = await openPartitioning()
+    let finish
+    comparisonApi.updateRegistrationPartitioning.mockImplementation(() => new Promise(resolve => { finish = resolve }))
+    await wrapper.get('[data-testid="save-partitioning"]').trigger('click')
+    expect(wrapper.get('[data-testid="save-partitioning"]').element.disabled).toBe(true)
+    expect(wrapper.get('[data-testid="cancel-partitioning"]').element.disabled).toBe(true)
+    await wrapper.get('[data-testid="save-partitioning"]').trigger('click')
+    expect(comparisonApi.updateRegistrationPartitioning).toHaveBeenCalledTimes(1)
+    finish({ ...partitionRow, version: 8 })
+    await flushPromises()
+    wrapper.unmount()
+  })
+
+  it.each([
+    { status: 409, code: 'VERSION_CONFLICT', message: '版本冲突', hint: '重新加载' },
+    { status: 403, code: 403, message: '无权限修改读取配置', hint: '无权限' },
+    { status: 500, code: 500, message: '服务暂不可用', hint: '服务暂不可用' },
+  ])('preserves input and reports a failed save ($status)', async failure => {
+    const wrapper = await openPartitioning()
+    comparisonApi.updateRegistrationPartitioning.mockRejectedValue(Object.assign(new Error(failure.message), failure))
+    await wrapper.get('[data-testid="partition-count"]').setValue('32')
+    await wrapper.get('[data-testid="save-partitioning"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="partition-count"]').element.value).toBe('32')
+    expect(wrapper.get('[data-testid="partition-error"]').text()).toContain(failure.hint)
+    expect(wrapper.get('[data-testid="save-partitioning"]').element.disabled).toBe(false)
+    expect(comparisonApi.searchRegistrations).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+
+  it('retries only the list refresh after a successful save when reloading fails', async () => {
+    const wrapper = await openPartitioning()
+    comparisonApi.updateRegistrationPartitioning.mockResolvedValue({ ...partitionRow, version: 8 })
+    comparisonApi.searchRegistrations.mockRejectedValueOnce(new Error('网络异常'))
+    await wrapper.get('[data-testid="save-partitioning"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="partition-error"]').text()).toContain('已保存')
+    await wrapper.get('[data-testid="save-partitioning"]').trigger('click')
+    await flushPromises()
+    expect(comparisonApi.updateRegistrationPartitioning).toHaveBeenCalledTimes(1)
+    expect(wrapper.find('[data-testid="partition-dialog"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('keeps edited fields and shows a save failure instead of throwing the event handler error', async () => {
     const row = {
       id: 3, tableName: 'kapb_busi_log', tableComment: '业务日志', domainName: '平台组',
-      groupOwnerEmpNo: '101', groupOwnerName: '负责人', version: 1,
+      groupOwnerEmpNo: '101', groupOwnerName: '负责人', version: 1, partitionNum: 32,
       fields: [{ columnName: 'id', columnComment: '编号', primaryKey: true, comparisonOrder: 1 }],
     }
     useRealMode([row])
@@ -117,6 +222,8 @@ describe('ReplayDatabaseComparisonPage', () => {
     expect(wrapper.findComponent(ReplayDatabaseComparisonEditor).exists()).toBe(true)
     expect(editor.get('[data-testid="registration-save-error"]').text()).toContain('用户未登录')
     expect(editor.findAll('[data-testid="selected-field-row"]')).toHaveLength(1)
+    expect(editor.text()).not.toContain('读取分区数')
+    expect(comparisonApi.updateRegistration.mock.calls[0][1]).not.toHaveProperty('partitionNum')
     expect(errorHandler).not.toHaveBeenCalled()
     comparisonApi.updateRegistration.mockResolvedValue(row)
     editor.vm.$emit('save', { mode: 'edit', id: 3, version: 1, tableName: 'kapb_busi_log',

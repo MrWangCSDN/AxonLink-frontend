@@ -134,7 +134,7 @@
               <select v-if="field.kind === 'select'" v-model.number="row[field.key]" :data-testid="fieldTestId(field, index)">
                 <option v-for="option in field.options" :key="option.value" :value="option.value">{{ option.label }}</option>
               </select>
-              <textarea v-else-if="field.kind === 'textarea'" v-model="row[field.key]" :data-testid="fieldTestId(field, index)" rows="3" :placeholder="field.placeholder || ''"></textarea>
+              <textarea v-else-if="field.kind === 'textarea'" v-model="row[field.key]" :data-testid="fieldTestId(field, index)" rows="3" :maxlength="field.maxlength || undefined" :placeholder="field.placeholder || ''"></textarea>
               <input v-else v-model.trim="row[field.key]" :data-testid="fieldTestId(field, index)" type="text" :maxlength="field.maxlength || undefined" :placeholder="field.placeholder || ''" />
             </label>
           </template>
@@ -189,7 +189,7 @@
         </dl>
         <div class="replay-confirm-actions">
           <button class="replay-button" type="button" data-testid="confirm-cancel" :disabled="confirming" @click="closeConfirm">取消</button>
-          <button class="replay-button replay-button-primary" type="button" data-testid="confirm-ok" :disabled="confirming" @click="confirmAction">{{ confirming ? '处理中...' : '确定' }}</button>
+          <button class="replay-button" :class="confirmDanger ? 'replay-button-danger' : 'replay-button-primary'" type="button" data-testid="confirm-ok" :disabled="confirming" @click="confirmAction">{{ confirming ? '处理中...' : '确定' }}</button>
         </div>
       </section>
     </div>
@@ -236,7 +236,7 @@ const SORT_CREATE_FORM = [
   { key: 'tranCode', label: '4 位交易码', kind: 'text', required: true, placeholder: '如 6208' },
   { key: 'oldSortField', label: '老核心排序字段', kind: 'text', required: true, placeholder: 'A.B 或 A(B,C)' },
   { key: 'newSortField', label: '新核心排序字段', kind: 'text', required: true, placeholder: 'A.B 或 A(B,C)' },
-  { key: 'ignoreReason', label: '忽略原因', kind: 'text', required: true, maxlength: 512 },
+  { key: 'ignoreReason', label: '忽略原因', kind: 'textarea', required: true, maxlength: 512 },
 ]
 
 const SCHEMAS = {
@@ -260,7 +260,7 @@ const SCHEMAS = {
     form: [
       { key: 'tranCode', label: '服务码', kind: 'serviceCode', required: true, placeholder: '如 S120034071CorpInfoQryTrdCrclr&sop' },
       { key: 'fieldName', label: '忽略字段', kind: 'text', required: true },
-      { key: 'ignoreReason', label: '忽略原因', kind: 'text', required: true, maxlength: 512 },
+      { key: 'ignoreReason', label: '忽略原因', kind: 'textarea', required: true, maxlength: 512 },
     ],
   },
   'conditional-ignores': {
@@ -294,7 +294,7 @@ const SCHEMAS = {
       ] },
       { key: 'origFieldCond', label: '主系统字段忽略条件', kind: 'textarea' },
       { key: 'destFieldCond', label: '备系统字段忽略条件', kind: 'textarea' },
-      { key: 'ignoreReason', label: '忽略原因', kind: 'text', required: true, maxlength: 512 },
+      { key: 'ignoreReason', label: '忽略原因', kind: 'textarea', required: true, maxlength: 512 },
     ],
   },
   'error-code-ignores': {
@@ -321,7 +321,7 @@ const SCHEMAS = {
       { key: 'serviceCode', label: '服务码', kind: 'serviceCode', required: true },
       { key: 'oldRespCode', label: '老核心错误码', kind: 'text' },
       { key: 'newRespCode', label: '新核心错误码', kind: 'text' },
-      { key: 'ignoreReason', label: '忽略原因', kind: 'text', required: true, maxlength: 512 },
+      { key: 'ignoreReason', label: '忽略原因', kind: 'textarea', required: true, maxlength: 512 },
     ],
     validate: (draft) => {
       if (!draft.oldRespCode && !draft.newRespCode) {
@@ -354,7 +354,7 @@ const SCHEMAS = {
       { key: 'origTrcd', label: '服务码', kind: 'serviceCode', required: true },
       { key: 'origArryName', label: '对象/数组名称', kind: 'text', required: true },
       { key: 'origFieldName', label: '排序字段', kind: 'text', required: true },
-      { key: 'ignoreReason', label: '忽略原因', kind: 'text', required: true, maxlength: 512 },
+      { key: 'ignoreReason', label: '忽略原因', kind: 'textarea', required: true, maxlength: 512 },
     ],
   },
 }
@@ -388,6 +388,7 @@ const confirmOpen = ref(false)
 const confirmText = ref('')
 const confirmDetails = ref([])
 const confirming = ref(false)
+const confirmDanger = ref(false)
 let confirmHandler = null
 
 const toast = reactive({ visible: false, kind: 'success', text: '' })
@@ -624,6 +625,7 @@ async function submitBatchCreate() {
     const serviceCode = serviceKey ? String(row[serviceKey] ?? '').trim() : ''
     if (!serviceCode) {
       const hasOther = schema.value.form.some((field) => field.key !== serviceKey
+        && field.kind !== 'select'
         && String(row[field.key] ?? '').trim() !== '')
       if (hasOther) {
         formError.value = `第 ${index + 1} 条：请先填写服务码`
@@ -694,18 +696,24 @@ async function submitForm() {
   }
 }
 
-function openConfirm(text, details, handler) {
+function openConfirm(text, details, handler, danger = false) {
   confirmText.value = text
   confirmDetails.value = details || []
   confirmHandler = handler
+  confirmDanger.value = danger === true
   confirmOpen.value = true
+}
+
+function resetConfirm() {
+  confirmOpen.value = false
+  confirmDetails.value = []
+  confirmDanger.value = false
+  confirmHandler = null
 }
 
 function closeConfirm() {
   if (confirming.value) return
-  confirmOpen.value = false
-  confirmDetails.value = []
-  confirmHandler = null
+  resetConfirm()
 }
 
 async function confirmAction() {
@@ -716,19 +724,20 @@ async function confirmAction() {
     await handler()
   } finally {
     confirming.value = false
-    confirmOpen.value = false
-    confirmDetails.value = []
-    confirmHandler = null
+    resetConfirm()
   }
+}
+
+function rowConfirmDetails(row) {
+  return (schema.value.confirmFields || []).map((field) => ({
+    label: field.label,
+    value: row[field.key] === null || row[field.key] === undefined || row[field.key] === '' ? '-' : row[field.key],
+  }))
 }
 
 function reviewRow(row) {
   if (!row.canReview) return
-  const details = (schema.value.confirmFields || []).map((field) => ({
-    label: field.label,
-    value: row[field.key] === null || row[field.key] === undefined || row[field.key] === '' ? '-' : row[field.key],
-  }))
-  openConfirm('确认审核通过该条配置？', details, async () => {
+  openConfirm('确认审核通过该条配置？', rowConfirmDetails(row), async () => {
     try {
       await reviewReplayConfig(activeTab.value, row.id, row.version)
       showToast('审核通过')
@@ -739,18 +748,16 @@ function reviewRow(row) {
   })
 }
 
-async function removeRow(row) {
-  if (typeof window !== 'undefined' && typeof window.confirm === 'function'
-      && !window.confirm(`确认删除该条${schema.value.title}配置？此操作不可恢复。`)) {
-    return
-  }
-  try {
-    await deleteReplayConfig(activeTab.value, row.id, row.version)
-    showToast('删除成功')
-    await load()
-  } catch (cause) {
-    showToast(`删除失败：${cause?.message || cause}`, 'error')
-  }
+function removeRow(row) {
+  openConfirm(`确认删除该条${schema.value.title}配置？此操作不可恢复。`, rowConfirmDetails(row), async () => {
+    try {
+      await deleteReplayConfig(activeTab.value, row.id, row.version)
+      showToast('删除成功')
+      await load()
+    } catch (cause) {
+      showToast(`删除失败：${cause?.message || cause}`, 'error')
+    }
+  }, true)
 }
 
 function batchReview() {
@@ -776,24 +783,22 @@ function batchReview() {
   })
 }
 
-async function batchDelete() {
+function batchDelete() {
   if (!selectedIds.value.length) return
-  if (typeof window !== 'undefined' && typeof window.confirm === 'function'
-      && !window.confirm(`确认删除已勾选的 ${selectedIds.value.length} 条记录？此操作不可恢复。`)) {
-    return
-  }
   const byId = new Map(items.value.map((row) => [row.id, row]))
-  const payload = selectedIds.value
-    .map((id) => byId.get(id))
-    .filter(Boolean)
-    .map((row) => ({ id: row.id, version: row.version }))
-  try {
-    const result = await batchDeleteReplayConfigs(activeTab.value, payload)
-    showToast(`删除成功：${result?.deletedCount ?? payload.length} 条`)
-    await load()
-  } catch (cause) {
-    showToast(`批量删除失败：${cause?.message || cause}`, 'error')
-  }
+  const selectedRows = selectedIds.value.map((id) => byId.get(id)).filter(Boolean)
+  const payload = selectedRows.map((row) => ({ id: row.id, version: row.version }))
+  const details = [{ label: '已选', value: `${selectedRows.length} 条` }]
+  openConfirm(`确认删除已勾选的 ${selectedIds.value.length} 条记录？此操作不可恢复。`, details, async () => {
+    if (!payload.length) return
+    try {
+      const result = await batchDeleteReplayConfigs(activeTab.value, payload)
+      showToast(`删除成功：${result?.deletedCount ?? payload.length} 条`)
+      await load()
+    } catch (cause) {
+      showToast(`批量删除失败：${cause?.message || cause}`, 'error')
+    }
+  }, true)
 }
 
 async function openHistory(row) {

@@ -139,6 +139,16 @@
           </div>
         </section>
 
+        <section v-if="selectedTable" class="editor-block partition-block">
+          <label for="editor-partition-count">分区数</label>
+          <input id="editor-partition-count" v-model.number="partitionNum" data-testid="editor-partition-count"
+            type="number" min="1" max="256" step="1"
+            :disabled="!canConfigurePartitions || isFieldMaintenanceDisabled"
+            :aria-invalid="Boolean(partitionError)" aria-describedby="editor-partition-help" />
+          <span id="editor-partition-help">{{ canConfigurePartitions ? '1–256 个分区，默认 1 个。' : '仅有配置权限的人员可修改。' }}</span>
+          <p v-if="partitionError" class="registration-error" role="alert">{{ partitionError }}</p>
+        </section>
+
         <section class="editor-block registration-block">
           <div class="block-heading"><strong>4. 登记信息</strong><span>带 * 为必填项</span></div>
           <div class="registration-form">
@@ -195,6 +205,7 @@ const props = defineProps({
   searchTables: { type: Function, default: searchMockTables },
   loadRegistration: { type: Function, default: null },
   saveError: { type: Object, default: null },
+  canConfigurePartitions: { type: Boolean, default: false },
 })
 const emit = defineEmits(['close', 'save', 'delete'])
 
@@ -219,6 +230,10 @@ const groupOwnerError = ref('')
 const reconciledPrimaryKeySignature = ref('')
 const whereCondition = ref(null)
 const compareLimit = ref(null)
+const partitionNum = ref(1)
+const partitionError = computed(() => props.canConfigurePartitions
+  && (!Number.isInteger(partitionNum.value) || partitionNum.value < 1 || partitionNum.value > 256)
+  ? '分区数必须为 1 至 256 的整数' : '')
 const orderingPrimaryKeyWarning = computed(() => {
   const validation = selectedTable.value?.metadataValidation
   if (!validation?.orderingPrimaryKeyChanged) return null
@@ -257,7 +272,7 @@ const canSubmit = computed(() => {
   if (isPrimaryKeyMissing.value) return false
   if (isDeleteMode.value) return true
   if (hasMissingSelectedColumns.value) return false
-  if (scopeDraftErrors.value.length) return false
+  if (scopeDraftErrors.value.length || partitionError.value) return false
   return selectedColumns.value.length > 0 && form.domain && form.groupOwnerUsername
 })
 const availableColumns = computed(() => {
@@ -437,6 +452,7 @@ const selectTable = table => {
     form.groupOwnerDisplay = registration?.groupOwner || registration?.groupOwnerName || ''
     whereCondition.value = normalizeConditionTree(registration?.whereCondition)
     compareLimit.value = registration?.compareLimit ?? null
+    partitionNum.value = registration?.partitionNum ?? 1
     groupOwnerOptions.value = []
     groupOwnerError.value = ''
     availableSelection.value = []
@@ -606,6 +622,7 @@ const submitRegistration = () => {
     groupOwnerName: form.groupOwnerName,
     whereCondition: normalizeConditionTree(whereCondition.value),
     compareLimit: compareLimit.value,
+    ...(props.canConfigurePartitions ? { partitionNum: partitionNum.value } : {}),
     })
   }
   const latestColumns = props.loadColumns(selectedTable.value.tableName)
@@ -653,6 +670,12 @@ if (props.initialRegistration) {
 </script>
 
 <style scoped>
+.partition-block { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.partition-block label { font-weight: 600; }
+.partition-block input { width: 110px; padding: 7px 10px; border: 1px solid var(--border-color, #d8e2dd); border-radius: 4px; }
+.partition-block input:disabled { background: #f2f5f3; color: #64756d; }
+.partition-block span { color: #64756d; font-size: 12px; }
+
 .comparison-editor-backdrop { position: fixed; inset: 0; z-index: 1800; display: grid; place-items: center; background: rgba(18, 29, 38, .5); }
 .comparison-editor { width: 92vw; height: 96vh; max-height: calc(100vh - 16px); display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; border-radius: 8px; background: #f4f7f9; box-shadow: 0 18px 50px rgba(0, 0, 0, .3); color: #263442; }
 .editor-header { display: flex; align-items: center; justify-content: space-between; padding: 15px 20px; color: #fff; background: #176f74; }

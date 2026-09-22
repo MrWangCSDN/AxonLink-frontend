@@ -29,6 +29,37 @@ const selectedNames = wrapper => wrapper.findAll('[data-testid="selected-field-r
   .map(row => row.get('strong').text().replace(/^\d+\.\s*/, ''))
 
 describe('ReplayDatabaseComparisonEditor', () => {
+  it.each([false, true])('restores partition count and enforces editor permission (%s)', async allowed => {
+    const registration = { ...registrations[0], partitionNum: 16 }
+    const wrapper = mount(ReplayDatabaseComparisonEditor, { props: {
+      registrations: [registration], initialRegistration: registration, canConfigurePartitions: allowed,
+    } })
+    const input = wrapper.get('[data-testid="editor-partition-count"]')
+    expect(input.element.value).toBe('16')
+    expect(input.element.disabled).toBe(!allowed)
+    if (allowed) {
+      await input.setValue('32')
+      await wrapper.get('[data-testid="submit-registration"]').trigger('click')
+      expect(wrapper.emitted('save')[0][0].partitionNum).toBe(32)
+      for (const count of ['', '0', '257', '1.5']) {
+        await input.setValue(count)
+        expect(wrapper.get('[data-testid="submit-registration"]').element.disabled).toBe(true)
+      }
+    } else {
+      await wrapper.get('[data-testid="submit-registration"]').trigger('click')
+      expect(wrapper.emitted('save')[0][0]).not.toHaveProperty('partitionNum')
+    }
+    wrapper.unmount()
+  })
+
+  it('defaults partition count to one for new registration', async () => {
+    const wrapper = mount(ReplayDatabaseComparisonEditor, { props: { canConfigurePartitions: true } })
+    await waitForTableSearch(wrapper, '冻结控制信息')
+    await wrapper.get('[data-testid="table-search-result"]').trigger('click')
+    expect(wrapper.get('[data-testid="editor-partition-count"]').element.value).toBe('1')
+    wrapper.unmount()
+  })
+
   it('searches tables automatically after typing and has no search button', async () => {
     const searchTables = vi.fn().mockReturnValue([{
       tableName: 'kdpa_cb_acct_fzn_cntl_inf',
@@ -620,14 +651,14 @@ describe('ReplayDatabaseComparisonEditor', () => {
     }])
     const loadRegistration = vi.fn().mockResolvedValue({
       id: 77, version: 4, tableName: 'acct_master', domain: '存款组',
-      groupOwnerUsername: '101', groupOwnerName: '赵经理',
+      groupOwnerUsername: '101', groupOwnerName: '赵经理', partitionNum: 16,
       fields: [{ name: 'legacy_field', comment: '历史字段' }],
     })
     const loadColumns = vi.fn().mockResolvedValue([{
       columnName: 'acct_no', columnComment: '账号', primaryKey: true, ordinalPosition: 1,
     }])
     const wrapper = mount(ReplayDatabaseComparisonEditor, {
-      props: { searchTables, loadRegistration, loadColumns },
+      props: { searchTables, loadRegistration, loadColumns, canConfigurePartitions: true },
     })
 
     await waitForTableSearch(wrapper, 'acct')
@@ -641,10 +672,12 @@ describe('ReplayDatabaseComparisonEditor', () => {
     expect(wrapper.find('.selected-table .text-button').exists()).toBe(true)
     await wrapper.get('.registration-form select').setValue('存款组')
     expect(loadRegistration).toHaveBeenCalledWith(77)
+    expect(wrapper.get('[data-testid="editor-partition-count"]').element.value).toBe('16')
+    await wrapper.get('[data-testid="editor-partition-count"]').setValue('32')
     await wrapper.get('[data-testid="submit-registration"]').trigger('click')
     await Promise.resolve()
     expect(wrapper.emitted('save')?.[0]?.[0]).toMatchObject({
-      mode: 'reregister', id: 77, version: 4, fieldNames: ['acct_no'],
+      mode: 'reregister', id: 77, version: 4, fieldNames: ['acct_no'], partitionNum: 32,
     })
   })
 

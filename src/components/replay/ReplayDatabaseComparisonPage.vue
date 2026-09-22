@@ -31,6 +31,7 @@
               >
                 <span>{{ column.label }}</span>
                 <button
+                  v-if="column.key !== 'partitionNum'"
                   type="button"
                   class="replay-header-filter-button"
                   data-testid="database-comparison-header-filter"
@@ -142,6 +143,7 @@
                 >{{ copiedConditionTable === row.tableName ? '已复制' : '复制全部条件' }}</button>
               </div>
             </td>
+            <td :data-testid="`partition-num-${row.tableName}`">{{ row.partitionNum ?? 1 }}</td>
             <td
               class="compact-copy-cell"
               :data-testid="`reviser-${row.tableName}`"
@@ -271,6 +273,7 @@
       :load-columns="loadTableColumns"
       :load-registration="loadRegistrationDetail"
       :save-error="editorSaveError"
+      :can-configure-partitions="canConfigurePartitions"
       @close="closeEditor"
       @save="saveRegistration"
       @delete="deleteRegistration"
@@ -299,6 +302,7 @@
             <span v-if="detailRegistration.compareLimit">限{{ detailRegistration.compareLimit }}条</span>
             <pre v-if="detailRegistration.whereSql">{{ detailRegistration.whereSql }}</pre>
           </dd>
+          <dt>分区数</dt><dd data-testid="detail-partition-num">{{ detailRegistration.partitionNum ?? 1 }}</dd>
           <dt>修订人</dt><dd>{{ detailRegistration.reviser }}</dd>
           <dt>小组负责人</dt><dd>{{ detailRegistration.groupOwner }}</dd>
           <dt>登记日期</dt><dd>{{ detailRegistration.date }}</dd>
@@ -479,6 +483,7 @@ const filterColumns = [
   { key: 'domain', label: '领域', width: '62px' },
   { key: 'fields', label: '比对字段', width: '250px' },
   { key: 'queryCondition', label: '查询条件', width: '90px' },
+  { key: 'partitionNum', label: '分区数', width: '60px' },
   { key: 'reviser', label: '修订人', width: '90px' },
   { key: 'groupOwner', label: '小组负责人', width: '90px' },
   { key: 'date', label: '登记日期', width: '51px' },
@@ -1024,6 +1029,7 @@ const saveRegistration = async payload => {
       deleteWhenNoFields: false,
       whereCondition: payload.whereCondition,
       compareLimit: payload.compareLimit,
+      ...(canConfigurePartitions.value && payload.partitionNum !== undefined ? { partitionNum: payload.partitionNum } : {}),
     }
     try {
       if (payload.mode === 'edit') await updateRegistration(payload.id, body)
@@ -1080,6 +1086,7 @@ const saveRegistration = async payload => {
     whereCondition: payload.whereCondition || null,
     whereConditionConfigured: Boolean(payload.whereCondition),
     compareLimit: payload.compareLimit ?? null,
+    partitionNum: canConfigurePartitions.value ? (payload.partitionNum ?? existingRow?.partitionNum ?? 1) : (existingRow?.partitionNum ?? 1),
   }
   const details = auditDetailsFor(existingRow, nextRow, existingRow ? 'UPDATE' : 'CREATE')
   if (existingIndex >= 0) rows.splice(existingIndex, 1, nextRow)
@@ -1440,16 +1447,8 @@ table.is-fixed-layout { table-layout: fixed; }
 thead.is-sticky { position: sticky; top: 0; z-index: 2; color: #fff; background: #176f74; }
 th { position: relative; padding: 12px 8px; text-align: left; white-space: nowrap; }
 thead th.has-white-divider { border-right: 1px solid rgba(255, 255, 255, .78); }
-th:nth-child(1) { width: 190px; }
-th:nth-child(2) { width: 62px; }
-th:nth-child(3) { width: 250px; }
-th:nth-child(4) { width: 90px; }
-th:nth-child(5) { width: 90px; }
-th:nth-child(6) { width: 90px; }
-th:nth-child(7) { width: 51px; }
-th:nth-child(8) { width: 130px; }
-th:nth-child(5) > span, th:nth-child(6) > span, th:nth-child(7) > span { display: block; padding-right: 15px; overflow: hidden; text-overflow: ellipsis; }
-th:nth-child(5) .replay-header-filter-button, th:nth-child(6) .replay-header-filter-button, th:nth-child(7) .replay-header-filter-button { position: absolute; right: 1px; top: 50%; margin: 0; transform: translateY(-50%); }
+th[data-column-key="reviser"] > span, th[data-column-key="groupOwner"] > span, th[data-column-key="date"] > span { display: block; padding-right: 15px; overflow: hidden; text-overflow: ellipsis; }
+th[data-column-key="reviser"] .replay-header-filter-button, th[data-column-key="groupOwner"] .replay-header-filter-button, th[data-column-key="date"] .replay-header-filter-button { position: absolute; right: 1px; top: 50%; margin: 0; transform: translateY(-50%); }
 .replay-header-filter-button { display: inline-grid; place-items: center; width: 18px; height: 18px; margin-left: 3px; padding: 0; border: 0; background: transparent; cursor: pointer; vertical-align: middle; }
 .replay-header-filter-button i { display: block; width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 7px solid #e9fff9; filter: drop-shadow(0 0 1px rgba(0,0,0,.7)); }
 .replay-header-filter-button:hover i, .replay-header-filter-button:focus-visible i { border-top-color: #fff; }

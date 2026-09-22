@@ -94,7 +94,7 @@ describe('ReplayDatabaseComparisonPage', () => {
   })
 
   const partitionRow = { id: 3, tableName: 'acct', tableComment: '账户表', version: 7,
-    domainName: '存款组', partitionNum: 16, fieldPreview: ['id(编号)'], fieldCount: 1 }
+    domainName: '存款组', partitionNum: 16, sampleLimit: 0, fieldPreview: ['id(编号)'], fieldCount: 1 }
   it('shows partition count after query condition and below scope in details', async () => {
     useRealMode([partitionRow])
     comparisonApi.loadRegistration.mockResolvedValue({ ...partitionRow, fields: [] })
@@ -102,10 +102,13 @@ describe('ReplayDatabaseComparisonPage', () => {
     await flushPromises()
     const headers = wrapper.findAll('thead th').map(h => h.text())
     expect(headers.indexOf('分区数')).toBe(headers.indexOf('查询条件') + 1)
+    expect(headers.indexOf('样本数')).toBe(headers.indexOf('分区数') + 1)
+    expect(wrapper.get('[data-testid="sample-limit-acct"]').text()).toBe('0')
     expect(wrapper.get('[data-testid="partition-num-acct"]').text()).toBe('16')
     await wrapper.get('[data-testid="view-registration-acct"]').trigger('click')
     await flushPromises()
     expect(wrapper.get('[data-testid="detail-partition-num"]').text()).toBe('16')
+    expect(wrapper.get('[data-testid="detail-sample-limit"]').text()).toBe('0')
     wrapper.unmount()
   })
 
@@ -121,11 +124,45 @@ describe('ReplayDatabaseComparisonPage', () => {
     const editor = wrapper.findComponent(ReplayDatabaseComparisonEditor)
     expect(editor.props('canConfigurePartitions')).toBe(allowed)
     expect(editor.get('[data-testid="editor-partition-count"]').element.value).toBe('16')
-    editor.vm.$emit('save', { mode: 'edit', id: 3, version: 7, tableName: 'acct', fieldNames: ['id'], domain: '存款组', groupOwnerEmpNo: '101', partitionNum: 32 })
+    editor.vm.$emit('save', { mode: 'edit', id: 3, version: 7, tableName: 'acct', fieldNames: ['id'], domain: '存款组', groupOwnerEmpNo: '101', partitionNum: 32, sampleLimit: 500 })
     await flushPromises()
     const body = comparisonApi.updateRegistration.mock.calls[0][1]
     if (allowed) expect(body.partitionNum).toBe(32)
     else expect(body).not.toHaveProperty('partitionNum')
+    if (allowed) expect(body.sampleLimit).toBe(500)
+    else expect(body).not.toHaveProperty('sampleLimit')
+    wrapper.unmount()
+  })
+
+  it.each(['add', 'reregister'])('submits sample limit for authorized %s requests', async mode => {
+    useRealMode([])
+    comparisonApi.loadOptions.mockResolvedValue({ canConfigurePartitions: true })
+    const wrapper = mount(ReplayDatabaseComparisonPage)
+    await flushPromises()
+    await wrapper.get('[data-testid="add-registration"]').trigger('click')
+    wrapper.findComponent(ReplayDatabaseComparisonEditor).vm.$emit('save', {
+      mode, id: 3, tableName: 'acct', fieldNames: ['id'], domain: '存款组',
+      groupOwnerEmpNo: '101', sampleLimit: 0,
+    })
+    await flushPromises()
+    if (mode === 'add') expect(comparisonApi.createRegistration).toHaveBeenCalledWith(expect.objectContaining({ sampleLimit: 0 }))
+    else expect(comparisonApi.reregisterRegistration).toHaveBeenCalledWith(3, expect.objectContaining({ sampleLimit: 0 }))
+    wrapper.unmount()
+  })
+
+  it('keeps the legacy default on mock edits even when an unauthorized payload supplies a sample limit', async () => {
+    const wrapper = mount(ReplayDatabaseComparisonPage)
+    const tableName = 'kdpa_cb_acct_fzn_cntl_inf'
+    expect(wrapper.get(`[data-testid="sample-limit-${tableName}"]`).text()).toBe('1000')
+    await wrapper.get(`[data-testid="edit-registration-${tableName}"]`).trigger('click')
+    const editor = wrapper.findComponent(ReplayDatabaseComparisonEditor)
+    expect(editor.get('[data-testid="editor-sample-limit"]').element.disabled).toBe(true)
+    editor.vm.$emit('save', {
+      mode: 'edit', tableName, fields: [{ name: 'id', comment: '编号' }],
+      domain: '存款组', groupOwnerUsername: '101', groupOwnerName: '负责人', sampleLimit: 0,
+    })
+    await flushPromises()
+    expect(wrapper.get(`[data-testid="sample-limit-${tableName}"]`).text()).toBe('1000')
     wrapper.unmount()
   })
 
@@ -589,9 +626,10 @@ describe('ReplayDatabaseComparisonPage', () => {
     expect(headers[0].attributes('style')).toContain('width: 127px')
     expect(headers[3].attributes('style')).toContain('width: 90px')
     expect(headers[4].attributes('style')).toContain('width: 60px')
-    expect(headers[5].attributes('style')).toContain('width: 90px')
+    expect(headers[5].attributes('style')).toContain('width: 75px')
     expect(headers[6].attributes('style')).toContain('width: 90px')
-    expect(headers[7].attributes('style')).toContain('width: 51px')
+    expect(headers[7].attributes('style')).toContain('width: 90px')
+    expect(headers[8].attributes('style')).toContain('width: 51px')
     expect(headers.slice(0, -1).every(header => header.classes().includes('has-white-divider'))).toBe(true)
     expect(headers.some(header => header.text().includes('小组负责人'))).toBe(true)
     expect(headers.some(header => header.text().includes('归属小组'))).toBe(false)
@@ -710,8 +748,8 @@ describe('ReplayDatabaseComparisonPage', () => {
     const headers = wrapper.findAll('[data-testid="database-comparison-table-head"] th')
       .map(header => header.text().trim())
 
-    expect(headers.slice(0, 6)).toEqual([
-      '表英文名 / 中文名', '领域', '比对字段', '查询条件', '分区数', '修订人',
+    expect(headers.slice(0, 7)).toEqual([
+      '表英文名 / 中文名', '领域', '比对字段', '查询条件', '分区数', '样本数', '修订人',
     ])
     expect(wrapper.get('[data-testid="query-condition-header"]').attributes('style'))
       .toBe(wrapper.get('[data-column-key="reviser"]').attributes('style'))

@@ -147,6 +147,13 @@
             :aria-invalid="Boolean(partitionError)" aria-describedby="editor-partition-help" />
           <span id="editor-partition-help">{{ canConfigurePartitions ? '1–256 个分区，默认 1 个。' : '仅有配置权限的人员可修改。' }}</span>
           <p v-if="partitionError" class="registration-error" role="alert">{{ partitionError }}</p>
+          <label for="editor-sample-limit">样本数</label>
+          <input id="editor-sample-limit" v-model.number="sampleLimit" data-testid="editor-sample-limit"
+            type="number" min="0" max="10000" step="1"
+            :disabled="!canConfigurePartitions || isFieldMaintenanceDisabled"
+            :aria-invalid="Boolean(sampleLimitError)" aria-describedby="editor-sample-help" />
+          <span id="editor-sample-help">0–10000 条，默认 1000 条；0 表示仅汇总。{{ canConfigurePartitions ? '' : '仅有配置权限的人员可修改。' }}</span>
+          <p v-if="sampleLimitError" class="registration-error" role="alert">{{ sampleLimitError }}</p>
         </section>
 
         <section class="editor-block registration-block">
@@ -230,6 +237,10 @@ const groupOwnerError = ref('')
 const reconciledPrimaryKeySignature = ref('')
 const whereCondition = ref(null)
 const compareLimit = ref(null)
+const sampleLimit = ref(1000)
+const sampleLimitError = computed(() => props.canConfigurePartitions
+  && (!Number.isInteger(sampleLimit.value) || sampleLimit.value < 0 || sampleLimit.value > 10000)
+  ? '样本数必须为 0 至 10000 的整数' : '')
 const partitionNum = ref(1)
 const partitionError = computed(() => props.canConfigurePartitions
   && (!Number.isInteger(partitionNum.value) || partitionNum.value < 1 || partitionNum.value > 256)
@@ -272,7 +283,7 @@ const canSubmit = computed(() => {
   if (isPrimaryKeyMissing.value) return false
   if (isDeleteMode.value) return true
   if (hasMissingSelectedColumns.value) return false
-  if (scopeDraftErrors.value.length || partitionError.value) return false
+  if (scopeDraftErrors.value.length || partitionError.value || sampleLimitError.value) return false
   return selectedColumns.value.length > 0 && form.domain && form.groupOwnerUsername
 })
 const availableColumns = computed(() => {
@@ -453,6 +464,7 @@ const selectTable = table => {
     whereCondition.value = normalizeConditionTree(registration?.whereCondition)
     compareLimit.value = registration?.compareLimit ?? null
     partitionNum.value = registration?.partitionNum ?? 1
+    sampleLimit.value = registration?.sampleLimit ?? 1000
     groupOwnerOptions.value = []
     groupOwnerError.value = ''
     availableSelection.value = []
@@ -622,7 +634,7 @@ const submitRegistration = () => {
     groupOwnerName: form.groupOwnerName,
     whereCondition: normalizeConditionTree(whereCondition.value),
     compareLimit: compareLimit.value,
-    ...(props.canConfigurePartitions ? { partitionNum: partitionNum.value } : {}),
+    ...(props.canConfigurePartitions ? { partitionNum: partitionNum.value, sampleLimit: sampleLimit.value } : {}),
     })
   }
   const latestColumns = props.loadColumns(selectedTable.value.tableName)

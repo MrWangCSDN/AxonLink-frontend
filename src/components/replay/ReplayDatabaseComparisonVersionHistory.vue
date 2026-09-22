@@ -121,6 +121,7 @@
                   <th>比对字段</th>
                   <th>查询条件</th>
                   <th>分区数</th>
+                  <th>样本数</th>
                   <th>修订人</th>
                   <th>小组负责人</th>
                   <th>登记日期</th>
@@ -141,12 +142,13 @@
                     :title="queryConditionText(row)"
                   >{{ queryConditionText(row) }}</td>
                   <td :data-testid="`history-partition-num-${row.tableName}`">{{ row.partitionNum ?? 1 }}</td>
+                  <td :data-testid="`history-sample-limit-${row.tableName}`">{{ row.sampleLimit ?? 1000 }}</td>
                   <td>{{ personLabel(row.reviserName, row.reviserUsername, row.reviserEmpNo) }}</td>
                   <td>{{ personLabel(row.groupOwnerName, row.groupOwnerUsername, row.groupOwnerEmpNo) }}</td>
                   <td>{{ row.registeredDate || '-' }}</td>
                 </tr>
                 <tr v-if="!loadingSnapshot && !snapshot.items.length">
-                  <td colspan="8" class="empty-state">暂无快照数据</td>
+                  <td colspan="9" class="empty-state">暂无快照数据</td>
                 </tr>
               </tbody>
             </table>
@@ -422,7 +424,7 @@ watch(() => props.open, value => {
 .snapshot-table-shell { min-height: 0; margin: 0 18px; overflow: auto; border: 1px solid #dbe2e9; border-radius: 5px; background: #fff; }
 table { width: 100%; min-width: 1080px; border-collapse: collapse; table-layout: fixed; color: #465361; font-size: 12px; }
 th { position: sticky; top: 0; z-index: 1; padding: 10px; border-right: 1px solid rgba(255,255,255,.72); color: #fff; background: #168478; text-align: left; }
-th:nth-child(1) { width: 190px; } th:nth-child(2) { width: 90px; } th:nth-child(3) { width: 330px; } th:nth-child(4) { width: 180px; } th:nth-child(5) { width: 70px; } th:nth-child(6), th:nth-child(7) { width: 105px; } th:nth-child(8) { width: 100px; }
+th:nth-child(1) { width: 190px; } th:nth-child(2) { width: 90px; } th:nth-child(3) { width: 330px; } th:nth-child(4) { width: 180px; } th:nth-child(5) { width: 70px; } th:nth-child(6) { width: 80px; } th:nth-child(7), th:nth-child(8) { width: 105px; } th:nth-child(9) { width: 100px; }
 td { padding: 10px; border-right: 1px solid #edf1f4; border-bottom: 1px solid #e6ebef; vertical-align: top; overflow-wrap: anywhere; }
 td strong, td small { display: block; }
 td small { margin-top: 3px; color: #86919c; }

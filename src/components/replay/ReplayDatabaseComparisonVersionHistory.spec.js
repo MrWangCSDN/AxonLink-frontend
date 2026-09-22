@@ -61,29 +61,33 @@ describe('ReplayDatabaseComparisonVersionHistory', () => {
 
   it('displays each selected version partition count as a read-only snapshot', async () => {
     comparisonApi.searchVersionSnapshot.mockImplementation(async versionNo => ({
-      items: [{ sourceRegistrationId: 7, tableName: 'acct_master', partitionNum: versionNo === '20260914-150101' ? 16 : 4, fields: [] }],
+      items: [{ sourceRegistrationId: 7, tableName: 'acct_master', partitionNum: versionNo === '20260914-150101' ? 16 : 4, sampleLimit: versionNo === '20260914-150101' ? 2500 : 0, fields: [] }],
       page: 0, size: 50, total: 1,
     }))
     const wrapper = mount(ReplayDatabaseComparisonVersionHistory, { props: { open: true } })
     await flushPromises()
     const headers = wrapper.findAll('thead th').map(header => header.text())
     expect(headers[headers.indexOf('查询条件') + 1]).toBe('分区数')
+    expect(headers[headers.indexOf('分区数') + 1]).toBe('样本数')
+    expect(wrapper.get('[data-testid="history-sample-limit-acct_master"]').text()).toBe('2500')
     expect(wrapper.get('[data-testid="history-partition-num-acct_master"]').text()).toBe('16')
     expect(wrapper.get('[data-testid="version-snapshot-table"]').find('input').exists()).toBe(false)
     await wrapper.get('[data-testid="version-item-20260913-120000"]').trigger('click')
     await flushPromises()
     expect(wrapper.get('[data-testid="history-partition-num-acct_master"]').text()).toBe('4')
+    expect(wrapper.get('[data-testid="history-sample-limit-acct_master"]').text()).toBe('0')
     wrapper.unmount()
   })
 
   it.each([undefined, null])('defaults legacy snapshot partition count to one (%s)', async partitionNum => {
     comparisonApi.searchVersionSnapshot.mockResolvedValue({
-      items: [{ sourceRegistrationId: 7, tableName: 'legacy_table', partitionNum, fields: [] }],
+      items: [{ sourceRegistrationId: 7, tableName: 'legacy_table', partitionNum, sampleLimit: partitionNum, fields: [] }],
       page: 0, size: 50, total: 1,
     })
     const wrapper = mount(ReplayDatabaseComparisonVersionHistory, { props: { open: true } })
     await flushPromises()
     expect(wrapper.get('[data-testid="history-partition-num-legacy_table"]').text()).toBe('1')
+    expect(wrapper.get('[data-testid="history-sample-limit-legacy_table"]').text()).toBe('1000')
     wrapper.unmount()
   })
 

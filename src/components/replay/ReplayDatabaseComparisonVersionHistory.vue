@@ -81,7 +81,7 @@
             <div class="filter-actions">
               <button type="button" class="outlined" @click="resetFilters">重置</button>
               <button type="button" class="primary" data-testid="apply-history-filters" @click="applyFilters">查询</button>
-              <label>
+              <label class="script-target">
                 <span>SQL 配置版本</span>
                 <select v-model="scriptTargetVersion" :disabled="generatingScript" data-testid="config-script-target">
                   <option value="LEGACY">旧版本（原表）</option>
@@ -404,11 +404,12 @@ watch(() => props.open, value => {
 .snapshot-heading div { display: flex; align-items: baseline; gap: 10px; }
 .snapshot-heading strong { color: #25313d; }
 .snapshot-heading span { font-size: 12px; }
-.history-filters { display: flex; align-items: end; gap: 9px; padding: 0 18px 12px; }
-.history-filters label { min-width: 0; flex: 1 1 150px; display: grid; gap: 4px; color: #697581; font-size: 11px; }
+.history-filters { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); align-items: end; gap: 12px 9px; padding: 0 18px 12px; }
+.history-filters label { min-width: 0; display: grid; gap: 4px; color: #697581; font-size: 11px; }
 .history-filters input, .history-filters select { height: 32px; min-width: 0; padding: 0 9px; border: 1px solid #d4dce5; border-radius: 4px; color: #36424e; background: #fff; }
-.filter-actions { flex: 0 0 auto; display: flex; gap: 7px; }
-.filter-actions button { height: 32px; padding: 0 13px; border: 1px solid #ccd6de; border-radius: 4px; background: #fff; cursor: pointer; }
+.filter-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: flex-end; gap: 9px; }
+.filter-actions .script-target { flex: 0 0 160px; margin-left: auto; }
+.filter-actions button { flex-shrink: 0; height: 32px; padding: 0 13px; border: 1px solid #ccd6de; border-radius: 4px; background: #fff; white-space: nowrap; cursor: pointer; }
 .filter-actions .primary { border-color: #168478; color: #fff; background: #168478; }
 .filter-actions .script-action { min-width: 116px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; white-space: nowrap; }
 .filter-actions .script-action.generated { border-color: #506579; background: #506579; }
@@ -436,5 +437,6 @@ td small { margin-top: 3px; color: #86919c; }
 .history-pager select { padding: 0 7px; }
 .history-pager button { width: 32px; cursor: pointer; }
 .history-pager button:disabled { cursor: not-allowed; opacity: .45; }
-@media (max-width: 820px) { .history-backdrop { padding: 8px; } .history-dialog { width: 100%; height: 96vh; } .history-body { grid-template-columns: 180px minmax(0, 1fr); } .history-filters { overflow-x: auto; } .history-filters label { min-width: 145px; } }
+@media (max-width: 1200px) { .history-filters { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 820px) { .history-backdrop { padding: 8px; } .history-dialog { width: 100%; height: 96vh; } .history-body { grid-template-columns: 180px minmax(0, 1fr); } }
 </style>

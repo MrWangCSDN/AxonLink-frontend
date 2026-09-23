@@ -31,7 +31,7 @@
               >
                 <span>{{ column.label }}</span>
                 <button
-                  v-if="!['partitionNum', 'sampleLimit'].includes(column.key)"
+                  v-if="column.key !== 'sampleLimit'"
                   type="button"
                   class="replay-header-filter-button"
                   data-testid="database-comparison-header-filter"
@@ -143,7 +143,6 @@
                 >{{ copiedConditionTable === row.tableName ? '已复制' : '复制全部条件' }}</button>
               </div>
             </td>
-            <td :data-testid="`partition-num-${row.tableName}`">{{ row.partitionNum ?? 1 }}</td>
             <td :data-testid="`sample-limit-${row.tableName}`">{{ row.sampleLimit ?? 100 }}</td>
             <td
               class="compact-copy-cell"
@@ -289,7 +288,6 @@
             <span v-if="detailRegistration.compareLimit">限{{ detailRegistration.compareLimit }}条</span>
             <pre v-if="detailRegistration.whereSql">{{ detailRegistration.whereSql }}</pre>
           </dd>
-          <dt>分区数</dt><dd data-testid="detail-partition-num">{{ detailRegistration.partitionNum ?? 1 }}</dd>
           <dt>样本数</dt><dd data-testid="detail-sample-limit">{{ detailRegistration.sampleLimit ?? 100 }}</dd>
           <dt>修订人</dt><dd>{{ detailRegistration.reviser }}</dd>
           <dt>小组负责人</dt><dd>{{ detailRegistration.groupOwner }}</dd>
@@ -470,7 +468,6 @@ const filterColumns = [
   { key: 'domain', label: '领域', width: '62px' },
   { key: 'fields', label: '比对字段', width: '250px' },
   { key: 'queryCondition', label: '查询条件', width: '90px' },
-  { key: 'partitionNum', label: '分区数', width: '60px' },
   { key: 'sampleLimit', label: '样本数', width: '75px' },
   { key: 'reviser', label: '修订人', width: '90px' },
   { key: 'groupOwner', label: '小组负责人', width: '90px' },
@@ -968,7 +965,6 @@ const saveRegistration = async payload => {
       deleteWhenNoFields: false,
       whereCondition: payload.whereCondition,
       compareLimit: payload.compareLimit,
-      ...(canConfigurePartitions.value && payload.partitionNum !== undefined ? { partitionNum: payload.partitionNum } : {}),
       ...(canConfigurePartitions.value && payload.sampleLimit !== undefined ? { sampleLimit: payload.sampleLimit } : {}),
     }
     try {

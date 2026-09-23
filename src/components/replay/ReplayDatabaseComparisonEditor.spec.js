@@ -62,35 +62,12 @@ describe('ReplayDatabaseComparisonEditor', () => {
     wrapper.unmount()
   })
 
-  it.each([false, true])('restores partition count and enforces editor permission (%s)', async allowed => {
-    const registration = { ...registrations[0], partitionNum: 16 }
+  it('shows only the sample limit control for authorized users', () => {
     const wrapper = mount(ReplayDatabaseComparisonEditor, { props: {
-      registrations: [registration], initialRegistration: registration, canConfigurePartitions: allowed,
+      initialRegistration: registrations[0], canConfigurePartitions: true,
     } })
-    const input = wrapper.get('[data-testid="editor-partition-count"]')
-    expect(input.element.value).toBe('16')
-    expect(input.element.disabled).toBe(!allowed)
-    if (allowed) {
-      await input.setValue('32')
-      await wrapper.get('[data-testid="submit-registration"]').trigger('click')
-      expect(wrapper.emitted('save')[0][0].partitionNum).toBe(32)
-      for (const count of ['', '0', '257', '1.5']) {
-        await input.setValue(count)
-        expect(wrapper.get('[data-testid="submit-registration"]').element.disabled).toBe(true)
-      }
-    } else {
-      await wrapper.get('[data-testid="submit-registration"]').trigger('click')
-      expect(wrapper.emitted('save')[0][0]).not.toHaveProperty('partitionNum')
-    }
-    wrapper.unmount()
-  })
-
-  it('defaults partition count to one for new registration', async () => {
-    const wrapper = mount(ReplayDatabaseComparisonEditor, { props: { canConfigurePartitions: true } })
-    await waitForTableSearch(wrapper, '冻结控制信息')
-    await wrapper.get('[data-testid="table-search-result"]').trigger('click')
-    expect(wrapper.get('[data-testid="editor-partition-count"]').element.value).toBe('1')
-    expect(wrapper.get('[data-testid="editor-sample-limit"]').element.value).toBe('100')
+    expect(wrapper.find('[data-testid="editor-partition-count"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="editor-sample-limit"]').exists()).toBe(true)
     wrapper.unmount()
   })
 
@@ -706,12 +683,10 @@ describe('ReplayDatabaseComparisonEditor', () => {
     expect(wrapper.find('.selected-table .text-button').exists()).toBe(true)
     await wrapper.get('.registration-form select').setValue('存款组')
     expect(loadRegistration).toHaveBeenCalledWith(77)
-    expect(wrapper.get('[data-testid="editor-partition-count"]').element.value).toBe('16')
-    await wrapper.get('[data-testid="editor-partition-count"]').setValue('32')
     await wrapper.get('[data-testid="submit-registration"]').trigger('click')
     await Promise.resolve()
     expect(wrapper.emitted('save')?.[0]?.[0]).toMatchObject({
-      mode: 'reregister', id: 77, version: 4, fieldNames: ['acct_no'], partitionNum: 32, sampleLimit: 0,
+      mode: 'reregister', id: 77, version: 4, fieldNames: ['acct_no'], sampleLimit: 0,
     })
   })
 

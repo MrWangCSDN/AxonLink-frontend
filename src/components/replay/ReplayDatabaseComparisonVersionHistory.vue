@@ -120,7 +120,6 @@
                   <th>领域</th>
                   <th>比对字段</th>
                   <th>查询条件</th>
-                  <th>分区数</th>
                   <th>样本数</th>
                   <th>修订人</th>
                   <th>小组负责人</th>
@@ -141,7 +140,6 @@
                     :data-testid="`history-query-condition-${row.tableName}`"
                     :title="queryConditionText(row)"
                   >{{ queryConditionText(row) }}</td>
-                  <td :data-testid="`history-partition-num-${row.tableName}`">{{ row.partitionNum ?? 1 }}</td>
                   <td :data-testid="`history-sample-limit-${row.tableName}`">{{ row.sampleLimit ?? 100 }}</td>
                   <td>{{ personLabel(row.reviserName, row.reviserUsername, row.reviserEmpNo) }}</td>
                   <td>{{ personLabel(row.groupOwnerName, row.groupOwnerUsername, row.groupOwnerEmpNo) }}</td>

@@ -17,6 +17,11 @@ export function listReplayConfigs(type, params = {}) {
   return request(`${PREFIX}/${type}${query ? `?${query}` : ''}`)
 }
 
+/** 领域筛选项（全部领域，取自全量交易人员清单）。 */
+export function listReplayConfigDomains() {
+  return request(`${PREFIX}/domains`)
+}
+
 /** 新增某类回放配置。 */
 export function createReplayConfig(type, body) {
   return request(`${PREFIX}/${type}`, { method: 'POST', body: JSON.stringify(body) })

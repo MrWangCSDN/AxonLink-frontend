@@ -7,6 +7,7 @@ import {
   batchReviewReplayConfigs,
   createReplayConfig,
   deleteReplayConfig,
+  listReplayConfigDomains,
   listReplayConfigOperations,
   listReplayConfigs,
   reviewReplayConfig,
@@ -22,6 +23,7 @@ vi.mock('../../api/replayConfigs.js', () => ({
   batchReviewReplayConfigs: vi.fn(),
   listReplayConfigOperations: vi.fn(),
   reviewReplayConfig: vi.fn(),
+  listReplayConfigDomains: vi.fn(),
 }))
 
 function arrangeApi() {
@@ -33,6 +35,7 @@ function arrangeApi() {
     ],
   })
   createReplayConfig.mockResolvedValue({ id: 3, version: 0 })
+  listReplayConfigDomains.mockResolvedValue(['公共', '贷款'])
   listReplayConfigOperations.mockResolvedValue({
     total: 1,
     items: [
@@ -61,6 +64,29 @@ describe('ReplayConfigPage（忽略清单）', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
+  })
+
+  it('shows 领域 as the first data column and filters by it', async () => {
+    const wrapper = mount(ReplayConfigPage)
+    await flushPromises()
+
+    expect(listReplayConfigDomains).toHaveBeenCalled()
+    const headers = wrapper.findAll('thead th').map(cell => cell.text())
+    expect(headers[1]).toBe('领域')
+    // 种子行没有领域映射时按空值显示
+    expect(wrapper.findAll('tbody tr')[0].findAll('td')[1].text()).toBe('-')
+
+    const filter = wrapper.find('[data-testid="filter-domain"]')
+    expect(filter.element.tagName).toBe('SELECT')
+    expect(filter.findAll('option').map(option => option.text())).toEqual(['全部', '公共', '贷款'])
+
+    await filter.setValue('贷款')
+    await wrapper.find('form.replay-filters').trigger('submit')
+    await flushPromises()
+
+    expect(listReplayConfigs).toHaveBeenLastCalledWith('unconditional-ignores', {
+      limit: 10, offset: 0, domain: '贷款',
+    })
   })
 
   it('loads the first tab with default 10 per page', async () => {

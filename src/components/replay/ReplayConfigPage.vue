@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <section class="replay-page replay-config-page" aria-label="忽略清单" data-testid="replay-ignore-list">
     <header class="replay-toolbar">
       <div class="replay-toolbar-title">
@@ -29,6 +29,13 @@
       <div class="replay-filter-group">
         <span class="replay-filter-group-label">内部核心交易码</span>
         <input v-model.trim="internalTransactionCode" class="replay-control" data-testid="internal-transaction-code" type="search" placeholder="精确匹配" />
+      </div>
+      <div class="replay-filter-group">
+        <span class="replay-filter-group-label">领域</span>
+        <select v-model="filters.domain" class="replay-control" data-testid="filter-domain">
+          <option value="">全部</option>
+          <option v-for="domain in domainOptions" :key="domain" :value="domain">{{ domain }}</option>
+        </select>
       </div>
       <div class="replay-filter-group">
         <span class="replay-filter-group-label">配置字段</span>
@@ -210,6 +217,7 @@ import {
   batchReviewReplayConfigs,
   createReplayConfig,
   deleteReplayConfig,
+  listReplayConfigDomains,
   listReplayConfigOperations,
   listReplayConfigs,
   reviewReplayConfig,
@@ -248,6 +256,7 @@ const SCHEMAS = {
       { key: 'reviewStatus', label: '审核状态', kind: 'review' },
     ],
     columns: [
+      { key: 'domain', label: '领域' },
       { key: 'tranCode', label: '服务码' },
       { key: 'fieldName', label: '忽略字段' },
       { key: 'ignoreReason', label: '忽略原因', long: true },
@@ -272,6 +281,7 @@ const SCHEMAS = {
       { key: 'reviewStatus', label: '审核状态', kind: 'review' },
     ],
     columns: [
+      { key: 'domain', label: '领域' },
       { key: 'origTrcd', label: '服务码' },
       { key: 'fieldRmoveName', label: '忽略字段' },
       { key: 'fieldFileIndx', label: '字段索引' },
@@ -306,6 +316,7 @@ const SCHEMAS = {
       { key: 'reviewStatus', label: '审核状态', kind: 'review' },
     ],
     columns: [
+      { key: 'domain', label: '领域' },
       { key: 'serviceCode', label: '服务码' },
       { key: 'oldRespCode', label: '老核心错误码' },
       { key: 'newRespCode', label: '新核心错误码' },
@@ -339,6 +350,7 @@ const SCHEMAS = {
       { key: 'reviewStatus', label: '审核状态', kind: 'review' },
     ],
     columns: [
+      { key: 'domain', label: '领域' },
       { key: 'origTrcd', label: '服务码' },
       { key: 'origArryName', label: '对象/数组名称' },
       { key: 'origFieldName', label: '排序字段' },
@@ -372,6 +384,7 @@ const internalTransactionCode = ref('')
 const reviewableByMe = ref(false)
 const filters = reactive({})
 const selectedIds = ref([])
+const domainOptions = ref([])
 
 const editOpen = ref(false)
 const editingRow = ref(null)
@@ -459,6 +472,7 @@ function resetFilters() {
   for (const filter of schema.value.filters) {
     filters[filter.key] = ''
   }
+  filters.domain = ''
   internalTransactionCode.value = ''
   reviewableByMe.value = false
 }
@@ -469,6 +483,7 @@ function requestParams() {
     offset: page.value * pageSize.value,
   }
   if (internalTransactionCode.value) params.internalTransactionCode = internalTransactionCode.value
+  if (filters.domain) params.domain = filters.domain
   if (reviewableByMe.value) params.reviewableByMe = 'true'
   for (const filter of schema.value.filters) {
     const value = filters[filter.key]
@@ -490,6 +505,14 @@ async function load() {
     showToast(`加载失败：${cause?.message || cause}`, 'error')
   } finally {
     loading.value = false
+  }
+}
+
+async function loadDomains() {
+  try {
+    domainOptions.value = (await listReplayConfigDomains()) || []
+  } catch {
+    domainOptions.value = []
   }
 }
 
@@ -821,6 +844,7 @@ function closeHistory() {
 
 onMounted(() => {
   resetFilters()
+  loadDomains()
   return load()
 })
 

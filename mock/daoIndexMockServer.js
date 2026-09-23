@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+﻿import { createHash } from 'node:crypto'
 
 /**
  * DAO 索引巡检 · 开发期 mock 中间件
@@ -1396,13 +1396,13 @@ const REPLAY_CONFIG_ZNZX_SERVICE = [
   { tranCode: 'X222', esfServiceCode: 'S120055900.Card.Info.Qry' },
 ]
 
-// 人员清单 mock：key 为 old_transaction_code（等于 znzx_service.tran_code）
+// 人员清单 mock：key 为 old_transaction_code（等于 znzx_service.tran_code）；domain 即忽略清单的「领域」列
 const REPLAY_CONFIG_PERSONS = [
-  { oldTransactionCode: 'Y444', developer: '张三', bankOwner: '李四', bankOwnerEmpNos: 'c-lisi' },
-  { oldTransactionCode: 'Z999', developer: '王五', bankOwner: '赵六', bankOwnerEmpNos: 'c-zhaoliu' },
-  { oldTransactionCode: 'Y555', developer: '钱七', bankOwner: '孙八', bankOwnerEmpNos: 'c-sunb' },
-  { oldTransactionCode: 'Z111', developer: '周九', bankOwner: '吴十', bankOwnerEmpNos: 'c-wus' },
-  { oldTransactionCode: 'X222', developer: '郑一', bankOwner: '王二', bankOwnerEmpNos: 'c-wange' },
+  { oldTransactionCode: 'Y444', domain: '公共', developer: '张三', bankOwner: '李四', bankOwnerEmpNos: 'c-lisi' },
+  { oldTransactionCode: 'Z999', domain: '贷款', developer: '王五', bankOwner: '赵六', bankOwnerEmpNos: 'c-zhaoliu' },
+  { oldTransactionCode: 'Y555', domain: '存款', developer: '钱七', bankOwner: '孙八', bankOwnerEmpNos: 'c-sunb' },
+  { oldTransactionCode: 'Z111', domain: '结算', developer: '周九', bankOwner: '吴十', bankOwnerEmpNos: 'c-wus' },
+  { oldTransactionCode: 'X222', domain: '卡业务', developer: '郑一', bankOwner: '王二', bankOwnerEmpNos: 'c-wange' },
 ]
 
 // mock 登录人身份（工号用于审核权限比对）
@@ -1561,9 +1561,15 @@ function replayConfigEnrich(type, row) {
     oldTransactionCode: person ? person.oldTransactionCode : null,
     developer: person ? person.developer : null,
     bankOwner: person ? person.bankOwner : null,
+    domain: person ? person.domain : null,
     canReview: reason === null,
     reviewDisabledReason: reason,
   }
+}
+
+/** 领域选项：全部领域，取自人员清单。 */
+function replayConfigListDomains() {
+  return [...new Set(REPLAY_CONFIG_PERSONS.map(person => person.domain).filter(Boolean))].sort()
 }
 
 function replayConfigOperation(store, type, configId, operationType, changes) {
@@ -1637,6 +1643,15 @@ function replayConfigFilterRows(store, type, query) {
     if (key === 'fieldFileFlag') rows = rows.filter(row => Number(row[key]) === Number(raw))
     else if (key === 'reviewStatus') rows = rows.filter(row => String(row.reviewStatus ?? 0) === String(raw))
     else rows = rows.filter(row => String(row[key] ?? '').includes(raw))
+  }
+  // 领域不是配置表字段：经「服务码 → 人员清单」映射后再筛
+  const domain = query.domain
+  if (domain !== undefined && domain !== '') {
+    const serviceField = meta.fields.find(field => field.serviceCode).key
+    rows = rows.filter(row => {
+      const person = replayConfigPerson(row[serviceField])
+      return person !== null && person.domain === domain
+    })
   }
   if (query.reviewableByMe === 'true' || query.reviewableByMe === true) {
     rows = rows.filter(row => replayConfigIsOwner(type, row))
@@ -1849,6 +1864,9 @@ function handleReplayConfig(req, res, query, path, store) {
   const type = segments[5]
   const idPart = segments[6]
   const sub = segments[7]
+  if (type === 'domains') {
+    return ok(res, replayConfigListDomains())
+  }
   const meta = REPLAY_CONFIG_META[type]
   if (!meta) return replayConfigFail(res, 404, '资源类型不存在')
 

@@ -552,6 +552,23 @@ describe('replay config management mock', () => {
     expect(invalid.body.code).toBe(400)
   })
 
+  it('serves domain options and filters rows by domain', async () => {
+    const request = replayConfigServer()
+    const domains = await request('GET', '/domains')
+    expect(domains.status).toBe(200)
+    expect(domains.body.data).toContain('公共')
+    expect(domains.body.data.length).toBeGreaterThan(1)
+
+    const all = await request('GET', '/unconditional-ignores')
+    const filtered = await request('GET', `/unconditional-ignores?domain=${encodeURIComponent('公共')}`)
+    expect(filtered.body.data.total).toBeGreaterThan(0)
+    expect(filtered.body.data.total).toBeLessThan(all.body.data.total)
+    expect(filtered.body.data.items.every(row => row.domain === '公共')).toBe(true)
+
+    const unmapped = await request('GET', `/unconditional-ignores?domain=${encodeURIComponent('无此领域')}`)
+    expect(unmapped.body.data.total).toBe(0)
+  })
+
   it('creates, rejects duplicates and validates service code', async () => {
     const request = replayConfigServer()
     const baseline = (await request('GET', '/unconditional-ignores')).body.data.total

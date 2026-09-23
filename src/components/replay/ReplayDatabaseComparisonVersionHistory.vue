@@ -142,7 +142,7 @@
                     :title="queryConditionText(row)"
                   >{{ queryConditionText(row) }}</td>
                   <td :data-testid="`history-partition-num-${row.tableName}`">{{ row.partitionNum ?? 1 }}</td>
-                  <td :data-testid="`history-sample-limit-${row.tableName}`">{{ row.sampleLimit ?? 1000 }}</td>
+                  <td :data-testid="`history-sample-limit-${row.tableName}`">{{ row.sampleLimit ?? 100 }}</td>
                   <td>{{ personLabel(row.reviserName, row.reviserUsername, row.reviserEmpNo) }}</td>
                   <td>{{ personLabel(row.groupOwnerName, row.groupOwnerUsername, row.groupOwnerEmpNo) }}</td>
                   <td>{{ row.registeredDate || '-' }}</td>

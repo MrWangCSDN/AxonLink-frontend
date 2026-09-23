@@ -144,7 +144,7 @@
               </div>
             </td>
             <td :data-testid="`partition-num-${row.tableName}`">{{ row.partitionNum ?? 1 }}</td>
-            <td :data-testid="`sample-limit-${row.tableName}`">{{ row.sampleLimit ?? 1000 }}</td>
+            <td :data-testid="`sample-limit-${row.tableName}`">{{ row.sampleLimit ?? 100 }}</td>
             <td
               class="compact-copy-cell"
               :data-testid="`reviser-${row.tableName}`"
@@ -290,7 +290,7 @@
             <pre v-if="detailRegistration.whereSql">{{ detailRegistration.whereSql }}</pre>
           </dd>
           <dt>分区数</dt><dd data-testid="detail-partition-num">{{ detailRegistration.partitionNum ?? 1 }}</dd>
-          <dt>样本数</dt><dd data-testid="detail-sample-limit">{{ detailRegistration.sampleLimit ?? 1000 }}</dd>
+          <dt>样本数</dt><dd data-testid="detail-sample-limit">{{ detailRegistration.sampleLimit ?? 100 }}</dd>
           <dt>修订人</dt><dd>{{ detailRegistration.reviser }}</dd>
           <dt>小组负责人</dt><dd>{{ detailRegistration.groupOwner }}</dd>
           <dt>登记日期</dt><dd>{{ detailRegistration.date }}</dd>
@@ -761,7 +761,7 @@ const mapRegistration = registration => ({
   id: registration.id,
   version: registration.version,
   partitionNum: registration.partitionNum ?? 1,
-  sampleLimit: registration.sampleLimit ?? 1000,
+  sampleLimit: registration.sampleLimit ?? 100,
   tableName: registration.tableName,
   tableComment: registration.tableComment || '',
   domain: registration.domainName || registration.domain || '',
@@ -1027,7 +1027,7 @@ const saveRegistration = async payload => {
     whereConditionConfigured: Boolean(payload.whereCondition),
     compareLimit: payload.compareLimit ?? null,
     partitionNum: canConfigurePartitions.value ? (payload.partitionNum ?? existingRow?.partitionNum ?? 1) : (existingRow?.partitionNum ?? 1),
-    sampleLimit: canConfigurePartitions.value ? (payload.sampleLimit ?? existingRow?.sampleLimit ?? 1000) : (existingRow?.sampleLimit ?? 1000),
+    sampleLimit: canConfigurePartitions.value ? (payload.sampleLimit ?? existingRow?.sampleLimit ?? 100) : (existingRow?.sampleLimit ?? 100),
   }
   const details = auditDetailsFor(existingRow, nextRow, existingRow ? 'UPDATE' : 'CREATE')
   if (existingIndex >= 0) rows.splice(existingIndex, 1, nextRow)

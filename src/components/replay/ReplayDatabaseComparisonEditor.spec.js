@@ -54,11 +54,11 @@ describe('ReplayDatabaseComparisonEditor', () => {
     wrapper.unmount()
   })
 
-  it.each([undefined, null])('defaults historical sample limit to 1000 (%s)', value => {
+  it.each([undefined, null])('defaults missing sample limit to 100 (%s)', value => {
     const wrapper = mount(ReplayDatabaseComparisonEditor, { props: {
       initialRegistration: { ...registrations[0], sampleLimit: value },
     } })
-    expect(wrapper.get('[data-testid="editor-sample-limit"]').element.value).toBe('1000')
+    expect(wrapper.get('[data-testid="editor-sample-limit"]').element.value).toBe('100')
     wrapper.unmount()
   })
 
@@ -90,7 +90,7 @@ describe('ReplayDatabaseComparisonEditor', () => {
     await waitForTableSearch(wrapper, '冻结控制信息')
     await wrapper.get('[data-testid="table-search-result"]').trigger('click')
     expect(wrapper.get('[data-testid="editor-partition-count"]').element.value).toBe('1')
-    expect(wrapper.get('[data-testid="editor-sample-limit"]').element.value).toBe('1000')
+    expect(wrapper.get('[data-testid="editor-sample-limit"]').element.value).toBe('100')
     wrapper.unmount()
   })
 

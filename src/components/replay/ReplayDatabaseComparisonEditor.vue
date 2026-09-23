@@ -152,7 +152,7 @@
             type="number" min="0" max="10000" step="1"
             :disabled="!canConfigurePartitions || isFieldMaintenanceDisabled"
             :aria-invalid="Boolean(sampleLimitError)" aria-describedby="editor-sample-help" />
-          <span id="editor-sample-help">0–10000 条，默认 1000 条；0 表示仅汇总。{{ canConfigurePartitions ? '' : '仅有配置权限的人员可修改。' }}</span>
+          <span id="editor-sample-help">0–10000 条，默认 100 条；0 表示仅汇总。{{ canConfigurePartitions ? '' : '仅有配置权限的人员可修改。' }}</span>
           <p v-if="sampleLimitError" class="registration-error" role="alert">{{ sampleLimitError }}</p>
         </section>
 
@@ -237,7 +237,7 @@ const groupOwnerError = ref('')
 const reconciledPrimaryKeySignature = ref('')
 const whereCondition = ref(null)
 const compareLimit = ref(null)
-const sampleLimit = ref(1000)
+const sampleLimit = ref(100)
 const sampleLimitError = computed(() => props.canConfigurePartitions
   && (!Number.isInteger(sampleLimit.value) || sampleLimit.value < 0 || sampleLimit.value > 10000)
   ? '样本数必须为 0 至 10000 的整数' : '')
@@ -464,7 +464,7 @@ const selectTable = table => {
     whereCondition.value = normalizeConditionTree(registration?.whereCondition)
     compareLimit.value = registration?.compareLimit ?? null
     partitionNum.value = registration?.partitionNum ?? 1
-    sampleLimit.value = registration?.sampleLimit ?? 1000
+    sampleLimit.value = registration?.sampleLimit ?? 100
     groupOwnerOptions.value = []
     groupOwnerError.value = ''
     availableSelection.value = []

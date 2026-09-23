@@ -150,10 +150,10 @@ describe('ReplayDatabaseComparisonPage', () => {
     wrapper.unmount()
   })
 
-  it('keeps the legacy default on mock edits even when an unauthorized payload supplies a sample limit', async () => {
+  it('keeps the default on mock edits even when an unauthorized payload supplies a sample limit', async () => {
     const wrapper = mount(ReplayDatabaseComparisonPage)
     const tableName = 'kdpa_cb_acct_fzn_cntl_inf'
-    expect(wrapper.get(`[data-testid="sample-limit-${tableName}"]`).text()).toBe('1000')
+    expect(wrapper.get(`[data-testid="sample-limit-${tableName}"]`).text()).toBe('100')
     await wrapper.get(`[data-testid="edit-registration-${tableName}"]`).trigger('click')
     const editor = wrapper.findComponent(ReplayDatabaseComparisonEditor)
     expect(editor.get('[data-testid="editor-sample-limit"]').element.disabled).toBe(true)
@@ -162,7 +162,7 @@ describe('ReplayDatabaseComparisonPage', () => {
       domain: '存款组', groupOwnerUsername: '101', groupOwnerName: '负责人', sampleLimit: 0,
     })
     await flushPromises()
-    expect(wrapper.get(`[data-testid="sample-limit-${tableName}"]`).text()).toBe('1000')
+    expect(wrapper.get(`[data-testid="sample-limit-${tableName}"]`).text()).toBe('100')
     wrapper.unmount()
   })
 

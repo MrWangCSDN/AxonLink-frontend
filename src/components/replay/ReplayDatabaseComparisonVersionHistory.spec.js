@@ -87,7 +87,7 @@ describe('ReplayDatabaseComparisonVersionHistory', () => {
     const wrapper = mount(ReplayDatabaseComparisonVersionHistory, { props: { open: true } })
     await flushPromises()
     expect(wrapper.get('[data-testid="history-partition-num-legacy_table"]').text()).toBe('1')
-    expect(wrapper.get('[data-testid="history-sample-limit-legacy_table"]').text()).toBe('1000')
+    expect(wrapper.get('[data-testid="history-sample-limit-legacy_table"]').text()).toBe('100')
     wrapper.unmount()
   })
 

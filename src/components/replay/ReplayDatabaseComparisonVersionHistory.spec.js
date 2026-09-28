@@ -59,7 +59,7 @@ describe('ReplayDatabaseComparisonVersionHistory', () => {
     })
   })
 
-  it('displays each selected version partition count as a read-only snapshot', async () => {
+  it('displays each selected version sample limit without the legacy partition count', async () => {
     comparisonApi.searchVersionSnapshot.mockImplementation(async versionNo => ({
       items: [{ sourceRegistrationId: 7, tableName: 'acct_master', partitionNum: versionNo === '20260914-150101' ? 16 : 4, sampleLimit: versionNo === '20260914-150101' ? 2500 : 0, fields: [] }],
       page: 0, size: 50, total: 1,
@@ -77,9 +77,9 @@ describe('ReplayDatabaseComparisonVersionHistory', () => {
     wrapper.unmount()
   })
 
-  it.each([undefined, null])('defaults legacy snapshot partition count to one (%s)', async partitionNum => {
+  it.each([undefined, null])('defaults missing legacy snapshot sample limit to 100 (%s)', async sampleLimit => {
     comparisonApi.searchVersionSnapshot.mockResolvedValue({
-      items: [{ sourceRegistrationId: 7, tableName: 'legacy_table', partitionNum, sampleLimit: partitionNum, fields: [] }],
+      items: [{ sourceRegistrationId: 7, tableName: 'legacy_table', sampleLimit, fields: [] }],
       page: 0, size: 50, total: 1,
     })
     const wrapper = mount(ReplayDatabaseComparisonVersionHistory, { props: { open: true } })

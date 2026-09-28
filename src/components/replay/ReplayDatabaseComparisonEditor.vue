@@ -139,13 +139,13 @@
           </div>
         </section>
 
-        <section v-if="selectedTable" class="editor-block partition-block">
+        <section v-if="selectedTable" class="editor-block sample-limit-block">
           <label for="editor-sample-limit">样本数</label>
           <input id="editor-sample-limit" v-model.number="sampleLimit" data-testid="editor-sample-limit"
             type="number" min="0" max="10000" step="1"
-            :disabled="!canConfigurePartitions || isFieldMaintenanceDisabled"
+            :disabled="!canConfigureSampleLimit || isFieldMaintenanceDisabled"
             :aria-invalid="Boolean(sampleLimitError)" aria-describedby="editor-sample-help" />
-          <span id="editor-sample-help">0–10000 条，默认 100 条；0 表示仅汇总。{{ canConfigurePartitions ? '' : '仅有配置权限的人员可修改。' }}</span>
+          <span id="editor-sample-help">0–10000 条，默认 100 条；0 表示仅汇总。{{ canConfigureSampleLimit ? '' : '仅有配置权限的人员可修改。' }}</span>
           <p v-if="sampleLimitError" class="registration-error" role="alert">{{ sampleLimitError }}</p>
         </section>
 
@@ -205,7 +205,7 @@ const props = defineProps({
   searchTables: { type: Function, default: searchMockTables },
   loadRegistration: { type: Function, default: null },
   saveError: { type: Object, default: null },
-  canConfigurePartitions: { type: Boolean, default: false },
+  canConfigureSampleLimit: { type: Boolean, default: false },
 })
 const emit = defineEmits(['close', 'save', 'delete'])
 
@@ -231,7 +231,7 @@ const reconciledPrimaryKeySignature = ref('')
 const whereCondition = ref(null)
 const compareLimit = ref(null)
 const sampleLimit = ref(100)
-const sampleLimitError = computed(() => props.canConfigurePartitions
+const sampleLimitError = computed(() => props.canConfigureSampleLimit
   && (!Number.isInteger(sampleLimit.value) || sampleLimit.value < 0 || sampleLimit.value > 10000)
   ? '样本数必须为 0 至 10000 的整数' : '')
 const orderingPrimaryKeyWarning = computed(() => {
@@ -622,7 +622,7 @@ const submitRegistration = () => {
     groupOwnerName: form.groupOwnerName,
     whereCondition: normalizeConditionTree(whereCondition.value),
     compareLimit: compareLimit.value,
-    ...(props.canConfigurePartitions ? { sampleLimit: sampleLimit.value } : {}),
+    ...(props.canConfigureSampleLimit ? { sampleLimit: sampleLimit.value } : {}),
     })
   }
   const latestColumns = props.loadColumns(selectedTable.value.tableName)
@@ -670,11 +670,11 @@ if (props.initialRegistration) {
 </script>
 
 <style scoped>
-.partition-block { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
-.partition-block label { font-weight: 600; }
-.partition-block input { width: 110px; padding: 7px 10px; border: 1px solid var(--border-color, #d8e2dd); border-radius: 4px; }
-.partition-block input:disabled { background: #f2f5f3; color: #64756d; }
-.partition-block span { color: #64756d; font-size: 12px; }
+.sample-limit-block { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.sample-limit-block label { font-weight: 600; }
+.sample-limit-block input { width: 110px; padding: 7px 10px; border: 1px solid var(--border-color, #d8e2dd); border-radius: 4px; }
+.sample-limit-block input:disabled { background: #f2f5f3; color: #64756d; }
+.sample-limit-block span { color: #64756d; font-size: 12px; }
 
 .comparison-editor-backdrop { position: fixed; inset: 0; z-index: 1800; display: grid; place-items: center; background: rgba(18, 29, 38, .5); }
 .comparison-editor { width: 92vw; height: 96vh; max-height: calc(100vh - 16px); display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; border-radius: 8px; background: #f4f7f9; box-shadow: 0 18px 50px rgba(0, 0, 0, .3); color: #263442; }

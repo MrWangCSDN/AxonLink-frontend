@@ -93,11 +93,11 @@ describe('ReplayDatabaseComparisonPage', () => {
     comparisonApi.loadLatestVersion.mockResolvedValue(null)
   })
 
-  const partitionRow = { id: 3, tableName: 'acct', tableComment: '账户表', version: 7,
+  const registrationRow = { id: 3, tableName: 'acct', tableComment: '账户表', version: 7,
     domainName: '存款组', partitionNum: 16, sampleLimit: 0, fieldPreview: ['id(编号)'], fieldCount: 1 }
-  it('shows partition count after query condition and below scope in details', async () => {
-    useRealMode([partitionRow])
-    comparisonApi.loadRegistration.mockResolvedValue({ ...partitionRow, fields: [] })
+  it('shows sample limit after query condition and in details without partition controls', async () => {
+    useRealMode([registrationRow])
+    comparisonApi.loadRegistration.mockResolvedValue({ ...registrationRow, fields: [] })
     const wrapper = mount(ReplayDatabaseComparisonPage)
     await flushPromises()
     const headers = wrapper.findAll('thead th').map(h => h.text())
@@ -110,17 +110,17 @@ describe('ReplayDatabaseComparisonPage', () => {
     wrapper.unmount()
   })
 
-  it.each([false, true])('passes permission to editor and only submits an authorized partition count (%s)', async allowed => {
-    useRealMode([partitionRow])
+  it.each([false, true])('maps the existing permission to sample limit editing and ignores partition input (%s)', async allowed => {
+    useRealMode([registrationRow])
     comparisonApi.loadOptions.mockResolvedValue({ canConfigurePartitions: allowed })
-    comparisonApi.loadRegistration.mockResolvedValue({ ...partitionRow, fields: [{ columnName: 'id', primaryKey: true }], groupOwnerEmpNo: '101' })
+    comparisonApi.loadRegistration.mockResolvedValue({ ...registrationRow, fields: [{ columnName: 'id', primaryKey: true }], groupOwnerEmpNo: '101' })
     comparisonApi.loadBaseColumns.mockResolvedValue([{ columnName: 'id', primaryKey: true }])
     const wrapper = mount(ReplayDatabaseComparisonPage)
     await flushPromises()
     await wrapper.get('[data-testid="edit-registration-acct"]').trigger('click')
     await flushPromises()
     const editor = wrapper.findComponent(ReplayDatabaseComparisonEditor)
-    expect(editor.props('canConfigurePartitions')).toBe(allowed)
+    expect(editor.props('canConfigureSampleLimit')).toBe(allowed)
     expect(editor.find('[data-testid="editor-partition-count"]').exists()).toBe(false)
     editor.vm.$emit('save', { mode: 'edit', id: 3, version: 7, tableName: 'acct', fieldNames: ['id'], domain: '存款组', groupOwnerEmpNo: '101', partitionNum: 32, sampleLimit: 500 })
     await flushPromises()
@@ -163,8 +163,8 @@ describe('ReplayDatabaseComparisonPage', () => {
     wrapper.unmount()
   })
 
-  it.each([undefined, false, true, 'true', 1])('uses the editor instead of a separate partition configuration action (%s)', async permission => {
-    useRealMode([partitionRow])
+  it.each([undefined, false, true, 'true', 1])('omits the removed partition configuration action for every permission value (%s)', async permission => {
+    useRealMode([registrationRow])
     comparisonApi.loadOptions.mockResolvedValue({ canConfigurePartitions: permission })
     const wrapper = mount(ReplayDatabaseComparisonPage)
     await flushPromises()

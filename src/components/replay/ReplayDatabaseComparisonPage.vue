@@ -259,7 +259,7 @@
       :load-columns="loadTableColumns"
       :load-registration="loadRegistrationDetail"
       :save-error="editorSaveError"
-      :can-configure-partitions="canConfigurePartitions"
+      :can-configure-sample-limit="canConfigureSampleLimit"
       @close="closeEditor"
       @save="saveRegistration"
       @delete="deleteRegistration"
@@ -491,7 +491,7 @@ const copiedConditionTable = ref('')
 const editorOpen = ref(false)
 const editingRegistration = ref(null)
 const editorSaveError = ref(null)
-const canConfigurePartitions = ref(false)
+const canConfigureSampleLimit = ref(false)
 const detailRegistration = ref(null)
 const auditDialogOpen = ref(false)
 const auditTableName = ref('')
@@ -757,7 +757,6 @@ const formatPerson = (name, username, employeeNumber) => {
 const mapRegistration = registration => ({
   id: registration.id,
   version: registration.version,
-  partitionNum: registration.partitionNum ?? 1,
   sampleLimit: registration.sampleLimit ?? 100,
   tableName: registration.tableName,
   tableComment: registration.tableComment || '',
@@ -965,7 +964,7 @@ const saveRegistration = async payload => {
       deleteWhenNoFields: false,
       whereCondition: payload.whereCondition,
       compareLimit: payload.compareLimit,
-      ...(canConfigurePartitions.value && payload.sampleLimit !== undefined ? { sampleLimit: payload.sampleLimit } : {}),
+      ...(canConfigureSampleLimit.value && payload.sampleLimit !== undefined ? { sampleLimit: payload.sampleLimit } : {}),
     }
     try {
       if (payload.mode === 'edit') await updateRegistration(payload.id, body)
@@ -1022,8 +1021,7 @@ const saveRegistration = async payload => {
     whereCondition: payload.whereCondition || null,
     whereConditionConfigured: Boolean(payload.whereCondition),
     compareLimit: payload.compareLimit ?? null,
-    partitionNum: canConfigurePartitions.value ? (payload.partitionNum ?? existingRow?.partitionNum ?? 1) : (existingRow?.partitionNum ?? 1),
-    sampleLimit: canConfigurePartitions.value ? (payload.sampleLimit ?? existingRow?.sampleLimit ?? 100) : (existingRow?.sampleLimit ?? 100),
+    sampleLimit: canConfigureSampleLimit.value ? (payload.sampleLimit ?? existingRow?.sampleLimit ?? 100) : (existingRow?.sampleLimit ?? 100),
   }
   const details = auditDetailsFor(existingRow, nextRow, existingRow ? 'UPDATE' : 'CREATE')
   if (existingIndex >= 0) rows.splice(existingIndex, 1, nextRow)
@@ -1352,8 +1350,8 @@ onMounted(async () => {
   if (!useMock) {
     const initialLoadPromise = Promise.all([
       loadOptions()
-        .then(options => { canConfigurePartitions.value = options?.canConfigurePartitions === true })
-        .catch(() => { canConfigurePartitions.value = false }),
+        .then(options => { canConfigureSampleLimit.value = options?.canConfigurePartitions === true })
+        .catch(() => { canConfigureSampleLimit.value = false }),
       loadPage(),
     ])
     const synchronizationPromise = Promise.resolve(synchronizePrimaryKeys()).catch(() => null)

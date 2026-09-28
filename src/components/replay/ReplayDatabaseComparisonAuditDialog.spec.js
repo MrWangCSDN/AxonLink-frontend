@@ -119,6 +119,54 @@ describe('ReplayDatabaseComparisonAuditDialog', () => {
     expect(wrapper.get('[data-testid="toggle-audit-event-101"]').text()).toContain('李明(001)')
   })
 
+  it.each(['table', 'global'])('omits retired partition changes from %s audit display and copied details', async scope => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+    const historicalEvent = {
+      ...events[0],
+      changeCount: 3,
+      details: [
+        { id: 1, changeType: 'MODIFY', fieldCode: 'partitionNum', fieldLabel: '分区数', beforeValue: '1', afterValue: '8' },
+        { id: 2, changeType: 'MODIFY', fieldLabel: '读取分区数', beforeValue: '8', afterValue: '16' },
+        { id: 3, changeType: 'MODIFY', fieldCode: 'sampleLimit', fieldLabel: '样本数', beforeValue: '1000', afterValue: '100' },
+      ],
+    }
+    const wrapper = mount(ReplayDatabaseComparisonAuditDialog, {
+      props: scope === 'table'
+        ? { tableName: historicalEvent.tableName, events: [historicalEvent] }
+        : { groups: [{ ...groups[0], events: [historicalEvent] }] },
+    })
+    if (scope === 'global') await wrapper.get(`[data-testid="toggle-audit-group-${historicalEvent.tableName}"]`).trigger('click')
+    await wrapper.get('[data-testid="toggle-audit-event-101"]').trigger('click')
+
+    expect(wrapper.text()).not.toContain('分区数')
+    expect(wrapper.text()).toContain('本次变更 1 项')
+    expect(wrapper.findAll('.audit-detail-row')).toHaveLength(1)
+    await wrapper.get('[data-testid="copy-audit-event-101"]').trigger('click')
+    expect(writeText).toHaveBeenCalledWith('李明(c-liming)｜修改｜样本数｜1000｜100｜2026-09-11 09:18:01')
+    expect(historicalEvent.details).toHaveLength(3)
+  })
+
+  it('finishes loading an audit event containing only retired partition changes', async () => {
+    const historicalEvent = { ...events[0], details: undefined }
+    const wrapper = mount(ReplayDatabaseComparisonAuditDialog, {
+      props: { tableName: historicalEvent.tableName, events: [historicalEvent] },
+    })
+    expect(wrapper.text()).toContain('查看变更明细')
+    await wrapper.get('[data-testid="toggle-audit-event-101"]').trigger('click')
+    expect(wrapper.emitted('loadDetails')).toHaveLength(1)
+    expect(wrapper.text()).toContain('正在读取本次变更明细')
+    await wrapper.setProps({ events: [{ ...historicalEvent, details: [
+      { id: 1, fieldCode: 'partitionNum', fieldLabel: '分区数', beforeValue: '1', afterValue: '8' },
+    ] }] })
+
+    expect(wrapper.text()).toContain('本次变更 0 项')
+    expect(wrapper.text()).toContain('本次操作无可展示的变更明细')
+    expect(wrapper.text()).not.toContain('正在读取')
+    expect(wrapper.text()).not.toContain('分区数')
+    expect(wrapper.find('[data-testid="copy-audit-event-101"]').exists()).toBe(false)
+  })
+
   it('preserves complete query-condition lines in before and after cells', async () => {
     const queryConditionEvent = {
       ...events[0],

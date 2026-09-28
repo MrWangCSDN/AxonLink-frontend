@@ -111,10 +111,6 @@ export function updateRegistration(id, body) {
   return request(`${PREFIX}/${encodeURIComponent(id)}`, json('PUT', body))
 }
 
-export function updateRegistrationPartitioning(id, body) {
-  return request(`${PREFIX}/${encodeURIComponent(id)}/partitioning`, json('PUT', body))
-}
-
 export function deleteRegistration(id, body) {
   return request(`${PREFIX}/${encodeURIComponent(id)}`, json('DELETE', body))
 }

@@ -32,7 +32,7 @@ describe('ReplayDatabaseComparisonEditor', () => {
   it.each([false, true])('restores sample limit and enforces permission (%s)', async allowed => {
     const registration = { ...registrations[0], sampleLimit: 2500 }
     const wrapper = mount(ReplayDatabaseComparisonEditor, { props: {
-      initialRegistration: registration, registrations: [registration], canConfigurePartitions: allowed,
+      initialRegistration: registration, registrations: [registration], canConfigureSampleLimit: allowed,
     } })
     const input = wrapper.get('[data-testid="editor-sample-limit"]')
     expect(input.element.value).toBe('2500')
@@ -64,7 +64,7 @@ describe('ReplayDatabaseComparisonEditor', () => {
 
   it('shows only the sample limit control for authorized users', () => {
     const wrapper = mount(ReplayDatabaseComparisonEditor, { props: {
-      initialRegistration: registrations[0], canConfigurePartitions: true,
+      initialRegistration: registrations[0], canConfigureSampleLimit: true,
     } })
     expect(wrapper.find('[data-testid="editor-partition-count"]').exists()).toBe(false)
     expect(wrapper.get('[data-testid="editor-sample-limit"]').exists()).toBe(true)
@@ -669,7 +669,7 @@ describe('ReplayDatabaseComparisonEditor', () => {
       columnName: 'acct_no', columnComment: '账号', primaryKey: true, ordinalPosition: 1,
     }])
     const wrapper = mount(ReplayDatabaseComparisonEditor, {
-      props: { searchTables, loadRegistration, loadColumns, canConfigurePartitions: true },
+      props: { searchTables, loadRegistration, loadColumns, canConfigureSampleLimit: true },
     })
 
     await waitForTableSearch(wrapper, 'acct')

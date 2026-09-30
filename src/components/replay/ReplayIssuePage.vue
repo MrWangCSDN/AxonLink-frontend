@@ -910,14 +910,15 @@ defineEmits(['toggleNavigation'])
 const columns = [
   ['issue_id', 'issue_id', '100px'], ['is_sandbox', '是否沙箱', '100px'],
   ['transaction_code', '交易码', '100px'], ['transaction_name', '交易名称', '180px'], ['issue_level', '问题级别', '100px'],
-  ['field_name', '字段名', '120px'], ['serial_no', '流水号', '160px'], ['global_serial_no', '全局流水号', '180px'], ['issue_description', '问题描述', '220px'],
+  ['field_name', '字段名', '120px'], ['issue_description', '问题描述', '220px'],
   ['weekly_task', '任务标记', '110px'], ['domain', '领域', 'calc(4em + 20px)'], ['issue_domain', '问题所属领域', '140px'],
   ['planned_completion_date', '计划验证日期', '160px'], ['defect_repair_date', '缺陷修复日期', '120px'],
-  ['matched_developer', '开发负责人', '10em'], ['matched_bank_owner', '科技负责人', '10em'], ['operation', '操作', '176px'], ['issue_status', '问题状态', '132px'], ['review_status', '审核状态', '126px'], ['issue_type', '问题类型', '132px'], ['cooperation_person_username', '需协同人', '180px'],
+  ['matched_developer', '开发负责人', '10em'], ['matched_bank_owner', '科技负责人', '10em'], ['operation', '操作', '176px'], ['issue_status', '问题状态', '99px'], ['review_status', '审核状态', '126px'], ['issue_type', '问题类型', '99px'], ['cooperation_person_username', '需协同人', '135px'],
   ['initial_analysis', '初步问题分析', '220px'], ['final_solution', '最终处理方案', '220px'], ['remark', '备注', '160px'],
   ['affected_transaction_count', '出现笔数', '112px'],
   ['issue_key', 'issue_key', '180px'],
   ['first_occurrence_date', '首次出现日期', '180px'],
+  ['serial_no', '流水号', '160px'], ['global_serial_no', '全局流水号', '180px'],
   ['occurrence_rounds', '出现批次', '220px'],
 ].map(([key, label, width]) => ({ key, label, width }))
 

@@ -102,9 +102,9 @@ const fixtureRow = {
 }
 
 const visibleColumnLabels = [
-  'issue_id', '是否沙箱', '交易码', '交易名称', '问题级别', '字段名', '流水号', '全局流水号', '问题描述',
+  'issue_id', '是否沙箱', '交易码', '交易名称', '问题级别', '字段名', '问题描述',
   '任务标记', '领域', '问题所属领域', '计划验证日期', '缺陷修复日期', '开发负责人', '科技负责人', '操作', '问题状态', '审核状态', '问题类型', '需协同人', '初步问题分析', '最终处理方案', '备注',
-  '出现笔数', 'issue_key', '首次出现日期', '出现批次',
+  '出现笔数', 'issue_key', '首次出现日期', '流水号', '全局流水号', '出现批次',
 ]
 
 function countedOptions(values, truncated = false, matchedIssueCount = values.length) {
@@ -691,7 +691,10 @@ describe('ReplayIssuePage', () => {
     expect(columnWidths[visibleColumnLabels.indexOf('交易码')]).toBe(columnWidths[visibleColumnLabels.indexOf('问题级别')])
     expect(columnWidths[visibleColumnLabels.indexOf('问题所属领域')]).toContain('width: 140px')
     expect(columnWidths[visibleColumnLabels.indexOf('计划验证日期')]).toContain('width: 160px')
-    expect(columnWidths[visibleColumnLabels.indexOf('出现笔数')]).toBe(columnWidths[visibleColumnLabels.indexOf('审核状态')])
+    expect(columnWidths[visibleColumnLabels.indexOf('问题状态')]).toContain('width: 99px')
+    expect(columnWidths[visibleColumnLabels.indexOf('问题类型')]).toContain('width: 99px')
+    expect(columnWidths[visibleColumnLabels.indexOf('需协同人')]).toContain('width: 135px')
+    expect(columnWidths[visibleColumnLabels.indexOf('审核状态')]).toContain('width: 126px')
     expect(columnWidths[visibleColumnLabels.indexOf('出现笔数')]).toContain('width: 112px')
   })
 
@@ -2650,7 +2653,7 @@ describe('ReplayIssuePage', () => {
         .filter(Boolean)
 
       expect(copyableLabels).toEqual([
-        '交易名称', '字段名', '流水号', '全局流水号', '问题描述', '初步问题分析', '最终处理方案', '备注', 'issue_key',
+        '交易名称', '字段名', '问题描述', '初步问题分析', '最终处理方案', '备注', 'issue_key', '流水号', '全局流水号',
       ])
 
       await cells.at(visibleColumnLabels.indexOf('问题描述')).trigger('click')

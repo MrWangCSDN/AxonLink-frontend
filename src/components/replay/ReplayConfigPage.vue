@@ -67,6 +67,9 @@
           批量删除{{ selectedIds.length ? `（${selectedIds.length}）` : '' }}
         </button>
         <button class="replay-button replay-button-primary" type="button" data-testid="create-config" @click="openCreate">新增</button>
+        <button class="replay-button" type="button" data-testid="export-excel" :disabled="exporting" @click="exportExcel">
+          {{ exporting ? '导出中...' : '导出Excel' }}
+        </button>
       </div>
     </form>
 
@@ -217,6 +220,7 @@ import {
   batchReviewReplayConfigs,
   createReplayConfig,
   deleteReplayConfig,
+  exportReviewedReplayConfigs,
   listReplayConfigDomains,
   listReplayConfigOperations,
   listReplayConfigs,
@@ -385,6 +389,7 @@ const reviewableByMe = ref(false)
 const filters = reactive({})
 const selectedIds = ref([])
 const domainOptions = ref([])
+const exporting = ref(false)
 
 const editOpen = ref(false)
 const editingRow = ref(null)
@@ -551,6 +556,19 @@ function goNext() {
 function changePageSize() {
   page.value = 0
   return load()
+}
+
+async function exportExcel() {
+  if (exporting.value) return
+  exporting.value = true
+  try {
+    await exportReviewedReplayConfigs()
+    showToast('导出成功')
+  } catch (cause) {
+    showToast(`导出失败：${cause?.message || cause}`, 'error')
+  } finally {
+    exporting.value = false
+  }
 }
 
 function toggleAll() {
@@ -867,11 +885,11 @@ onUnmounted(() => {
 .replay-tabs{display:flex;gap:4px;padding:0 20px;background:var(--bg-card,#fff);border-bottom:1px solid var(--border,#e5e7eb)}
 .replay-tab{min-height:40px;padding:0 14px;border:none;border-bottom:2px solid transparent;background:transparent;color:var(--text-muted,#6b7280);cursor:pointer;font-size:13px}
 .replay-tab.active{border-bottom-color:#0b70db;color:#0b70db;font-weight:600}
-.replay-filters{display:flex;flex-wrap:wrap;align-items:center;gap:16px;padding:12px 20px;background:var(--bg-card,#fff);border-bottom:1px solid var(--border,#e5e7eb)}
+.replay-filters{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:12px 20px;background:var(--bg-card,#fff);border-bottom:1px solid var(--border,#e5e7eb)}
 .replay-filter-group{display:flex;align-items:center;gap:8px}
 .replay-filter-group-label{font-size:13px;font-weight:600;color:var(--text-primary,#1f2937);white-space:nowrap}
 .replay-filter-actions{display:flex;align-items:center;gap:8px;margin-left:auto}
-.replay-control{height:34px;min-width:150px;padding:0 10px;border:1px solid var(--border,#d1d5db);background:var(--bg-card,#fff);color:inherit;font-size:13px;box-sizing:border-box}
+.replay-control{height:34px;min-width:120px;padding:0 10px;border:1px solid var(--border,#d1d5db);background:var(--bg-card,#fff);color:inherit;font-size:13px;box-sizing:border-box}
 .replay-checkbox{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-primary,#1f2937);white-space:nowrap}
 .replay-checkbox input{width:15px;height:15px;accent-color:#0b70db}
 .replay-field{display:grid;gap:5px;font-size:12px;min-width:150px}

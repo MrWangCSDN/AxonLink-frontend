@@ -1,4 +1,12 @@
 ﻿import { createHash } from 'node:crypto'
+import { existsSync, readFileSync } from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import XLSX from 'xlsx'
+
+const MOCK_DIR = path.dirname(fileURLToPath(import.meta.url))
+/** 预生成的「忽略清单导出」样例（带表头配色，由后端真实逻辑生成） */
+const EXPORT_MOCK_XLSX = path.join(MOCK_DIR, 'data', '忽略清单导出-mock.xlsx')
 
 /**
  * DAO 索引巡检 · 开发期 mock 中间件
@@ -1572,6 +1580,64 @@ function replayConfigListDomains() {
   return [...new Set(REPLAY_CONFIG_PERSONS.map(person => person.domain).filter(Boolean))].sort()
 }
 
+/**
+ * 「导出 Excel」mock：用 SheetJS 现造一份**真实的 xlsx**（四个 sheet，列结构与后端一致），
+ * 只包含"已审核"的假数据，方便前端直接下载查看导出样式。
+ */
+function replayConfigExportWorkbook() {
+  // 优先生成/复用后端产出的样例（含表头配色），没有则用 SheetJS 现造一份无样式的兜底
+  if (existsSync(EXPORT_MOCK_XLSX)) {
+    return readFileSync(EXPORT_MOCK_XLSX)
+  }
+  const HEAD_LEFT = ['交易码', '内部核心交易码', '领域']
+  const HEAD_RIGHT = ['忽略原因', '审核人', '审核通过时间', '开发人员', '行方负责人', '最后更新时间', '创建时间']
+  const line = (serviceCode, tranCode, domain, businessValues, reason, reviewer, reviewedAt, developer, bankOwner,
+                updatedAt, createdAt) => [
+    serviceCode, tranCode, domain, ...businessValues, reason, reviewer, reviewedAt, developer, bankOwner,
+    updatedAt, createdAt,
+  ]
+  const sheet = (businessHeaders, rows) => XLSX.utils.aoa_to_sheet([
+    [...HEAD_LEFT, ...businessHeaders, ...HEAD_RIGHT],
+    ...rows,
+  ])
+
+  const workbook = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(workbook, sheet(['忽略字段'], [
+    line('S120034071CorpInfoQryTrdCrclr&sop', 'Y444', '公共', ['accountNo'], '该字段允许不一致',
+      '李四（lisi）', '2026-09-28 10:12:33', '张三', '李四', '2026-09-29 09:20:11', '2026-09-20 15:02:00'),
+    line('S120033800LoanQuery&soap', 'Z999', '贷款', ['loanNo'], '贷款号由新核心重排',
+      '李四（lisi）', '2026-09-28 10:15:02', '王五', '李四', '2026-09-28 16:41:20', '2026-09-21 11:30:00'),
+    line('S120090012AccountDetailQry&bzjson', 'Y555', '存款', ['balance'], '余额精度差异',
+      '李四（lisi）', '2026-09-28 10:18:44', '钱七', '李四', '2026-09-28 17:02:05', '2026-09-22 09:05:00'),
+  ]), '无条件忽略')
+
+  XLSX.utils.book_append_sheet(workbook, sheet(
+    ['忽略字段', '字段索引', '字段标识', '主系统字段忽略条件', '备系统字段忽略条件'], [
+      line('S120034071CorpInfoQryTrdCrclr&sop', 'Y444', '公共',
+        ['customerInfo', 1, '对象或数组', 'customerType=1', 'customerType=1'], '对象内字段允许不一致',
+        '李四（lisi）', '2026-09-28 10:22:10', '张三', '李四', '2026-09-29 09:21:00', '2026-09-20 15:10:00'),
+      line('S120033800LoanQuery&bzjson', 'Z999', '贷款',
+        ['repaymentPlan', 1, '普通字段', 'loanStatus=02', ''], '特定贷款状态下允许不一致',
+        '李四（lisi）', '2026-09-28 10:25:31', '王五', '李四', '2026-09-28 16:45:00', '2026-09-21 11:35:00'),
+    ]), '有条件忽略')
+
+  XLSX.utils.book_append_sheet(workbook, sheet(['老核心错误码', '新核心错误码'], [
+    line('S120034071CorpInfoQryTrdCrclr&sop', 'Y444', '公共', ['E001', 'N001'], '新老错误码语义等价',
+      '李四（lisi）', '2026-09-28 10:30:00', '张三', '李四', '2026-09-28 17:10:00', '2026-09-22 09:20:00'),
+    line('S120033800LoanQuery&soap', 'Z999', '贷款', ['E100', ''], '老核心独有的错误码',
+      '李四（lisi）', '2026-09-28 10:33:12', '王五', '李四', '2026-09-28 17:12:00', '2026-09-22 09:25:00'),
+  ]), '错误码忽略')
+
+  XLSX.utils.book_append_sheet(workbook, sheet(['对象/数组名称', '排序字段'], [
+    line('S120034071CorpInfoQryTrdCrclr&sop', 'Y444', '公共', ['items', 'amount'], '数组顺序不参与比对',
+      '李四（lisi）', '2026-09-28 10:36:40', '张三', '李四', '2026-09-28 17:15:00', '2026-09-22 09:30:00'),
+    line('S120034071CorpInfoQryTrdCrclr&soap', 'Y444', '公共', ['items', 'seq'], '数组顺序不参与比对',
+      '李四（lisi）', '2026-09-28 10:36:40', '张三', '李四', '2026-09-28 17:15:00', '2026-09-22 09:30:00'),
+  ]), '排序字段')
+
+  return XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' })
+}
+
 function replayConfigOperation(store, type, configId, operationType, changes) {
   return {
     id: replayConfigNextId(store),
@@ -1866,6 +1932,13 @@ function handleReplayConfig(req, res, query, path, store) {
   const sub = segments[7]
   if (type === 'domains') {
     return ok(res, replayConfigListDomains())
+  }
+  if (type === 'export') {
+    const buffer = replayConfigExportWorkbook()
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    res.setHeader('Content-Disposition',
+      `attachment; filename*=UTF-8''${encodeURIComponent('忽略清单-mock.xlsx')}`)
+    return res.end(buffer)
   }
   const meta = REPLAY_CONFIG_META[type]
   if (!meta) return replayConfigFail(res, 404, '资源类型不存在')

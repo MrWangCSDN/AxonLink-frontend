@@ -7,6 +7,7 @@ import {
   batchReviewReplayConfigs,
   createReplayConfig,
   deleteReplayConfig,
+  exportReviewedReplayConfigs,
   listReplayConfigDomains,
   listReplayConfigOperations,
   listReplayConfigs,
@@ -24,6 +25,7 @@ vi.mock('../../api/replayConfigs.js', () => ({
   listReplayConfigOperations: vi.fn(),
   reviewReplayConfig: vi.fn(),
   listReplayConfigDomains: vi.fn(),
+  exportReviewedReplayConfigs: vi.fn(),
 }))
 
 function arrangeApi() {
@@ -64,6 +66,29 @@ describe('ReplayConfigPage（忽略清单）', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
+  })
+
+  it('exports the reviewed configs through the toolbar button', async () => {
+    exportReviewedReplayConfigs.mockResolvedValue(undefined)
+    const wrapper = mount(ReplayConfigPage)
+    await flushPromises()
+
+    await wrapper.find('[data-testid="export-excel"]').trigger('click')
+    await flushPromises()
+
+    expect(exportReviewedReplayConfigs).toHaveBeenCalledTimes(1)
+    expect(wrapper.find('[data-testid="toast"]').text()).toContain('导出成功')
+  })
+
+  it('shows an error toast when the export fails', async () => {
+    exportReviewedReplayConfigs.mockRejectedValue(new Error('mock 模式不支持导出 Excel'))
+    const wrapper = mount(ReplayConfigPage)
+    await flushPromises()
+
+    await wrapper.find('[data-testid="export-excel"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="toast"]').text()).toContain('导出失败')
   })
 
   it('shows 领域 as the first data column and filters by it', async () => {

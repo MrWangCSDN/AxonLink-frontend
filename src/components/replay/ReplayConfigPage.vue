@@ -67,6 +67,9 @@
           批量删除{{ selectedIds.length ? `（${selectedIds.length}）` : '' }}
         </button>
         <button class="replay-button replay-button-primary" type="button" data-testid="create-config" @click="openCreate">新增</button>
+        <button class="replay-button" type="button" data-testid="export-excel" :disabled="exporting" @click="exportExcel">
+          {{ exporting ? '导出中...' : '导出Excel' }}
+        </button>
       </div>
     </form>
 
@@ -217,6 +220,7 @@ import {
   batchReviewReplayConfigs,
   createReplayConfig,
   deleteReplayConfig,
+  exportReviewedReplayConfigs,
   listReplayConfigDomains,
   listReplayConfigOperations,
   listReplayConfigs,
@@ -385,6 +389,7 @@ const reviewableByMe = ref(false)
 const filters = reactive({})
 const selectedIds = ref([])
 const domainOptions = ref([])
+const exporting = ref(false)
 
 const editOpen = ref(false)
 const editingRow = ref(null)
@@ -551,6 +556,19 @@ function goNext() {
 function changePageSize() {
   page.value = 0
   return load()
+}
+
+async function exportExcel() {
+  if (exporting.value) return
+  exporting.value = true
+  try {
+    await exportReviewedReplayConfigs()
+    showToast('导出成功')
+  } catch (cause) {
+    showToast(`导出失败：${cause?.message || cause}`, 'error')
+  } finally {
+    exporting.value = false
+  }
 }
 
 function toggleAll() {

@@ -1,4 +1,4 @@
-import { request } from './index.js'
+import { download, request } from './index.js'
 
 const PREFIX = '/ai/parallel-replay/config'
 
@@ -20,6 +20,11 @@ export function listReplayConfigs(type, params = {}) {
 /** 领域筛选项（全部领域，取自全量交易人员清单）。 */
 export function listReplayConfigDomains() {
   return request(`${PREFIX}/domains`)
+}
+
+/** 导出已审核的忽略清单（固定四个 sheet）。 */
+export function exportReviewedReplayConfigs() {
+  return download(`${PREFIX}/export`, '忽略清单.xlsx')
 }
 
 /** 新增某类回放配置。 */

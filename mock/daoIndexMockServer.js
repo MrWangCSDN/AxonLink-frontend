@@ -1889,6 +1889,7 @@ function createReplayConfigStore() {
     { tranCode: `${transfer}&bzjson`, fieldName: 'transferAmount' },
     { tranCode: `${card}&sop`, fieldName: 'cardNo' },
     { tranCode: `${card}&soap`, fieldName: 'mobileNo' },
+    { tranCode: 'S900Unmapped&sop', fieldName: 'unmappedReviewerField' },
   ])
 
   seed('conditional-ignores', [

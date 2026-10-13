@@ -114,6 +114,22 @@ describe('ReplayConfigPage（忽略清单）', () => {
     })
   })
 
+  it('explains the reviewer requirement from the bank owner column header', async () => {
+    const wrapper = mount(ReplayConfigPage)
+    await flushPromises()
+
+    const help = wrapper.find('[data-testid="bank-owner-help"]')
+    const message = '未找到行方负责人时，该条记录不可审核，请联系敬恒杰维护清单。'
+    expect(help.exists()).toBe(true)
+    expect(help.attributes('aria-label')).toBe(message)
+    expect(help.attributes('data-tooltip')).toBe(message)
+
+    await help.trigger('focus')
+    const tooltip = wrapper.find('[data-testid="bank-owner-tooltip"]')
+    expect(tooltip.exists()).toBe(true)
+    expect(tooltip.text()).toBe(message)
+  })
+
   it('loads the first tab with default 10 per page', async () => {
     const wrapper = mount(ReplayConfigPage)
     await flushPromises()
@@ -159,6 +175,55 @@ describe('ReplayConfigPage（忽略清单）', () => {
       { tranCode: 'S3&sop', fieldName: 'accountNumber', ignoreReason: '测试原因' },
     ])
     expect(wrapper.find('[data-testid="toast"]').text()).toContain('新增成功（1 条）')
+  })
+
+  it('shows one reviewer mapping warning after creating an unmapped service code', async () => {
+    batchCreateReplayConfigs.mockResolvedValue([{
+      id: 3,
+      tranCode: 'S3&sop',
+      canReview: false,
+      reviewDisabledReason: '无审核人',
+    }])
+    const wrapper = mount(ReplayConfigPage)
+    await flushPromises()
+
+    await wrapper.find('[data-testid="create-config"]').trigger('click')
+    await wrapper.find('[data-testid="form-0-tranCode"]').setValue('S3&sop')
+    await wrapper.find('[data-testid="form-0-fieldName"]').setValue('accountNumber')
+    await wrapper.find('[data-testid="form-0-ignoreReason"]').setValue('测试原因')
+    await wrapper.find('form.replay-edit-grid').trigger('submit')
+    await flushPromises()
+
+    const warning = wrapper.find('[data-testid="reviewer-mapping-warning"]')
+    expect(warning.exists()).toBe(true)
+    expect(warning.text()).toContain('新增成功，但暂不可审核')
+    expect(warning.text()).toContain('服务码 S3&sop 尚未映射到全量交易人员')
+    expect(warning.text()).toContain('请联系敬恒杰维护清单')
+  })
+
+  it('groups all unmapped service codes into one warning after batch create', async () => {
+    batchCreateReplayConfigs.mockResolvedValue([
+      { id: 3, tranCode: 'S3&sop', canReview: false, reviewDisabledReason: '无审核人' },
+      { id: 4, tranCode: 'S3&bzjson', canReview: false, reviewDisabledReason: '无审核人' },
+    ])
+    const wrapper = mount(ReplayConfigPage)
+    await flushPromises()
+
+    await wrapper.find('[data-testid="create-config"]').trigger('click')
+    await wrapper.find('[data-testid="form-0-tranCode"]').setValue('S3&sop')
+    await wrapper.find('[data-testid="form-0-fieldName"]').setValue('a1')
+    await wrapper.find('[data-testid="form-0-ignoreReason"]').setValue('原因一')
+    await wrapper.find('[data-testid="form-1-tranCode"]').setValue('S3&bzjson')
+    await wrapper.find('[data-testid="form-1-fieldName"]').setValue('a2')
+    await wrapper.find('[data-testid="form-1-ignoreReason"]').setValue('原因二')
+    await wrapper.find('form.replay-edit-grid').trigger('submit')
+    await flushPromises()
+
+    const warnings = wrapper.findAll('[data-testid="reviewer-mapping-warning"]')
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0].text()).toContain('S3&sop')
+    expect(warnings[0].text()).toContain('S3&bzjson')
+    expect(warnings[0].text()).toContain('请联系敬恒杰维护清单')
   })
 
   it('batch creates only the rows that were filled', async () => {
@@ -428,6 +493,22 @@ describe('ReplayConfigPage（忽略清单）', () => {
     const button = wrapper.find('[data-testid="review-1"]')
     expect(button.attributes('disabled')).toBeDefined()
     expect(button.attributes('title')).toBe('没有权限，请联系李四进行审核')
+  })
+
+  it('explains the missing reviewer mapping on a disabled review button', async () => {
+    listReplayConfigs.mockResolvedValue({
+      total: 1,
+      items: [{
+        id: 1, tranCode: 'S3&sop', fieldName: 'accountNo', version: 0, reviewStatus: 0,
+        canReview: false, reviewDisabledReason: '无审核人',
+      }],
+    })
+    const wrapper = mount(ReplayConfigPage)
+    await flushPromises()
+
+    const button = wrapper.find('[data-testid="review-1"]')
+    expect(button.attributes('disabled')).toBeDefined()
+    expect(button.attributes('title')).toContain('服务码 S3&sop 尚未映射到全量交易人员，请联系敬恒杰维护清单')
   })
 
   it('sends the reviewStatus filter to the list API', async () => {

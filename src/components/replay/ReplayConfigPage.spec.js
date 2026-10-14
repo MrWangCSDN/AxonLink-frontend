@@ -354,6 +354,26 @@ describe('ReplayConfigPage（忽略清单）', () => {
     expect(wrapper.find('[data-testid="toast"]').text()).toContain('新增成功（3 条）')
   })
 
+  it('uses sorting-specific labels and explains single versus multiple sort properties', async () => {
+    const wrapper = mount(ReplayConfigPage)
+    await flushPromises()
+
+    await wrapper.find('[data-testid="tab-sort-fields"]').trigger('click')
+    await flushPromises()
+    await wrapper.find('[data-testid="create-config"]').trigger('click')
+
+    expect(wrapper.find('[data-testid="form-oldSortField"]').attributes('placeholder'))
+      .toBe('单个属性：A.B；多个属性：A(B,C)')
+    expect(wrapper.find('[data-testid="form-newSortField"]').attributes('placeholder'))
+      .toBe('单个属性：A.B；多个属性：A(B,C)')
+    expect(wrapper.find('[data-testid="form-ignoreReason"]').element.parentElement.textContent)
+      .toContain('排序原因')
+    expect(wrapper.find('[data-testid="form-ignoreReason"]').element.parentElement.textContent)
+      .not.toContain('忽略原因')
+    expect(wrapper.find('.replay-hint').text()).toContain('按 A 对象的单个属性 B 排序时填写 A.B')
+    expect(wrapper.find('.replay-hint').text()).toContain('按 A 对象的多个属性 B、C 排序时填写 A(B,C)')
+  })
+
   it('rejects a malformed sort field before calling API', async () => {
     const wrapper = mount(ReplayConfigPage)
     await flushPromises()

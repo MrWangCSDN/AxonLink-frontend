@@ -205,7 +205,7 @@
               <thead><tr><th>字段</th><th>原值</th><th>新值</th></tr></thead>
               <tbody>
                 <tr v-for="change in operation.changes" :key="change.field">
-                  <td>{{ change.label }}</td>
+                  <td>{{ changeLabel(change) }}</td>
                   <td>{{ formatChangeValue(change, change.oldValue) }}</td>
                   <td>{{ formatChangeValue(change, change.newValue) }}</td>
                 </tr>
@@ -302,9 +302,9 @@ const TABS = [
 
 const SORT_CREATE_FORM = [
   { key: 'tranCode', label: '4 位交易码', kind: 'text', required: true, placeholder: '如 6208' },
-  { key: 'oldSortField', label: '老核心排序字段', kind: 'text', required: true, placeholder: 'A.B 或 A(B,C)' },
-  { key: 'newSortField', label: '新核心排序字段', kind: 'text', required: true, placeholder: 'A.B 或 A(B,C)' },
-  { key: 'ignoreReason', label: '忽略原因', kind: 'textarea', required: true, maxlength: 512 },
+  { key: 'oldSortField', label: '老核心排序字段', kind: 'text', required: true, placeholder: '单个属性：A.B；多个属性：A(B,C)' },
+  { key: 'newSortField', label: '新核心排序字段', kind: 'text', required: true, placeholder: '单个属性：A.B；多个属性：A(B,C)' },
+  { key: 'ignoreReason', label: '排序原因', kind: 'textarea', required: true, maxlength: 512 },
 ]
 
 const SCHEMAS = {
@@ -414,19 +414,20 @@ const SCHEMAS = {
       { key: 'origTrcd', label: '服务码' },
       { key: 'origArryName', label: '对象/数组名称' },
       { key: 'origFieldName', label: '排序字段' },
-      { key: 'ignoreReason', label: '忽略原因', long: true },
+      { key: 'ignoreReason', label: '排序原因', long: true },
       ...REVIEW_COLUMNS,
     ],
     confirmFields: [
       { key: 'origTrcd', label: '服务码' },
       { key: 'origArryName', label: '对象/数组名称' },
       { key: 'origFieldName', label: '排序字段' },
+      { key: 'ignoreReason', label: '排序原因' },
     ],
     form: [
       { key: 'origTrcd', label: '服务码', kind: 'serviceCode', required: true },
       { key: 'origArryName', label: '对象/数组名称', kind: 'text', required: true },
       { key: 'origFieldName', label: '排序字段', kind: 'text', required: true },
-      { key: 'ignoreReason', label: '忽略原因', kind: 'textarea', required: true, maxlength: 512 },
+      { key: 'ignoreReason', label: '排序原因', kind: 'textarea', required: true, maxlength: 512 },
     ],
   },
 }
@@ -479,7 +480,7 @@ const activeForm = computed(() => (isSortCreate.value ? SORT_CREATE_FORM : schem
 const formRows = computed(() => (isMultiCreate.value ? createRows.value : [draft]))
 const createHint = computed(() => {
   if (isSortCreate.value) {
-    return '保存后按映射生成 3 条：&sop 用老核心排序字段，&soap 与 &bzjson 用新核心排序字段。'
+    return '按 A 对象的单个属性 B 排序时填写 A.B；按 A 对象的多个属性 B、C 排序时填写 A(B,C)。保存后按映射生成 3 条：&sop 使用老核心排序字段，&soap 与 &bzjson 使用新核心排序字段。'
   }
   if (isMultiCreate.value) {
     return '最多可一次新增 3 条，每条独立填写，可只填其中部分；任一条重复则整批不写入。'
@@ -528,6 +529,11 @@ function formatChangeValue(change, value) {
     if (String(value) === '0') return '未审核'
   }
   return value
+}
+
+function changeLabel(change) {
+  if (isSortTab.value && change.field === 'ignore_reason') return '排序原因'
+  return change.label
 }
 
 function resetFilters() {
@@ -746,8 +752,8 @@ function validateDraft() {
   const base = validateFields(draft, activeForm.value)
   if (base) return base
   if (isSortCreate.value) {
-    if (!isValidSortField(draft.oldSortField)) return '老核心排序字段格式不正确，应为 A.B 或 A(B,C)'
-    if (!isValidSortField(draft.newSortField)) return '新核心排序字段格式不正确，应为 A.B 或 A(B,C)'
+    if (!isValidSortField(draft.oldSortField)) return '老核心排序字段格式不正确：单个属性请填写 A.B，多个属性请填写 A(B,C)'
+    if (!isValidSortField(draft.newSortField)) return '新核心排序字段格式不正确：单个属性请填写 A.B，多个属性请填写 A(B,C)'
     return ''
   }
   return schema.value.validate ? schema.value.validate(draft) : ''

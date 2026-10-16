@@ -145,7 +145,13 @@
 
     <div class="replay-summary-right-actions" data-testid="replay-summary-right-actions">
       <label class="replay-weekly-task-filter">
-        <span class="replay-checkbox-line"><input v-model="filters.weeklyTask" data-testid="weekly-task-only" type="checkbox" :disabled="loading" @change="toggleWeeklyTask" />仅看优先任务</span>
+        <span class="replay-checkbox-line"><input v-model="filters.unverifiedOnly" data-testid="unverified-task-only" type="checkbox" :disabled="loading" @change="toggleTaskFilters" />仅看未验证任务</span>
+      </label>
+      <label class="replay-weekly-task-filter">
+        <span class="replay-checkbox-line"><input v-model="filters.relatedToMe" data-testid="related-to-me-only" type="checkbox" :disabled="loading" @change="toggleTaskFilters" />仅看自己相关任务</span>
+      </label>
+      <label class="replay-weekly-task-filter">
+        <span class="replay-checkbox-line"><input v-model="filters.weeklyTask" data-testid="weekly-task-only" type="checkbox" :disabled="loading" @change="toggleTaskFilters" />仅看优先任务</span>
       </label>
       <button class="replay-button" type="button" data-testid="reset-filters" title="重置筛选条件" aria-label="重置筛选条件" :disabled="loading" @click="resetFilters">重置筛选条件</button>
     </div>
@@ -472,13 +478,18 @@
           <small>{{ importFile?.name || '请选择 .xlsx 或 .xls 文件' }}</small>
         </label>
         <label>
+          <span>发版时间 <span aria-hidden="true">*</span></span>
+          <input v-model="importReleaseAt" data-testid="import-release-at" type="datetime-local" step="1" required :disabled="importing" @input="importReleaseEdited = true" />
+          <small>{{ importReading ? '正在识别批次日期…' : '默认批次日期前一天中午12:00:00，可手动修改；晚于发版时间保存的修复待验证问题，本次不重新打开。' }}</small>
+        </label>
+        <label>
           <span>导入口令</span>
           <input v-model="importToken" data-testid="import-token" type="password" autocomplete="off" :disabled="importing" placeholder="X-DII-Trigger-Token" />
         </label>
         <p v-if="importMessage" class="replay-import-message" :class="{ 'is-error': importError }">{{ importMessage }}</p>
         <footer>
           <button class="replay-button" type="button" :disabled="importing" @click="closeImport">取消</button>
-          <button class="replay-button replay-button-primary" type="button" data-testid="submit-import" :disabled="!importFile || importing || importComplete" @click="submitImport">
+          <button class="replay-button replay-button-primary" type="button" data-testid="submit-import" :disabled="!importFile || importing || importComplete || importReading || !normalizeReleaseAt(importReleaseAt)" @click="submitImport">
             <Upload :size="16" aria-hidden="true" />
             {{ importing ? '导入中…' : (importComplete ? '已导入' : '开始导入') }}
           </button>
@@ -897,6 +908,7 @@
 </template>
 
 <script setup>
+import { defaultReleaseAt, normalizeReleaseAt, readImportBatch } from '../../utils/replayReleaseTime.js'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ArrowDownWideNarrow, ArrowUpNarrowWide, BarChart3, CalendarRange, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, Download, FileSpreadsheet, Flag, HelpCircle, History as HistoryIcon, Mail, Menu, Minus, Pencil, RefreshCw, Save, Search, Upload, Users, X } from 'lucide-vue-next'
 import { approveReplayIssue, exportReplayIssues, getReplayImportRounds, getReplayIssueDomainPermissions, getReplayIssueDomainTransfers, getReplayIssueGroupSummaries, getReplayIssueHeaderFilterOptionCounts, getReplayIssueMailStatus, getReplayIssueOptions, getReplayIssuePersonRankings, getReplayIssuePersonSchedule, getReplayIssueReviewPermissions, getReplayIssuePlanDatePermissions, getReplayIssuePlanDateChanges, getReplayIssueRoundTracking, getReplayIssueStats, getReplayWeeklyTask, replaceReplayWeeklyTask, getReplayDailyReportBatches, downloadReplayDailyReport, regenerateReplayDailyReport, getReplayDailyReportMailConfig, previewReplayReportMailBody, sendReplayDailyReportMail, getReplayWeeklyReportOptions, downloadReplayWeeklyReport, regenerateReplayWeeklyReport, getReplayWeeklyReportMailConfig, sendReplayWeeklyReportMail, importReplayIssues, listReplayIssues, searchReplayIssueUsers, sendReplayIssueMail, updateReplayIssue, updateReplayIssueDomain, updateReplayIssuePlannedCompletionDate } from '../../api/replayIssues.js'
@@ -961,11 +973,11 @@ const headerFilterDraft = ref([])
 
 const copyableColumnKeys = new Set(['transaction_name', 'field_name', 'issue_description', 'initial_analysis', 'final_solution', 'remark', 'serial_no', 'global_serial_no', 'issue_key'])
 const manualStatuses = ['打开', '无需处理', '延后修复', '修复待验证']
-const issueTypes = ['迁移问题', '防腐问题', '代码问题', '新核心下线', '参数问题', '平台问题', '合理差异', '规则性差异问题', '外围问题', '其他问题']
+const issueTypes = ['迁移问题', '防腐问题', '代码问题', '新核心下线', '参数问题', '平台问题', '合理差异', '规则性差异问题', '外围问题', '需规问题', '其他问题']
 const noActionIssueTypes = ['合理差异', '规则性差异问题', '外围问题']
 const manualDisplayKeys = new Set(['issue_status', 'issue_type', 'cooperation_person_username'])
 const detailDisplayKeys = new Set(['initial_analysis', 'final_solution', 'remark'])
-const filters = reactive({ groupName: '', issueId: '', issueLevel: '', issueType: '', issueStatus: '', reviewStatus: '', sandbox: '', developer: '', bankOwner: '', cooperationPerson: '', serialNo: '', globalSerialNo: '', defectRepairDate: '', coverageRound: '', keyword: '', weeklyTask: false })
+const filters = reactive({ groupName: '', issueId: '', issueLevel: '', issueType: '', issueStatus: '', reviewStatus: '', sandbox: '', developer: '', bankOwner: '', cooperationPerson: '', serialNo: '', globalSerialNo: '', defectRepairDate: '', coverageRound: '', keyword: '', weeklyTask: false, unverifiedOnly: true, relatedToMe: true })
 const affectedTransactionCountOrder = ref('')
 const affectedTransactionCountSortState = computed(() =>
   affectedTransactionCountOrder.value ? affectedTransactionCountOrder.value.toLowerCase() : 'default')
@@ -1124,6 +1136,10 @@ const importOpen = ref(false)
 const importFile = ref(null)
 const importToken = ref('')
 const importReplayType = ref('QUERY')
+const importReleaseAt = ref('')
+const importReleaseEdited = ref(false)
+const importReading = ref(false)
+let importReadVersion = 0
 const importing = ref(false)
 const exporting = ref(false)
 const importComplete = ref(false)
@@ -1739,6 +1755,8 @@ function filterParams() {
     ...(filters.defectRepairDate ? { defectRepairDate: filters.defectRepairDate } : {}),
     ...(filters.coverageRound ? { coverageRound: filters.coverageRound } : {}),
     ...(filters.weeklyTask ? { weeklyTask: true } : {}),
+    ...(filters.unverifiedOnly ? { unverifiedOnly: true } : {}),
+    ...(filters.relatedToMe ? { relatedToMe: true } : {}),
     affectedTransactionCountOrder: affectedTransactionCountOrder.value || undefined,
     keyword: filters.keyword || undefined,
   }
@@ -1839,7 +1857,7 @@ async function loadHeaderFilterOptions() {
 }
 
 function baseFilterParams() {
-  return { replayType: statisticsReplayType.value, groupName: filters.groupName || undefined, sandbox: filters.sandbox === '' ? undefined : filters.sandbox === 'true', issueId: filters.issueId || undefined, issueLevel: filters.issueLevel || undefined, issueType: filters.issueType || undefined, issueStatus: filters.issueStatus || undefined, reviewStatus: filters.reviewStatus || undefined, developer: filters.developer || undefined, bankOwner: filters.bankOwner || undefined, cooperationPerson: filters.cooperationPerson || undefined, serialNo: filters.serialNo || undefined, globalSerialNo: filters.globalSerialNo || undefined, defectRepairDate: filters.defectRepairDate || undefined, coverageRound: filters.coverageRound || undefined, weeklyTask: filters.weeklyTask || undefined }
+  return { replayType: statisticsReplayType.value, groupName: filters.groupName || undefined, sandbox: filters.sandbox === '' ? undefined : filters.sandbox === 'true', issueId: filters.issueId || undefined, issueLevel: filters.issueLevel || undefined, issueType: filters.issueType || undefined, issueStatus: filters.issueStatus || undefined, reviewStatus: filters.reviewStatus || undefined, developer: filters.developer || undefined, bankOwner: filters.bankOwner || undefined, cooperationPerson: filters.cooperationPerson || undefined, serialNo: filters.serialNo || undefined, globalSerialNo: filters.globalSerialNo || undefined, defectRepairDate: filters.defectRepairDate || undefined, coverageRound: filters.coverageRound || undefined, weeklyTask: filters.weeklyTask || undefined, unverifiedOnly: filters.unverifiedOnly || undefined, relatedToMe: filters.relatedToMe || undefined }
 }
 function headerFilterParams(excludeKey) {
   const params = { ...baseFilterParams() }
@@ -2437,7 +2455,7 @@ function clearHeaderFilters() {
   Object.keys(headerFilters).forEach((key) => delete headerFilters[key])
 }
 
-function toggleWeeklyTask() {
+function toggleTaskFilters() {
   page.value = 0
   return loadList()
 }
@@ -2470,7 +2488,7 @@ function resetFilters() {
 }
 
 function resetFilterValues() {
-  Object.assign(filters, { groupName: '', issueId: '', issueLevel: '', issueType: '', issueStatus: '', reviewStatus: '', sandbox: '', developer: '', bankOwner: '', cooperationPerson: '', serialNo: '', globalSerialNo: '', defectRepairDate: '', coverageRound: '', keyword: '', weeklyTask: false })
+  Object.assign(filters, { groupName: '', issueId: '', issueLevel: '', issueType: '', issueStatus: '', reviewStatus: '', sandbox: '', developer: '', bankOwner: '', cooperationPerson: '', serialNo: '', globalSerialNo: '', defectRepairDate: '', coverageRound: '', keyword: '' })
 }
 
 async function openWeeklyTask() {
@@ -2532,6 +2550,10 @@ function changePageSize(event) {
 }
 
 function openImport() {
+  importReadVersion++
+  importReading.value = false
+  importReleaseAt.value = ''
+  importReleaseEdited.value = false
   importOpen.value = true
   importFile.value = null
   importToken.value = ''
@@ -2542,23 +2564,35 @@ function openImport() {
 }
 
 function closeImport() {
-  if (!importing.value) importOpen.value = false
+  if (!importing.value) { importReadVersion++; importOpen.value = false }
 }
 
-function selectImportFile(event) {
+async function selectImportFile(event) {
+  const version = ++importReadVersion
   importFile.value = event.target.files?.[0] || null
+  importReleaseAt.value = ''
+  importReleaseEdited.value = false
   importComplete.value = false
   importMessage.value = ''
   importError.value = false
+  importReading.value = true
+  try {
+    const batch = await readImportBatch(importFile.value)
+    if (version === importReadVersion && importOpen.value && !importReleaseEdited.value) importReleaseAt.value = defaultReleaseAt(batch)
+  } finally {
+    if (version === importReadVersion) importReading.value = false
+  }
 }
 
 async function submitImport() {
-  if (!importFile.value || importing.value || importComplete.value) return
+  if (!importFile.value || importing.value || importComplete.value || importReading.value) return
+  const releaseAt = normalizeReleaseAt(importReleaseAt.value)
+  if (!releaseAt) { importError.value = true; importMessage.value = '请填写完整的发版时间（年月日时分秒）'; return }
   importing.value = true
   importMessage.value = ''
   importError.value = false
   try {
-    const result = await importReplayIssues(importFile.value, importToken.value, importReplayType.value)
+    const result = await importReplayIssues(importFile.value, importToken.value, importReplayType.value, releaseAt)
     importComplete.value = true
     importMessage.value = `导入完成：${result.inputRows ?? result.totalRows ?? 0} 条；新增 ${result.createdRows ?? 0} 条；更新 ${result.updatedRows ?? 0} 条；忽略 ${result.ignoredRows ?? 0} 条${result.coverageRound ? `；覆盖批次 ${result.coverageRound}` : ''}`
     page.value = 0
@@ -3071,10 +3105,10 @@ onBeforeUnmount(() => {
 .replay-summary-card:hover .replay-summary-tooltip, .replay-summary-card:focus-visible .replay-summary-tooltip { display: grid; gap: 5px; }
 .replay-summary-tooltip div { display: flex; justify-content: space-between; gap: 18px; font-size: 12px; line-height: 16px; }
 .replay-summary-tooltip b { color: var(--text-primary, #1f2937); font-variant-numeric: tabular-nums; }
-.replay-summary-actions-row { position: relative; z-index: 10; min-height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px var(--replay-content-gutter); border-bottom: 1px solid var(--border, #e8edf5); }
+.replay-summary-actions-row { position: relative; z-index: 10; min-height: 44px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 6px var(--replay-content-gutter); border-bottom: 1px solid var(--border, #e8edf5); }
 .replay-summary-actions-row-transparent { background: transparent; }
 .replay-summary-entries { position: relative; min-width: 0; display: flex; align-items: center; gap: 10px; }
-.replay-summary-right-actions { margin-left: auto; display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+.replay-summary-right-actions { margin-left: auto; max-width: 100%; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px; }
 .replay-summary-entry { position: relative; min-height: 32px; display: inline-flex; align-items: center; gap: 7px; padding: 0 11px; border: 1px solid var(--border, #d7dee8); border-radius: 4px; color: var(--text-secondary, #374151); background: var(--bg-card, #fff); cursor: default; outline: none; font-size: 12px; }
 .replay-summary-entry:hover, .replay-summary-entry:focus-visible, .replay-summary-entry:focus-within { border-color: var(--text-active, #3b5adb); color: var(--text-active, #3b5adb); }
 .replay-summary-entry-action { font: inherit; cursor: pointer; }

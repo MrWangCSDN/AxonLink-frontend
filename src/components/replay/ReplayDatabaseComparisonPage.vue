@@ -4,7 +4,7 @@
       <button class="nav-button" type="button" aria-label="打开导航" @click="$emit('toggleNavigation')">☰</button>
       <div>
         <h2>回放数据库比对字段登记（{{ latestVersion?.versionNo ? `版本：${latestVersion.versionNo}` : '尚未生成版本' }}）</h2>
-        <p>共 {{ globalTableCount }} 张表 · 共 {{ globalFieldCount }} 个比对字段 <span v-if="useMock">Mock 数据</span></p>
+        <p>共 {{ globalTableCount }} 张表 · 共 {{ globalFieldCount }} 个比对字段</p>
         <p v-if="generationMessage" class="generation-message" data-testid="generation-message">{{ generationMessage }}</p>
       </div>
       <div class="toolbar-actions">
@@ -17,6 +17,7 @@
       </div>
     </header>
 
+    <p v-if="pageError" class="api-error" role="alert" data-testid="page-api-error">{{ pageError }}</p>
     <section class="table-shell is-scroll-viewport" data-testid="table-viewport">
       <table class="is-fixed-layout">
         <thead data-testid="database-comparison-table-head" class="is-sticky">
@@ -176,14 +177,15 @@
         <div class="replay-header-filter-search"><input v-model.trim="filterSearchInput" data-testid="header-filter-search" type="search" placeholder="模糊搜索" /><button type="button" aria-label="查询筛选选项" title="查询" @click="runFilterSearch"><Search :size="14" /></button></div>
         <div class="replay-header-filter-actions"><button type="button" @click="selectAllOptions">全选</button><button type="button" @click="invertOptions">反选</button><span>筛选数({{ visibleFilterOptions.length }})</span><span>计数({{ draftMatchedCount }})</span></div>
         <div class="replay-header-filter-options">
+          <p v-if="filterError" class="api-error" role="alert">{{ filterError }}</p>
           <label v-for="option in visibleFilterOptions" :key="option.value" data-testid="header-filter-option">
             <input v-model="filterDraft" type="checkbox" :value="option.value" />
             <span>{{ option.label || option.value }}</span><em>({{ option.count }})</em>
           </label>
-          <p v-if="!visibleFilterOptions.length">暂无选项</p>
+          <p v-if="!filterError && !visibleFilterOptions.length">暂无选项</p>
         </div>
       </div>
-      <footer><button class="replay-header-filter-clear is-bordered" type="button" @click="clearActiveFilter">清空筛选</button><span></span><button type="button" aria-label="关闭筛选" @click="closeFilter">取消</button><button type="button" data-testid="apply-header-filter" class="primary" @click="applyFilter">确定</button></footer>
+      <footer><button class="replay-header-filter-clear is-bordered" type="button" @click="clearActiveFilter">清空筛选</button><span></span><button type="button" aria-label="关闭筛选" @click="closeFilter">取消</button><button type="button" data-testid="apply-header-filter" class="primary" :disabled="!!filterError" @click="applyFilter">确定</button></footer>
       <button class="replay-header-filter-resize-handle" type="button" aria-label="拖拽调整筛选窗口大小" data-testid="header-filter-resize-handle" @pointerdown="startFilterResize"></button>
     </section>
 
@@ -203,7 +205,7 @@
           <ul>
             <li>C 列：表英文名（必填）</li>
             <li>E 列：字段英文名（必填）</li>
-            <li>G 列：负责人（修订人，可空）</li>
+            <li>G 列：原负责人列可留空；领域和负责人以数据库表人员清单为准</li>
           </ul>
           <div class="initial-import-file-field">
             <span>选择 Excel</span>
@@ -241,7 +243,7 @@
             <strong>门禁错误清单（{{ generationGateErrors.length }}）</strong>
             <div class="generation-gate-table-wrap">
               <table>
-                <thead><tr><th>表英文名 / 中文名</th><th>修订人</th><th>小组负责人</th><th>状态</th><th>缺失字段</th><th>原因</th></tr></thead>
+                <thead><tr><th>表英文名 / 中文名</th><th>开发负责人</th><th>科技负责人</th><th>状态</th><th>缺失字段</th><th>原因</th></tr></thead>
                 <tbody><tr v-for="(error, index) in generationGateErrors" :key="`${error.tableName}-${index}`" data-testid="generation-gate-error-row"><td><strong>{{ error.tableName }}</strong><small>{{ error.tableComment || '-' }}</small></td><td>{{ error.reviserName || '-' }}</td><td>{{ error.groupOwnerName || '-' }}</td><td><span class="gate-status">{{ gateStatusLabel[error.status] || error.status }}</span></td><td>{{ error.missingFieldNames?.join('、') || '-' }}</td><td>{{ error.reason }}</td></tr></tbody>
               </table>
             </div>
@@ -254,9 +256,9 @@
       v-if="editorOpen"
       :registrations="rows"
       :initial-registration="editingRegistration"
-      :search-users="useMock ? searchMockUsers : undefined"
       :search-tables="searchTableOptions"
       :load-columns="loadTableColumns"
+      :load-keys="loadTableKeys"
       :load-registration="loadRegistrationDetail"
       :save-error="editorSaveError"
       :can-configure-sample-limit="canConfigureSampleLimit"
@@ -273,6 +275,7 @@
           <dt>表英文名</dt><dd>{{ detailRegistration.tableName }}</dd>
           <dt>表中文名</dt><dd>{{ detailRegistration.tableComment || '-' }}</dd>
           <dt>领域</dt><dd>{{ detailRegistration.domain }}</dd>
+          <dt>选择索引</dt><dd data-testid="detail-comparison-key">{{ formatComparisonKey(detailRegistration.comparisonKey) }}</dd>
           <dt>比对字段</dt><dd class="detail-fields">
             <p v-if="isMissingFields(detailRegistration) && missingFieldsFor(detailRegistration).length" class="detail-missing-warning" data-testid="detail-missing-fields-warning">{{ missingFieldsFor(detailRegistration).length }} 个字段已从母库删除，请尽快编辑并移除</p>
             <span
@@ -280,7 +283,7 @@
               :key="field.name"
               :data-testid="`detail-field-${field.name}`"
               :class="{ 'is-missing-in-base': isMissingFields(detailRegistration) && isFieldMissingInBase(detailRegistration, field) }"
-            >{{ formatField(field) }}<b v-if="field.primaryKey" class="primary-key-badge">主键</b><b v-if="isMissingFields(detailRegistration) && isFieldMissingInBase(detailRegistration, field)">母库已删除</b></span>
+            >{{ formatField(field) }}<b v-if="selectedIndexFieldLabel(detailRegistration, field)" :class="detailRegistration.comparisonKey?.indexType === 'UNIQUE_INDEX' ? 'comparison-key-badge' : 'primary-key-badge'">{{ selectedIndexFieldLabel(detailRegistration, field) }}</b><b v-if="isMissingFields(detailRegistration) && isFieldMissingInBase(detailRegistration, field)">母库已删除</b></span>
           </dd>
           <dt>比对范围</dt><dd class="detail-scope">
             <span v-if="detailRegistration.whereCondition">已配置条件</span>
@@ -289,8 +292,8 @@
             <pre v-if="detailRegistration.whereSql">{{ detailRegistration.whereSql }}</pre>
           </dd>
           <dt>样本数</dt><dd data-testid="detail-sample-limit">{{ detailRegistration.sampleLimit ?? 100 }}</dd>
-          <dt>修订人</dt><dd>{{ detailRegistration.reviser }}</dd>
-          <dt>小组负责人</dt><dd>{{ detailRegistration.groupOwner }}</dd>
+          <dt>开发负责人</dt><dd>{{ detailRegistration.reviser }}</dd>
+          <dt>科技负责人</dt><dd>{{ detailRegistration.groupOwner }}</dd>
           <dt>登记日期</dt><dd>{{ detailRegistration.date }}</dd>
         </dl>
         <footer v-if="isTableMissing(detailRegistration)"><button type="button" class="danger-confirm" data-testid="delete-missing-table-registration" @click="requestDetailTableDeletion">删除整表登记</button></footer>
@@ -321,6 +324,7 @@
       <section class="page-dialog compact-dialog" data-testid="list-delete-confirmation">
         <header><h3>删除登记</h3><button type="button" aria-label="关闭删除确认" @click="deleteTarget = null">×</button></header>
         <p>确认删除表 <strong>{{ deleteTarget.tableName }}</strong> 的全部比对字段登记吗？</p>
+        <p v-if="pageError" class="api-error" role="alert">{{ pageError }}</p>
         <footer><button type="button" @click="deleteTarget = null">取消</button><button type="button" class="danger-confirm" data-testid="confirm-list-delete" @click="confirmListDelete">确认删除</button></footer>
       </section>
     </div>
@@ -334,8 +338,7 @@ import ReplayDatabaseComparisonEditor from './ReplayDatabaseComparisonEditor.vue
 import ReplayDatabaseComparisonAuditDialog from './ReplayDatabaseComparisonAuditDialog.vue'
 import ReplayDatabaseComparisonVersionHistory from './ReplayDatabaseComparisonVersionHistory.vue'
 import { exportInitialImportErrors } from './initialImportErrorWorkbook.js'
-import { getMockColumns, mockScopeExamples } from './replayDatabaseComparisonMock.js'
-import { buildScopePreview, normalizeConditionTree } from './replayDatabaseComparisonScope.js'
+import { buildScopePreview } from './replayDatabaseComparisonScope.js'
 import {
   createRegistration,
   deleteRegistration as deleteRegistrationApi,
@@ -343,6 +346,7 @@ import {
   importInitialExcel,
   loadAuditDetails,
   loadBaseColumns,
+  loadBaseKeys,
   loadHeaderFilterOptions,
   loadLatestVersion,
   loadOptions,
@@ -358,110 +362,13 @@ import {
 
 defineEmits(['toggleNavigation'])
 
-const seedRows = [
-  { ...mockScopeExamples.conditionOnly, domain: '存款组', tableName: 'kdpa_cb_acct_fzn_cntl_inf', tableComment: '对公存款账户冻结控制信息', fields: [{ name: 'fzn_cntl_id', comment: '冻结控制编号', primaryKey: true }, { name: 'fzn_new_pk', comment: '新增联合主键', primaryKey: true }, { name: 'lglpern_cd', comment: '' }, { name: 'fzn_cntl_amt', comment: '冻结金额' }, { name: 'currency_cd', comment: '币种' }, { name: 'effective_dt', comment: '生效日期' }, { name: 'acct_status', comment: '账户状态' }], reviser: '周皓', groupOwnerUsername: 'sunhy1', groupOwnerName: '孙海英', groupOwner: '孙海英(sunhy1)', date: '2026-09-07', metadataValidation: { status: 'VALID', missingFieldNames: [], missingConditionFieldNames: [], primaryKeyChanged: false, missingPrimaryKeyNames: [], formerPrimaryKeyNames: [] } },
-  { domain: '存款组', tableName: 'kdpl_cb_acct_fzn_cntl_oprn_detl', tableComment: '对公存款账户冻结控制操作明细', fields: [{ name: 'fzn_cntl_oprn_sn', comment: '冻结操作序号' }, { name: 'txn_dt', comment: '交易日期' }, { name: 'cncl_fzn_dectrl_amt', comment: '取消冻结金额' }, { name: 'operator_id', comment: '' }, { name: 'legacy_deleted_field', comment: '历史已删除字段' }], reviser: '周皓', groupOwnerUsername: 'zhangsan', groupOwnerName: '张三', groupOwner: '张三(zhangsan)', date: '2026-09-07', metadataValidation: { status: 'MISSING_FIELDS', missingFieldNames: ['legacy_deleted_field'] } },
-  { ...mockScopeExamples.limitOnly, domain: '贷款组', tableName: 'klna_ln_acct_base_info', tableComment: '贷款账户基础信息', fields: [{ name: 'loan_acct_no', comment: '贷款账号', primaryKey: true }, { name: 'customer_no', comment: '客户号', primaryKey: true }, { name: 'product_cd', comment: '产品代码' }, { name: 'status_cd', comment: '状态' }], reviser: '李明', groupOwnerUsername: 'liming', groupOwnerName: '李明', groupOwner: '李明(liming)', date: '2026-09-08', metadataValidation: { status: 'ORDERING_PRIMARY_KEY_CHANGED', missingFieldNames: [], missingConditionFieldNames: [], primaryKeyChanged: false, missingPrimaryKeyNames: [], formerPrimaryKeyNames: [], orderingPrimaryKeyChanged: true, savedOrderingPrimaryKeyNames: ['loan_acct_no'], currentOrderingPrimaryKeyNames: ['customer_no', 'loan_acct_no'] } },
-  { ...mockScopeExamples.missingConditionField, domain: '公共组', tableName: 'kpba_pb_product_parameter', tableComment: '公共产品参数', fields: [{ name: 'parameter_id', comment: '参数编号', primaryKey: true }, { name: 'legacy_partition_id', comment: '历史分区主键', primaryKey: true }, { name: 'parameter_name', comment: '参数名称' }], reviser: '王芳', groupOwnerUsername: 'wangfang', groupOwnerName: '王芳', groupOwner: '王芳(wangfang)', date: '2026-09-09', metadataValidation: { status: 'MISSING_FIELDS', missingFieldNames: ['legacy_partition_id'], missingConditionFieldNames: ['legacy_status'], primaryKeyChanged: false, missingPrimaryKeyNames: [], formerPrimaryKeyNames: [] } },
-]
-
-const domains = ['存款组', '贷款组', '公共组', '结算组', '平台组']
-const revisers = ['周皓', '李明', '王芳', '陈晨', '赵磊']
-const mockUsers = [
-  { username: 'sunhy1', realName: '孙海英', displayName: '孙海英(sunhy1)' },
-  { username: 'zhangsan', realName: '张三', displayName: '张三(zhangsan)' },
-  { username: 'liming', realName: '李明', displayName: '李明(liming)' },
-  { username: 'wangfang', realName: '王芳', displayName: '王芳(wangfang)' },
-  { username: 'chenchen', realName: '陈晨', displayName: '陈晨(chenchen)' },
-  { username: 'zhaolei', realName: '赵磊', displayName: '赵磊(zhaolei)' },
-]
-const currentMockUser = { username: 'admin', realName: '管理员', displayName: '管理员(admin)' }
-const MOCK_GENERATION_TOKEN = 'sunline300348'
-const localSystemDate = () => {
-  const current = new Date()
-  const month = String(current.getMonth() + 1).padStart(2, '0')
-  const day = String(current.getDate()).padStart(2, '0')
-  return `${current.getFullYear()}-${month}-${day}`
-}
-const localSystemDateTime = () => {
-  const current = new Date()
-  return `${localSystemDate()} ${String(current.getHours()).padStart(2, '0')}:${String(current.getMinutes()).padStart(2, '0')}:${String(current.getSeconds()).padStart(2, '0')}`
-}
-const fieldCatalog = [
-  ['acct_no', '账号'], ['customer_no', '客户号'], ['currency_cd', '币种'], ['balance_amt', '余额'],
-  ['status_cd', '状态'], ['open_dt', '开户日期'], ['branch_no', '机构号'], ['product_cd', '产品代码'],
-  ['txn_sn', '交易流水'], ['update_tm', '更新时间'], ['reserved_1', ''],
-]
-
-const createMockRow = index => {
-  const domain = domains[(index - 1) % domains.length]
-  const fieldCount = 4 + (index % 8)
-  const groupOwner = mockUsers[(index - 1) % mockUsers.length]
-  return {
-    domain,
-    tableName: `k${domain === '贷款组' ? 'ln' : domain === '存款组' ? 'dp' : domain === '结算组' ? 'st' : domain === '平台组' ? 'pt' : 'pb'}_replay_compare_${String(index).padStart(3, '0')}`,
-    tableComment: `${domain}回放比对业务表${index}`,
-    fields: Array.from({ length: fieldCount }, (_, fieldIndex) => {
-      const [name, comment] = fieldCatalog[(index + fieldIndex) % fieldCatalog.length]
-      return { name: `${name}_${fieldIndex + 1}`, comment }
-    }),
-    reviser: revisers[(index - 1) % revisers.length],
-    groupOwnerUsername: groupOwner.username,
-    groupOwnerName: groupOwner.realName,
-    groupOwner: groupOwner.displayName,
-    date: `2026-09-${String(((index - 1) % 28) + 1).padStart(2, '0')}`,
-  }
-}
-
-const useMock = import.meta.env.DEV && import.meta.env.VITE_REPLAY_DB_COMPARE_MOCK === 'true'
-const mockRows = [...seedRows, ...Array.from({ length: 196 }, (_, index) => createMockRow(index + 4))]
-  .map((row, index) => {
-    const registration = { ...row, id: index + 1, version: 1 }
-    if (index === 4) {
-      return {
-        ...registration,
-        tableName: 'removed_base_table',
-        tableComment: '已从母库删除的历史登记表',
-        fields: [
-          { name: 'historical_id', comment: '历史主键', primaryKey: true, existsInBase: false },
-          { name: 'historical_status', comment: '历史状态', primaryKey: false, existsInBase: false },
-        ],
-        metadataValidation: { status: 'TABLE_MISSING', missingFieldNames: [], primaryKeyChanged: false, missingPrimaryKeyNames: [] },
-      }
-    }
-    if (index === 5) {
-      return {
-        ...registration,
-        tableName: 'base_unavailable_table',
-        tableComment: '母库暂不可校验的登记表',
-        metadataValidation: { status: 'UNAVAILABLE', missingFieldNames: [], primaryKeyChanged: false, missingPrimaryKeyNames: [] },
-      }
-    }
-    if (index === 6) {
-      return {
-        ...registration,
-        tableName: 'no_primary_key_registered',
-        tableComment: '主键已被删除的登记测试表',
-        fields: [
-          { name: 'historical_key', comment: '历史主键字段', primaryKey: true, existsInBase: true },
-          { name: 'compare_status', comment: '比对状态', primaryKey: false, existsInBase: true },
-        ],
-        metadataValidation: { status: 'VALID', missingFieldNames: [], primaryKeyChanged: false, missingPrimaryKeyNames: [] },
-      }
-    }
-    return registration
-  })
-const rows = reactive(useMock ? mockRows : [])
-const serverTotal = ref(useMock ? mockRows.length : 0)
+const rows = reactive([])
+const pageError = ref('')
+const filterError = ref('')
+const serverTotal = ref(0)
 const serverGlobalTableCount = ref(0)
 const serverGlobalFieldCount = ref(0)
-
-const auditEvents = reactive([
-  { id: 103, tableName: 'legacy_removed_table', operation: 'DELETE', operatorName: '王芳', operatedAt: '2026-09-12 11:42:19', changeCount: 2, details: [{ id: 1, changeType: 'MODIFY', fieldLabel: '登记状态', beforeValue: '有效', afterValue: '已删除' }, { id: 2, changeType: 'DELETE', fieldLabel: '比对字段 legacy_id', beforeValue: 'legacy_id(历史主键)', afterValue: '' }] },
-  { id: 102, tableName: 'kdpa_cb_acct_fzn_cntl_inf', operation: 'UPDATE', operatorName: '周皓', operatedAt: '2026-09-12 10:26:35', changeCount: 2, details: [{ id: 1, changeType: 'ADD', fieldLabel: '比对字段 acct_status', beforeValue: '', afterValue: 'acct_status(账户状态)' }, { id: 2, changeType: 'REORDER', fieldLabel: '比对字段 fzn_cntl_amt', beforeValue: '4', afterValue: '3' }] },
-  { id: 101, tableName: 'kdpa_cb_acct_fzn_cntl_inf', operation: 'CREATE', operatorName: '李明', operatedAt: '2026-09-07 09:18:04', changeCount: 3, details: [{ id: 1, changeType: 'ADD', fieldLabel: '领域', beforeValue: '', afterValue: '存款组' }, { id: 2, changeType: 'ADD', fieldLabel: '小组负责人', beforeValue: '', afterValue: '孙海英(sunhy1)' }, { id: 3, changeType: 'ADD', fieldLabel: '比对字段 fzn_cntl_id', beforeValue: '', afterValue: 'fzn_cntl_id(冻结控制编号)' }] },
-])
-let nextAuditEventId = 104
+const auditEvents = reactive([])
 
 const filterColumns = [
   { key: 'tableName', label: '表英文名 / 中文名', width: '127px' },
@@ -469,8 +376,8 @@ const filterColumns = [
   { key: 'fields', label: '比对字段', width: '250px' },
   { key: 'queryCondition', label: '查询条件', width: '90px' },
   { key: 'sampleLimit', label: '样本数', width: '75px' },
-  { key: 'reviser', label: '修订人', width: '90px' },
-  { key: 'groupOwner', label: '小组负责人', width: '90px' },
+  { key: 'reviser', label: '开发负责人', width: '90px' },
+  { key: 'groupOwner', label: '科技负责人', width: '90px' },
   { key: 'date', label: '登记日期', width: '51px' },
 ]
 const filters = reactive({})
@@ -550,15 +457,17 @@ const tableDisplayValue = row => row.tableComment?.trim()
   : row.tableName
 
 const allFields = row => row.fields.map(formatField).join('、')
+const formatComparisonKey = key => key
+  ? `${key.indexType === 'PRIMARY_KEY' ? '主键' : '唯一索引'} · ${key.indexName} · ${key.columnNames.join('、')}`
+  : '未记录索引选择（按母库默认）'
+const selectedIndexFieldLabel = (row, field) => {
+  if (!row.comparisonKey) return field.primaryKey ? '主键' : ''
+  if (!row.comparisonKey.columnNames.some(name => name.toLocaleLowerCase() === (field.name || field.columnName)?.toLocaleLowerCase())) return ''
+  return row.comparisonKey.indexType === 'UNIQUE_INDEX' ? '唯一索引' : '主键'
+}
 const primaryKeyColumnsFor = row => {
+  if (row.comparisonKey) return row.comparisonKey.columnNames
   if (row.primaryKeyNames?.length) return row.primaryKeyNames
-  if (useMock) {
-    const currentPrimaryKeys = getMockColumns(row.tableName)
-      .filter(column => column.primaryKey)
-      .sort((left, right) => (left.primaryKeyOrder || 0) - (right.primaryKeyOrder || 0))
-      .map(column => column.columnName)
-    if (currentPrimaryKeys.length) return currentPrimaryKeys
-  }
   return row.fields.filter(field => field.primaryKey).map(field => field.name)
 }
 const queryConditionCopyValue = row => {
@@ -571,15 +480,6 @@ const queryConditionCopyValue = row => {
   return preview === '全表比对' ? '全表' : preview
 }
 const queryConditionExpression = row => queryConditionCopyValue(row)
-const queryConditionFilterValue = row => {
-  const normalized = normalizeConditionTree(row.whereCondition)
-  if (!normalized && !row.compareLimit) return FULL_TABLE_FILTER_VALUE
-  return JSON.stringify({
-    whereCondition: normalized,
-    compareLimit: row.compareLimit ?? null,
-    primaryKeyColumns: primaryKeyColumnsFor(row),
-  })
-}
 const hasQueryCondition = row => Boolean(row?.whereCondition?.groups?.length)
 const hasQueryScope = row => hasQueryCondition(row) || Boolean(row?.compareLimit)
 const metadataStatus = row => row?.metadataValidation?.status || 'VALID'
@@ -597,94 +497,26 @@ const missingFieldNamesFor = row => new Set(
 )
 const isListFieldMissing = (row, field) => isMissingFields(row)
   && missingFieldNamesFor(row).has(String(field?.name || '').trim().toLocaleLowerCase())
-const baseFieldNamesFor = row => new Set(getMockColumns(row.tableName).map(column => column.columnName))
-const isFieldMissingInBase = (row, field) => field.missingInBase !== undefined
-  ? field.missingInBase
-  : !baseFieldNamesFor(row).has(field.name)
+const isFieldMissingInBase = (row, field) => field.missingInBase === true
+  || field.existsInBase === false
+  || missingFieldNamesFor(row).has(String(field?.name || '').trim().toLocaleLowerCase())
 const missingFieldsFor = row => row.fields.filter(field => isFieldMissingInBase(row, field))
 
-const valuesFor = (row, key) => {
-  if (key === 'tableName') return [
-    row.tableName,
-    ...(isMissingFields(row) ? [MISSING_FIELDS_LABEL] : []),
-    ...(hasMissingConditionFields(row) ? [MISSING_CONDITION_FIELDS_LABEL] : []),
-    ...(hasOrderingPrimaryKeyChanged(row) ? [ORDERING_PRIMARY_KEY_CHANGED_LABEL] : []),
-    ...(isTableMissing(row) ? [TABLE_MISSING_LABEL] : []),
-  ]
-  if (key === 'fields') return row.fields.map(field => field.name)
-  if (key === 'queryCondition') return [queryConditionFilterValue(row)]
-  if (key === 'reviser') return [row.reviserEmpNo || row.reviser || EMPTY_FILTER_VALUE]
-  if (key === 'groupOwner') return [row.groupOwnerUsername || EMPTY_FILTER_VALUE]
-  return [row[key] || EMPTY_FILTER_VALUE]
-}
-
-const labelFor = (row, key, value) => {
-  if (value === EMPTY_FILTER_VALUE) return '空'
-  if (key === 'tableName' && value === row.tableName) {
-    return row.tableComment?.trim() ? `${row.tableName}(${row.tableComment.trim()})` : row.tableName
-  }
-  if (key === 'fields') return formatField(row.fields.find(field => field.name === value) || { name: value })
-  if (key === 'queryCondition') return queryConditionExpression(row)
-  if (key === 'reviser') return row.reviser || '空'
-  if (key === 'groupOwner') return row.groupOwner || '空'
-  return value
-}
-
-const matchesFilters = (row, excludedKey = '') => filterColumns.every(({ key }) => {
-  if (key === excludedKey || !filters[key]?.length) return true
-  return valuesFor(row, key).some(value => filters[key].includes(value))
-})
-
-const filteredRows = computed(() => useMock ? rows.filter(row => matchesFilters(row)) : rows)
-const globalTableCount = computed(() => useMock ? rows.length : serverGlobalTableCount.value)
-const globalFieldCount = computed(() => useMock
-  ? rows.reduce((total, row) => total + row.fields.length, 0)
-  : serverGlobalFieldCount.value)
-const totalRows = computed(() => useMock ? filteredRows.value.length : serverTotal.value)
+const globalTableCount = computed(() => serverGlobalTableCount.value)
+const globalFieldCount = computed(() => serverGlobalFieldCount.value)
+const totalRows = computed(() => serverTotal.value)
 const pageCount = computed(() => Math.max(1, Math.ceil(totalRows.value / pageSize.value)))
-const pagedRows = computed(() => {
-  if (!useMock) return rows
-  const start = (page.value - 1) * pageSize.value
-  return filteredRows.value.slice(start, start + pageSize.value)
-})
-const visibleAuditEvents = computed(() => auditEvents.filter(event => {
-  const query = auditQuery.value
-  const tableKeyword = query.tableKeyword?.toLocaleLowerCase() || ''
-  const operatorKeyword = query.operatorKeyword?.toLocaleLowerCase() || ''
-  return (!tableKeyword || event.tableName.toLocaleLowerCase().includes(tableKeyword))
-    && (!operatorKeyword || event.operatorName.toLocaleLowerCase().includes(operatorKeyword))
-    && (!query.operations?.length || query.operations.includes(event.operation))
-    && (!query.operatedFrom || event.operatedAt >= query.operatedFrom.replace('T', ' '))
-    && (!query.operatedTo || event.operatedAt <= query.operatedTo.replace('T', ' '))
-}))
+const pagedRows = computed(() => rows)
 const activeFilterLabel = computed(() => filterColumns.find(column => column.key === activeFilterKey.value)?.label || '')
 const serverFilterOptions = ref([])
 const serverFilterMatchedCount = ref(0)
-const filterOptions = computed(() => {
-  if (!activeFilterKey.value) return []
-  if (!useMock) return serverFilterOptions.value
-  const counts = new Map()
-  rows.filter(row => matchesFilters(row, activeFilterKey.value)).forEach(row => {
-    valuesFor(row, activeFilterKey.value).forEach(value => {
-      const current = counts.get(value) || { value, label: labelFor(row, activeFilterKey.value, value), count: 0 }
-      current.count += 1
-      counts.set(value, current)
-    })
-  })
-  return [...counts.values()].sort((left, right) => left.label.localeCompare(right.label, 'zh-CN'))
-})
+const filterOptions = computed(() => activeFilterKey.value ? serverFilterOptions.value : [])
 const visibleFilterOptions = computed(() => {
   const keyword = filterSearch.value.toLocaleLowerCase()
   if (!keyword) return filterOptions.value
   return filterOptions.value.filter(option => `${option.value} ${option.label || ''}`.toLocaleLowerCase().includes(keyword))
 })
-const draftMatchedCount = computed(() => {
-  if (!useMock) return serverFilterMatchedCount.value
-  if (!activeFilterKey.value) return filteredRows.value.length
-  const selected = filterDraft.value
-  return rows.filter(row => matchesFilters(row, activeFilterKey.value)
-    && (!selected.length || valuesFor(row, activeFilterKey.value).some(value => selected.includes(value)))).length
-})
+const draftMatchedCount = computed(() => serverFilterMatchedCount.value)
 
 const isExpanded = tableName => expandedTables.value.has(tableName)
 const isQueryConditionExpanded = tableName => expandedConditionTables.value.has(tableName)
@@ -751,6 +583,7 @@ const mapField = field => ({
 const formatPerson = (name, username, employeeNumber) => {
   const displayName = String(name || '').trim()
   const account = String(username || employeeNumber || '').trim()
+  if (displayName.includes('(') && displayName.endsWith(')')) return displayName
   if (displayName && account) return `${displayName}(${account})`
   return displayName || account
 }
@@ -777,13 +610,15 @@ const mapRegistration = registration => ({
   whereSql: registration.whereSql || null,
   compareLimit: registration.compareLimit ?? null,
   primaryKeyNames: registration.primaryKeyNames || [],
+  comparisonKey: registration.comparisonKey || null,
 })
 const loadRegistrationDetail = async id => mapRegistration(await loadRegistration(id))
-const hydrateRegistration = async row => {
-  if (useMock) return row
-  return loadRegistrationDetail(row.id)
+const hydrateRegistration = row => loadRegistrationDetail(row.id)
+const openRegistrationDetail = async row => {
+  pageError.value = ''
+  try { detailRegistration.value = await hydrateRegistration(row) }
+  catch (error) { pageError.value = error?.message || '登记详情加载失败，请重试' }
 }
-const openRegistrationDetail = async row => { detailRegistration.value = await hydrateRegistration(row) }
 const requestDetailTableDeletion = () => {
   deleteTarget.value = detailRegistration.value
   detailRegistration.value = null
@@ -794,10 +629,11 @@ const openRegistrationAudit = async row => {
   auditDialogOpen.value = true
   auditGroups.value = []
   auditError.value = ''
-  if (!useMock) {
+  auditEvents.splice(0, auditEvents.length)
+  try {
     const result = await loadRegistrationAudits(row.id, 0, 50)
     auditEvents.splice(0, auditEvents.length, ...(result.items || []))
-  }
+  } catch (error) { auditError.value = error?.message || '审计日志加载失败，请重试' }
 }
 const openGlobalAudit = async () => {
   auditTableName.value = ''
@@ -807,30 +643,13 @@ const openGlobalAudit = async () => {
   auditDialogOpen.value = true
   await loadGroupedAudits()
 }
-const mockGroupedAudits = () => {
-  const grouped = new Map()
-  for (const event of visibleAuditEvents.value) {
-    const schemaName = event.schemaName || 'CCBS_BASE'
-    const key = `${schemaName}\u0000${event.tableName}`
-    if (!grouped.has(key)) grouped.set(key, { schemaName, tableName: event.tableName, events: [] })
-    grouped.get(key).events.push(event)
-  }
-  const content = [...grouped.values()].map(group => {
-    group.events.sort((left, right) => right.operatedAt.localeCompare(left.operatedAt) || Number(right.id) - Number(left.id))
-    const row = rows.find(item => item.tableName === group.tableName)
-    const latest = group.events[0]
-    return { ...group, tableComment: row?.tableComment || '', matchedEventCount: group.events.length, latestOperatorName: latest.operatorName, latestOperatedAt: latest.operatedAt }
-  }).sort((left, right) => right.latestOperatedAt.localeCompare(left.latestOperatedAt) || Number(right.events[0].id) - Number(left.events[0].id))
-  const start = auditPage.value * auditPageSize.value
-  return { content: content.slice(start, start + auditPageSize.value), page: auditPage.value, size: auditPageSize.value, totalElements: content.length, totalPages: Math.ceil(content.length / auditPageSize.value) }
-}
 const loadGroupedAudits = async () => {
   const sequence = ++auditRequestSequence
   auditLoading.value = true
   auditError.value = ''
   auditGroups.value = []
   try {
-    const result = useMock ? mockGroupedAudits() : await searchGroupedAuditsApi({ ...auditQuery.value, page: auditPage.value, size: auditPageSize.value })
+    const result = await searchGroupedAuditsApi({ ...auditQuery.value, page: auditPage.value, size: auditPageSize.value })
     if (sequence !== auditRequestSequence) return
     auditGroups.value = result.content || []
     auditPage.value = result.page ?? auditPage.value
@@ -855,7 +674,8 @@ const searchAuditGroups = async query => {
 const changeAuditPage = async nextPage => { auditPage.value = nextPage; await loadGroupedAudits() }
 const changeAuditPageSize = async nextSize => { auditPageSize.value = nextSize; auditPage.value = 0; await loadGroupedAudits() }
 const loadAuditEventDetails = async event => {
-  if (!useMock) event.details = await loadAuditDetails(event.id)
+  try { event.details = await loadAuditDetails(event.id) }
+  catch (error) { auditError.value = error?.message || '审计详情加载失败，请重试' }
 }
 const closeAuditDialog = () => {
   auditDialogOpen.value = false
@@ -863,70 +683,18 @@ const closeAuditDialog = () => {
   auditGroups.value = []
 }
 const requestDeleteRegistration = row => {
+  pageError.value = ''
   deleteTarget.value = row
-}
-
-const auditDetailsFor = (before, after, operation) => {
-  const details = []
-  const add = (changeType, fieldLabel, beforeValue, afterValue) => details.push({ id: details.length + 1, changeType, fieldLabel, beforeValue, afterValue })
-  if (operation === 'DELETE') {
-    add('MODIFY', '登记状态', '有效', '已删除')
-    before.fields.forEach(field => add('DELETE', `比对字段 ${field.name}`, formatField(field), ''))
-    return details
-  }
-  const attributes = [
-    ['表中文名', 'tableComment'],
-    ['领域', 'domain'],
-    ['小组负责人', 'groupOwner'],
-    ['登记日期', 'date'],
-  ]
-  attributes.forEach(([label, key]) => {
-    const beforeValue = before?.[key] || ''
-    const afterValue = after?.[key] || ''
-    if (beforeValue !== afterValue) add(before ? 'MODIFY' : 'ADD', label, beforeValue, afterValue)
-  })
-  const beforeFields = new Map((before?.fields || []).map((field, index) => [field.name, { field, index }]))
-  const afterFields = new Map((after?.fields || []).map((field, index) => [field.name, { field, index }]))
-  beforeFields.forEach(({ field }, name) => {
-    if (!afterFields.has(name)) add('DELETE', `比对字段 ${name}`, formatField(field), '')
-  })
-  afterFields.forEach(({ field, index }, name) => {
-    const previous = beforeFields.get(name)
-    if (!previous) add('ADD', `比对字段 ${name}`, '', formatField(field))
-    else {
-      if ((previous.field.comment || '') !== (field.comment || '')) add('MODIFY', `比对字段 ${name} 中文描述`, previous.field.comment || '', field.comment || '')
-      if (previous.index !== index) add('REORDER', `比对字段 ${name}`, String(previous.index + 1), String(index + 1))
-    }
-  })
-  return details
-}
-
-const appendAuditEvent = (operation, row, details) => {
-  if (!details.length) return
-  auditEvents.unshift({
-    id: nextAuditEventId++,
-    tableName: row.tableName,
-    operation,
-    operatorName: currentMockUser.realName,
-    operatedAt: localSystemDateTime(),
-    changeCount: details.length,
-    details,
-  })
 }
 
 const confirmListDelete = async () => {
   if (!deleteTarget.value) return
   const deletedRow = deleteTarget.value
-  if (!useMock) {
-    await deleteRegistrationApi(deletedRow.id, { version: deletedRow.version, reason: '删除登记' })
-    deleteTarget.value = null
-    await loadPage()
-    return
-  }
-  appendAuditEvent('DELETE', deletedRow, auditDetailsFor(deletedRow, null, 'DELETE'))
-  const existingIndex = rows.findIndex(row => row.tableName === deleteTarget.value.tableName)
-  if (existingIndex >= 0) rows.splice(existingIndex, 1)
+  pageError.value = ''
+  try { await deleteRegistrationApi(deletedRow.id, { version: deletedRow.version, reason: '删除登记' }) }
+  catch (error) { pageError.value = error?.message || '删除失败，请重试'; return }
   deleteTarget.value = null
+  await loadPage()
 }
 
 const openAddEditor = () => {
@@ -937,13 +705,11 @@ const openAddEditor = () => {
 
 const openEditEditor = async row => {
   editorSaveError.value = null
-  editingRegistration.value = await hydrateRegistration(row)
-  editorOpen.value = true
-}
-
-const searchMockUsers = async keyword => {
-  const normalizedKeyword = keyword.trim().toLocaleLowerCase()
-  return mockUsers.filter(user => `${user.realName} ${user.username}`.toLocaleLowerCase().includes(normalizedKeyword))
+  pageError.value = ''
+  try {
+    editingRegistration.value = await hydrateRegistration(row)
+    editorOpen.value = true
+  } catch (error) { pageError.value = error?.message || '登记详情加载失败，请重试' }
 }
 
 const closeEditor = () => {
@@ -954,102 +720,71 @@ const closeEditor = () => {
 
 const saveRegistration = async payload => {
   editorSaveError.value = null
-  if (!useMock) {
-    const body = {
-      tableName: payload.tableName,
-      fieldNames: payload.fieldNames,
-      domainName: payload.domain,
-      groupOwnerEmpNo: payload.groupOwnerEmpNo || payload.groupOwnerUsername,
-      version: payload.version,
-      deleteWhenNoFields: false,
-      whereCondition: payload.whereCondition,
-      compareLimit: payload.compareLimit,
-      ...(canConfigureSampleLimit.value && payload.sampleLimit !== undefined ? { sampleLimit: payload.sampleLimit } : {}),
-    }
-    try {
-      if (payload.mode === 'edit') await updateRegistration(payload.id, body)
-      else if (payload.mode === 'reregister') {
-        await reregisterRegistration(payload.id, { ...body, reason: '重新登记' })
-      } else await createRegistration(body)
-    } catch (error) {
-      if (error.code === 'BASE_PRIMARY_KEYS_REQUIRED') {
-        editorSaveError.value = {
-          type: 'PRIMARY_KEY_CHANGED',
-          missingPrimaryKeyNames: error.data?.missingPrimaryKeyNames || [],
-        }
-        return
-      }
-      if (error.code === 'BASE_PRIMARY_KEY_MISSING') {
-        editorSaveError.value = {
-          type: 'PRIMARY_KEY_MISSING',
-          tableName: error.data?.tableName || payload.tableName,
-        }
-        return
-      }
-      if (error.code === 'COMPARISON_SCOPE_INVALID') {
-        editorSaveError.value = {
-          type: 'SCOPE_INVALID',
-          message: error.message || '比对范围配置存在问题',
-          errors: error.data?.errors || [],
-        }
-        return
-      }
+  const body = {
+    tableName: payload.tableName,
+    fieldNames: payload.fieldNames,
+    comparisonKeyName: payload.comparisonKeyName,
+    domainName: payload.domain,
+    groupOwnerEmpNo: payload.groupOwnerEmpNo || payload.groupOwnerUsername,
+    version: payload.version,
+    deleteWhenNoFields: false,
+    whereCondition: payload.whereCondition,
+    compareLimit: payload.compareLimit,
+    ...(canConfigureSampleLimit.value && payload.sampleLimit !== undefined ? { sampleLimit: payload.sampleLimit } : {}),
+  }
+  try {
+    if (payload.mode === 'edit') await updateRegistration(payload.id, body)
+    else if (payload.mode === 'reregister') {
+      await reregisterRegistration(payload.id, { ...body, reason: '重新登记' })
+    } else await createRegistration(body)
+  } catch (error) {
+    if (error.code === 'BASE_PRIMARY_KEYS_REQUIRED') {
       editorSaveError.value = {
-        type: 'SAVE_FAILED',
-        message: error.message || '保存失败，请稍后重试',
+        type: 'PRIMARY_KEY_CHANGED',
+        missingPrimaryKeyNames: error.data?.missingPrimaryKeyNames || [],
       }
       return
     }
-    closeEditor()
-    await loadPage()
+    if (error.code === 'BASE_PRIMARY_KEY_MISSING') {
+      editorSaveError.value = {
+        type: 'PRIMARY_KEY_MISSING',
+        tableName: error.data?.tableName || payload.tableName,
+      }
+      return
+    }
+    if (error.code === 'COMPARISON_KEY_CHANGED') {
+      editorSaveError.value = { type: 'COMPARISON_KEY_CHANGED', message: error.message }
+      return
+    }
+    if (error.code === 'COMPARISON_SCOPE_INVALID') {
+      editorSaveError.value = {
+        type: 'SCOPE_INVALID',
+        message: error.message || '比对范围配置存在问题',
+        errors: error.data?.errors || [],
+      }
+      return
+    }
+    editorSaveError.value = {
+      type: 'SAVE_FAILED',
+      message: error.message || '保存失败，请稍后重试',
+    }
     return
   }
-  const existingIndex = rows.findIndex(row => row.tableName === payload.tableName)
-  const existingRow = existingIndex >= 0 ? rows[existingIndex] : null
-  const nextRow = {
-    id: payload.id || rows.length + 1,
-    version: (payload.version || 0) + 1,
-    tableName: payload.tableName,
-    tableComment: payload.tableComment,
-    fields: payload.fields,
-    domain: payload.domain,
-    reviser: currentMockUser.realName,
-    groupOwnerUsername: payload.groupOwnerUsername,
-    groupOwnerName: payload.groupOwnerName,
-    groupOwner: `${payload.groupOwnerName}(${payload.groupOwnerUsername})`,
-    date: existingRow?.date || localSystemDate(),
-    whereCondition: payload.whereCondition || null,
-    whereConditionConfigured: Boolean(payload.whereCondition),
-    compareLimit: payload.compareLimit ?? null,
-    sampleLimit: canConfigureSampleLimit.value ? (payload.sampleLimit ?? existingRow?.sampleLimit ?? 100) : (existingRow?.sampleLimit ?? 100),
-  }
-  const details = auditDetailsFor(existingRow, nextRow, existingRow ? 'UPDATE' : 'CREATE')
-  if (existingIndex >= 0) rows.splice(existingIndex, 1, nextRow)
-  else rows.unshift(nextRow)
-  appendAuditEvent(existingRow ? 'UPDATE' : 'CREATE', nextRow, details)
   closeEditor()
+  await loadPage()
+  return
 }
 
 const deleteRegistration = async payload => {
   editorSaveError.value = null
-  if (!useMock) {
-    try {
-      await deleteRegistrationApi(payload.id, { version: payload.version, reason: payload.reason })
-    } catch (error) {
-      editorSaveError.value = { type: 'SAVE_FAILED', message: error.message || '删除失败，请稍后重试' }
-      return
-    }
-    closeEditor()
-    await loadPage()
+  try {
+    await deleteRegistrationApi(payload.id, { version: payload.version, reason: payload.reason })
+  } catch (error) {
+    editorSaveError.value = { type: 'SAVE_FAILED', message: error.message || '删除失败，请稍后重试' }
     return
   }
-  const existingIndex = rows.findIndex(row => row.tableName === payload.tableName)
-  if (existingIndex >= 0) {
-    const deletedRow = rows[existingIndex]
-    appendAuditEvent('DELETE', deletedRow, auditDetailsFor(deletedRow, null, 'DELETE'))
-    rows.splice(existingIndex, 1)
-  }
   closeEditor()
+  await loadPage()
 }
 
 const positionFilterPanel = anchor => {
@@ -1082,7 +817,7 @@ const openFilter = async (key, event) => {
   positionFilterPanel(anchor)
   activeFilterKey.value = key
   await nextTick()
-  if (!useMock) await fetchFilterOptions(key, '')
+  await fetchFilterOptions(key, '')
 }
 
 const closeFilter = () => {
@@ -1094,7 +829,7 @@ const closeFilter = () => {
 
 const runFilterSearch = async () => {
   filterSearch.value = filterSearchInput.value
-  if (!useMock) await fetchFilterOptions(activeFilterKey.value, filterSearch.value)
+  await fetchFilterOptions(activeFilterKey.value, filterSearch.value)
 }
 
 const selectAllOptions = () => { filterDraft.value = visibleFilterOptions.value.map(option => option.value) }
@@ -1106,23 +841,23 @@ const applyFilter = async () => {
   filters[activeFilterKey.value] = [...filterDraft.value]
   page.value = 1
   closeFilter()
-  if (!useMock) await loadPage()
+  await loadPage()
 }
 const clearActiveFilter = async () => {
   delete filters[activeFilterKey.value]
   page.value = 1
   closeFilter()
-  if (!useMock) await loadPage()
+  await loadPage()
 }
 const resetFilters = async () => {
   Object.keys(filters).forEach(key => delete filters[key])
   page.value = 1
   closeFilter()
-  if (!useMock) await loadPage()
+  await loadPage()
 }
 const goToPage = async nextPage => {
   page.value = Math.min(Math.max(1, nextPage), pageCount.value)
-  if (!useMock) await loadPage()
+  await loadPage()
 }
 
 const filterKeyMap = {
@@ -1160,11 +895,14 @@ const mapListItem = item => mapRegistration({
   }),
 })
 const loadPage = async () => {
-  const result = await searchRegistrations(criteria())
-  rows.splice(0, rows.length, ...(result.items || []).map(mapListItem))
-  serverTotal.value = Number(result.total || 0)
-  serverGlobalTableCount.value = Number(result.globalTableCount || 0)
-  serverGlobalFieldCount.value = Number(result.globalFieldCount || 0)
+  pageError.value = ''
+  try {
+    const result = await searchRegistrations(criteria())
+    rows.splice(0, rows.length, ...(result.items || []).map(mapListItem))
+    serverTotal.value = Number(result.total || 0)
+    serverGlobalTableCount.value = Number(result.globalTableCount || 0)
+    serverGlobalFieldCount.value = Number(result.globalFieldCount || 0)
+  } catch (error) { pageError.value = error?.message || '登记清单加载失败，请重试' }
 }
 const openInitialImport = () => {
   initialImportOpen.value = true
@@ -1195,7 +933,7 @@ const submitInitialImport = async () => {
     await importInitialExcel(initialImportFile.value, initialImportToken.value)
     initialImportOpen.value = false
     page.value = 1
-    if (!useMock) await loadPage()
+    await loadPage()
   } catch (error) {
     initialImportErrors.value = error.data?.errors || []
     initialImportMessage.value = error.message || '初始化导入失败'
@@ -1215,20 +953,24 @@ const exportInitialImportErrorList = async () => {
   }
 }
 const fetchFilterOptions = async (key, keyword) => {
-  const result = await loadHeaderFilterOptions({
-    ...criteria(), targetColumn: filterKeyMap[key], keyword, limit: 200,
-  })
-  serverFilterOptions.value = (result.options || [])
-    .filter(option => option.metadataStatus !== 'PRIMARY_KEY_CHANGED')
-  serverFilterMatchedCount.value = Number(result.matchedRegistrationCount || 0)
+  filterError.value = ''
+  serverFilterOptions.value = []
+  serverFilterMatchedCount.value = 0
+  try {
+    const result = await loadHeaderFilterOptions({
+      ...criteria(), targetColumn: filterKeyMap[key], keyword, limit: 200,
+    })
+    serverFilterOptions.value = (result.options || [])
+      .filter(option => option.metadataStatus !== 'PRIMARY_KEY_CHANGED')
+    serverFilterMatchedCount.value = Number(result.matchedRegistrationCount || 0)
+  } catch (error) { filterError.value = error?.message || '筛选选项加载失败，请重试' }
 }
-const searchTableOptions = (keyword, registrations) => useMock
-  ? import('./replayDatabaseComparisonMock.js').then(module => module.searchMockTables(keyword, registrations))
-  : searchBaseTables(keyword, 20)
-const loadTableColumns = tableName => useMock ? getMockColumns(tableName) : loadBaseColumns(tableName)
+const searchTableOptions = keyword => searchBaseTables(keyword, 20)
+const loadTableColumns = tableName => loadBaseColumns(tableName)
+const loadTableKeys = tableName => loadBaseKeys(tableName)
 const changePageSize = async () => {
   page.value = 1
-  if (!useMock) await loadPage()
+  await loadPage()
 }
 
 const stopFilterResize = () => {
@@ -1278,44 +1020,6 @@ const generationErrorMessage = error => {
   return error.message || '版本生成失败'
 }
 
-const mockGenerationErrors = () => rows.flatMap(row => {
-  const status = metadataStatus(row)
-  if (!['MISSING_FIELDS', 'ORDERING_PRIMARY_KEY_CHANGED', 'TABLE_MISSING', 'UNAVAILABLE'].includes(status)) return []
-  const missingFieldNames = row.metadataValidation?.missingFieldNames || []
-  const reason = status === 'MISSING_FIELDS'
-    ? `比对字段母库中不存在：${missingFieldNames.join('、')}`
-    : status === 'ORDERING_PRIMARY_KEY_CHANGED'
-      ? `排序主键已变更，原顺序：${(row.metadataValidation?.savedOrderingPrimaryKeyNames || []).join('、')}；当前顺序：${(row.metadataValidation?.currentOrderingPrimaryKeyNames || []).join('、')}`
-      : gateStatusLabel[status]
-  return [{
-    tableName: row.tableName,
-    tableComment: row.tableComment,
-    reviserName: row.reviser || null,
-    groupOwnerName: row.groupOwner || null,
-    status,
-    missingFieldNames,
-    reason,
-  }]
-})
-
-const generateMockVersion = token => {
-  if (token !== MOCK_GENERATION_TOKEN) {
-    const error = new Error('口令错误，请重新输入')
-    error.code = 'INVALID_TRIGGER_TOKEN'
-    throw error
-  }
-  const errors = mockGenerationErrors()
-  if (errors.length) {
-    const error = new Error(`${errors.length} 张表未通过版本生成门禁`)
-    error.code = 'VERSION_GATE_BLOCKED'
-    error.data = { errors }
-    throw error
-  }
-  const now = new Date()
-  const versionNo = `${localSystemDate().replaceAll('-', '')}-${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`
-  return { versionNo, tableCount: rows.length, fieldCount: rows.reduce((total, row) => total + row.fields.length, 0) }
-}
-
 const submitGeneration = async () => {
   if (!generationToken.value || generating.value) return
   generating.value = true
@@ -1323,15 +1027,13 @@ const submitGeneration = async () => {
   generationGateErrors.value = []
   generationMessage.value = ''
   try {
-    const generated = useMock
-      ? generateMockVersion(generationToken.value)
-      : await generateVersion(generationToken.value)
+    const generated = await generateVersion(generationToken.value)
     latestVersion.value = generated
     generationMessage.value = `已生成版本，共 ${generated.tableCount} 张表、${generated.fieldCount} 个字段`
     generationOpen.value = false
     generationToken.value = ''
     page.value = 1
-    if (!useMock) await loadPage()
+    await loadPage()
   } catch (error) {
     generationError.value = generationErrorMessage(error)
     generationGateErrors.value = error.data?.errors || []
@@ -1347,17 +1049,15 @@ onMounted(async () => {
   const latestVersionPromise = loadLatestVersion()
     .then(version => { latestVersion.value = version })
     .catch(() => { latestVersion.value = null })
-  if (!useMock) {
-    const initialLoadPromise = Promise.all([
-      loadOptions()
-        .then(options => { canConfigureSampleLimit.value = options?.canConfigurePartitions === true })
-        .catch(() => { canConfigureSampleLimit.value = false }),
-      loadPage(),
-    ])
-    const synchronizationPromise = Promise.resolve(synchronizePrimaryKeys()).catch(() => null)
-    const [, synchronization] = await Promise.all([initialLoadPromise, synchronizationPromise])
-    if (Number(synchronization?.addedFieldCount || 0) > 0) await loadPage()
-  }
+  const initialLoadPromise = Promise.all([
+    loadOptions()
+      .then(options => { canConfigureSampleLimit.value = options?.canConfigurePartitions === true })
+      .catch(() => { canConfigureSampleLimit.value = false }),
+    loadPage(),
+  ])
+  const synchronizationPromise = Promise.resolve(synchronizePrimaryKeys()).catch(() => null)
+  const [, synchronization] = await Promise.all([initialLoadPromise, synchronizationPromise])
+  if (Number(synchronization?.addedFieldCount || 0) > 0) await loadPage()
   await latestVersionPromise
 })
 </script>
@@ -1370,6 +1070,8 @@ onMounted(async () => {
 .page-toolbar p { margin: 0; color: #778291; font-size: 13px; }
 .page-toolbar p span { margin-left: 8px; padding: 2px 7px; border-radius: 10px; color: #a36b00; background: #fff4ce; }
 .page-toolbar .generation-message { margin-top: 5px; color: #107267; }
+.api-error { margin: 0 22px 10px; padding: 8px 10px; color: #9f2f2c; background: #fff1f0; border-left: 4px solid #d94a47; }
+.page-dialog .api-error, .replay-header-filter-panel .api-error { margin: 8px 0; }
 .nav-button { display: none; }
 .toolbar-actions { display: flex; gap: 8px; margin-left: auto; }
 .toolbar-actions button, .pager button { padding: 7px 11px; border: 1px solid #d4dce5; border-radius: 4px; background: #fff; color: #44505e; }
@@ -1439,6 +1141,7 @@ td small { margin-top: 4px; color: #7b8795; }
 .detail-fields > span.is-missing-in-base { border-color: #e35a56; color: #b52f2b; background: #fff0ef; }
 .detail-fields > span b { padding: 1px 5px; border-radius: 8px; color: #fff; background: #d94a47; font-size: 10px; }
 .detail-fields > span b.primary-key-badge { color: #c7332f; background: #ffe5e3; }
+.detail-fields > span b.comparison-key-badge { color: #176f74; background: #e3f5f2; }
 .detail-missing-warning { flex: 1 0 100%; margin: 0 0 4px; padding: 7px 9px; border-left: 4px solid #d94a47; color: #b52f2b; background: #fff0ef; font-weight: 600; }
 .detail-table-warning, .detail-metadata-unavailable { margin: 14px 18px 0 !important; padding: 10px 12px !important; line-height: 1.6; }
 .detail-table-warning { border-left: 4px solid #d94a47; color: #a92f2b; background: #fff0ef; font-weight: 600; }

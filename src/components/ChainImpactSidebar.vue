@@ -181,7 +181,7 @@
           :key="m.key"
           type="button"
           class="cis-impact"
-          :class="{ active: currentPage === m.key }"
+          :class="{ active: currentPage === m.key, 'cis-impact-child': m.child }"
           :style="diiRowStyle(m)"
           :data-testid="m.testId"
           @click="$emit('selectReplayPage', m.key)"
@@ -594,9 +594,11 @@ const codeMenu = [
 
 const replayMenu = [
   { key: 'replay-transaction-persons', label: '全量交易人员清单', desc: '全量导入与导出', testId: 'replay-transaction-persons-menu' },
+  { key: 'replay-database-table-persons', label: '数据库表人员清单', desc: '数据库表负责人', child: true, testId: 'replay-database-table-persons-menu' },
   { key: 'replay-ignore-list', label: '忽略清单', desc: '无条件/有条件/错误码/排序字段', testId: 'replay-ignore-list-menu' },
   { key: 'replay-issues', label: '回放问题清单', desc: '导入与分页查询', testId: 'replay-issues-menu' },
   { key: 'replay-database-comparison-fields', label: '回放数据库比对字段登记', desc: '母库表与字段登记', testId: 'replay-database-comparison-fields-menu' },
+  { key: 'replay-database-issues', label: '回放数据库问题清单', desc: '表级与字段级差异跟踪', child: true, testId: 'replay-database-issues-menu' },
 ]
 
 const IconDatabaseLg = iconLucide(
@@ -635,16 +637,20 @@ const codeIconMap = {
 
 const replayIconMap = {
   'replay-transaction-persons': IconList,
+  'replay-database-table-persons': IconList,
   'replay-issues': PlaySquare,
   'replay-database-comparison-fields': IconDatabaseLg,
+  'replay-database-issues': IconList,
   'replay-ignore-list': IconClipboard,
 }
 
 function isReplayPageKey(pageKey) {
   return [
     'replay-transaction-persons',
+    'replay-database-table-persons',
     'replay-issues',
     'replay-database-comparison-fields',
+    'replay-database-issues',
     'replay-ignore-list',
   ].includes(pageKey)
 }

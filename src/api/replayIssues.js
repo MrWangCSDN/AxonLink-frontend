@@ -245,10 +245,11 @@ export function getReplayIssueTracking(id) {
   return request(`${PREFIX}/${encodeURIComponent(id)}/tracking?limit=200`)
 }
 
-export async function importReplayIssues(file, token, replayType = 'QUERY') {
+export async function importReplayIssues(file, token, replayType = 'QUERY', releaseAt) {
   const formData = new FormData()
   formData.append('file', file)
   formData.append('replayType', replayType || 'QUERY')
+  if (releaseAt != null) formData.append('releaseAt', releaseAt)
 
   const response = await fetch('/api/ai/parallel-replay/issues/import', {
     method: 'POST',

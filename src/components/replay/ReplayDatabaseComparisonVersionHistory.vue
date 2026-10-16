@@ -70,7 +70,7 @@
               <datalist id="history-reviser-options"><option v-for="option in filterOptions.reviser" :key="option.value" :value="option.value">{{ option.label }}</option></datalist>
             </label>
             <label>
-              <span>小组负责人</span>
+              <span>科技负责人</span>
               <input v-model.trim="draftFilters.groupOwnerEmpNo" data-testid="history-group-owner" type="search" list="history-group-owner-options" placeholder="选择姓名 / 工号" />
               <datalist id="history-group-owner-options"><option v-for="option in filterOptions.groupOwner" :key="option.value" :value="option.value">{{ option.label }}</option></datalist>
             </label>
@@ -118,11 +118,12 @@
                 <tr>
                   <th>表英文名 / 中文名</th>
                   <th>领域</th>
+                  <th>选择索引</th>
                   <th>比对字段</th>
                   <th>查询条件</th>
                   <th>样本数</th>
                   <th>修订人</th>
-                  <th>小组负责人</th>
+                  <th>科技负责人</th>
                   <th>登记日期</th>
                 </tr>
               </thead>
@@ -130,9 +131,10 @@
                 <tr v-for="row in snapshot.items" :key="`${row.sourceRegistrationId}-${row.tableName}`">
                   <td><strong>{{ row.tableName }}</strong><small>{{ row.tableComment || '-' }}</small></td>
                   <td>{{ row.domainName || '-' }}</td>
+                  <td :data-testid="`history-comparison-key-${row.tableName}`">{{ formatComparisonKey(row.comparisonKey) }}</td>
                   <td class="field-cell">
                     <span v-for="(field, index) in row.fields || []" :key="`${field.columnName}-${field.comparisonOrder}`">
-                      {{ formatField(field) }}<b v-if="field.primaryKey">主键</b><i v-if="index < row.fields.length - 1">、</i>
+                      {{ formatField(field) }}<b v-if="selectedIndexFieldLabel(row, field)" :class="{ 'comparison-key-badge': row.comparisonKey?.indexType === 'UNIQUE_INDEX' }">{{ selectedIndexFieldLabel(row, field) }}</b><i v-if="index < row.fields.length - 1">、</i>
                     </span>
                   </td>
                   <td
@@ -146,7 +148,7 @@
                   <td>{{ row.registeredDate || '-' }}</td>
                 </tr>
                 <tr v-if="!loadingSnapshot && !snapshot.items.length">
-                  <td colspan="8" class="empty-state">暂无快照数据</td>
+                  <td colspan="9" class="empty-state">暂无快照数据</td>
                 </tr>
               </tbody>
             </table>
@@ -213,12 +215,20 @@ const formatDateTime = value => value ? value.replace('T', ' ') : '-'
 const formatField = field => field.columnComment
   ? `${field.columnName}(${field.columnComment})`
   : field.columnName
+const formatComparisonKey = key => key
+  ? `${key.indexType === 'PRIMARY_KEY' ? '主键' : '唯一索引'} · ${key.indexName} · ${key.columnNames.join('、')}`
+  : '历史默认主键'
+const selectedIndexFieldLabel = (row, field) => {
+  if (!row.comparisonKey) return field.primaryKey ? '主键' : ''
+  if (!row.comparisonKey.columnNames.some(name => name.toLocaleLowerCase() === field.columnName?.toLocaleLowerCase())) return ''
+  return row.comparisonKey.indexType === 'UNIQUE_INDEX' ? '唯一索引' : '主键'
+}
 const queryConditionText = row => {
   const parts = []
   const whereSql = String(row?.whereSql || '').trim().replace(/^where\s+/i, '')
   if (whereSql) parts.push(`WHERE ${whereSql}`)
   if (row?.compareLimit !== null && row?.compareLimit !== undefined && row?.compareLimit !== '') {
-    const primaryKeys = [...(row.fields || [])]
+    const primaryKeys = row.comparisonKey?.columnNames || [...(row.fields || [])]
       .filter(field => field.primaryKey)
       .sort((left, right) => (left.primaryKeyOrder ?? left.comparisonOrder ?? Number.MAX_SAFE_INTEGER)
         - (right.primaryKeyOrder ?? right.comparisonOrder ?? Number.MAX_SAFE_INTEGER))
@@ -428,6 +438,7 @@ td strong, td small { display: block; }
 td small { margin-top: 3px; color: #86919c; }
 .field-cell span { display: inline; line-height: 1.8; }
 .field-cell b { margin-left: 4px; color: #c83f3f; font-size: 10px; }
+.field-cell b.comparison-key-badge { color: #176f74; }
 .field-cell i { color: #86919c; font-style: normal; }
 .query-condition-cell { color: #526474; line-height: 1.6; white-space: normal; }
 .empty-state { padding: 24px; color: #929ca6; text-align: center; }

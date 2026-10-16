@@ -70,9 +70,11 @@ describe('ChainImpactSidebar', () => {
       .filter((item) => item.attributes('data-testid') !== 'replay-section-toggle')
     expect(replayItems.map((item) => item.text())).toEqual([
       expect.stringContaining('全量交易人员清单'),
+      expect.stringContaining('数据库表人员清单'),
       expect.stringContaining('忽略清单'),
       expect.stringContaining('回放问题清单'),
       expect.stringContaining('回放数据库比对字段登记'),
+      expect.stringContaining('回放数据库问题清单'),
     ])
 
     await wrapper.get('[data-testid="replay-database-comparison-fields-menu"]').trigger('click')

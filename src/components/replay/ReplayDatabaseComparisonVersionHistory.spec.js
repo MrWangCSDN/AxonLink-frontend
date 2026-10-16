@@ -59,6 +59,22 @@ describe('ReplayDatabaseComparisonVersionHistory', () => {
     })
   })
 
+  it('shows the immutable selected unique index and orders limited snapshots by its complete key', async () => {
+    comparisonApi.searchVersionSnapshot.mockResolvedValue({ items: [{
+      sourceRegistrationId: 7, tableName: 'acct', compareLimit: 3,
+      comparisonKey: { indexName: 'saved_uq', indexType: 'UNIQUE_INDEX', columnNames: ['code', 'tenant'] },
+      fields: [{ columnName: 'id', primaryKey: true }, { columnName: 'tenant' }, { columnName: 'code' }],
+    }], page: 0, size: 50, total: 1 })
+    const wrapper = mount(ReplayDatabaseComparisonVersionHistory, { props: { open: true } })
+    await flushPromises()
+    expect(wrapper.get('[data-testid="history-comparison-key-acct"]').text()).toBe('唯一索引 · saved_uq · code、tenant')
+    expect(wrapper.get('[data-testid="history-query-condition-acct"]').text()).toBe('ORDER BY code, tenant LIMIT 3')
+    expect(wrapper.findAll('.comparison-key-badge')).toHaveLength(2)
+    expect(wrapper.get('[data-testid="version-snapshot-table"]').text()).not.toContain('比对键')
+    expect(wrapper.get('[data-testid="version-snapshot-table"]').text()).not.toContain('主键')
+    wrapper.unmount()
+  })
+
   it('displays each selected version sample limit without the legacy partition count', async () => {
     comparisonApi.searchVersionSnapshot.mockImplementation(async versionNo => ({
       items: [{ sourceRegistrationId: 7, tableName: 'acct_master', partitionNum: versionNo === '20260914-150101' ? 16 : 4, sampleLimit: versionNo === '20260914-150101' ? 2500 : 0, fields: [] }],

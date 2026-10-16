@@ -11,6 +11,7 @@ import {
   importInitialExcel,
   loadAuditDetails,
   loadBaseColumns,
+  loadBaseKeys,
   loadHeaderFilterOptions,
   loadRegistration,
   loadRegistrationAudits,
@@ -23,6 +24,7 @@ import {
   searchAudits,
   searchGroupedAudits,
   searchBaseTables,
+  searchTechnologyOwners,
   searchRegistrations,
   searchVersionSnapshot,
   downloadVersionConfigScript,
@@ -35,6 +37,25 @@ describe('replayDatabaseComparison api', () => {
     request.mockReset()
     download.mockReset()
     global.fetch = vi.fn()
+  })
+
+  it('uses the employee-only technology owner search without changing collaborator lookup', async () => {
+    await searchTechnologyOwners('100101', 100);
+    expect(request).toHaveBeenCalledWith('/ai/parallel-replay/database-comparison-fields/technology-owners?keyword=100101&limit=50')
+  })
+
+  it('loads complete comparison key candidates and preserves the chosen key in every save route', async () => {
+    await loadBaseKeys('acct/name')
+    const body = { comparisonKeyName: 'acct_uq', fieldNames: ['tenant', 'code'] }
+    await createRegistration(body)
+    await updateRegistration(7, body)
+    await reregisterRegistration(7, body)
+    expect(request.mock.calls).toEqual([
+      ['/ai/parallel-replay/database-comparison-fields/metadata/tables/acct%2Fname/keys'],
+      ['/ai/parallel-replay/database-comparison-fields', { method: 'POST', body: JSON.stringify(body) }],
+      ['/ai/parallel-replay/database-comparison-fields/7', { method: 'PUT', body: JSON.stringify(body) }],
+      ['/ai/parallel-replay/database-comparison-fields/7/reregister', { method: 'POST', body: JSON.stringify(body) }],
+    ])
   })
 
   it('uses exact JSON API paths and bodies', async () => {

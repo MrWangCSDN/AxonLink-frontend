@@ -905,7 +905,7 @@ function confLabel(raw) {
   if (k === 'HIGH')   return '高'
   if (k === 'MEDIUM') return '中'
   if (k === 'LOW')    return '低'
-  // 兼容兜底：万一拿到旧 mock 的数值，也展示个像样的
+  // 保留历史数据中非标准置信度值的展示
   if (raw == null || raw === '') return '—'
   return String(raw)
 }

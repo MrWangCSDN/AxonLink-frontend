@@ -257,12 +257,22 @@
         v-if="currentPage === 'replay-transaction-persons'"
         class="impact-main"
       />
+      <ReplayDatabaseTablePersonPage
+        v-if="currentPage === 'replay-database-table-persons'"
+        class="impact-main"
+      />
       <ReplayConfigPage
         v-if="currentPage === 'replay-ignore-list'"
         class="impact-main"
       />
       <ReplayDatabaseComparisonPage
         v-if="currentPage === 'replay-database-comparison-fields'"
+        class="impact-main"
+        @toggle-navigation="mobileNavigationOpen = !mobileNavigationOpen"
+      />
+
+      <ReplayDatabaseIssuePage
+        v-if="currentPage === 'replay-database-issues'"
         class="impact-main"
         @toggle-navigation="mobileNavigationOpen = !mobileNavigationOpen"
       />
@@ -344,8 +354,10 @@ import ImpactAnalysisPage from '../components/impact/ImpactAnalysisPage.vue'
 import DaoIndexPage from '../components/daoindex/DaoIndexPage.vue'
 import ReplayIssuePage from '../components/replay/ReplayIssuePage.vue'
 import ReplayTransactionPersonPage from '../components/replay/ReplayTransactionPersonPage.vue'
+import ReplayDatabaseTablePersonPage from '../components/replay/ReplayDatabaseTablePersonPage.vue'
 import ReplayConfigPage from '../components/replay/ReplayConfigPage.vue'
 import ReplayDatabaseComparisonPage from '../components/replay/ReplayDatabaseComparisonPage.vue'
+import ReplayDatabaseIssuePage from '../components/replay/ReplayDatabaseIssuePage.vue'
 import CodeDashboard from '../components/code-dashboard/CodeDashboard.vue'
 import {
   getAllTables,
@@ -353,7 +365,6 @@ import {
   getAllServices,
   analyzeImpact,
 } from '../utils/impactAnalysis.js'
-import { isImpactMockEnabled, getMockImpactTransactions } from '../mocks/impactHierarchyMock.js'
 import {
   getNeo4jTableCatalog,
   getBuildSyncStatus,
@@ -413,7 +424,7 @@ const buildSyncInfo = ref({
   refreshedAt: '',
 })
 
-// 启动页支持从 URL hash 读取（如 #dii-sqls 直接打开 SQL 分析页），方便本地 mock 演示
+// 启动页支持从 URL hash 读取（如 #dii-sqls 直接打开 SQL 分析页）
 const currentPage = ref(
   (typeof window !== 'undefined' && window.location.hash?.slice(1)) || 'chain',
 )
@@ -447,11 +458,7 @@ const impactExportingAll = ref(false)
 const impactNotice = ref(null)
 let impactNoticeTimer = null
 
-const impactSourceTransactions = computed(() => {
-  const real = sortedTransactions.value.filter((tx) => tx?.chain)
-  if (!isImpactMockEnabled()) return real
-  return [...getMockImpactTransactions(), ...real]
-})
+const impactSourceTransactions = computed(() => sortedTransactions.value.filter((tx) => tx?.chain))
 
 const impactAllItems = computed(() => {
   const txs = impactSourceTransactions.value

@@ -72,7 +72,7 @@
     <div class="limit-row">
       <label for="compare-limit">比对条数</label>
       <input id="compare-limit" data-testid="compare-limit" type="number" min="1" max="10000000" :value="compareLimit ?? ''" :disabled="disabled" placeholder="不填写则全表比对" @input="changeLimit" />
-      <span>设置后按数据库主键顺序执行 ORDER BY，再 LIMIT</span>
+      <span>设置后按所选索引字段顺序执行 ORDER BY，再 LIMIT</span>
     </div>
 
     <div v-if="displayErrors.length" class="scope-errors" role="alert">

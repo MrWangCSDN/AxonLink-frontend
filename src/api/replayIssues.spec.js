@@ -430,6 +430,12 @@ describe('replay issues API', () => {
     expect(options.headers).not.toHaveProperty('Content-Type')
   })
 
+  it('sends the entered release cutoff with a formal import', async () => {
+    global.fetch = vi.fn().mockResolvedValue(jsonResponse({ code: 200, data: {} }))
+    await importReplayIssues(new File(['x'], 'issues.xlsx'), 'secret', 'DZ', '2026-10-14 12:00:01')
+    expect(fetch.mock.calls[0][1].body.get('releaseAt')).toBe('2026-10-14 12:00:01')
+  })
+
   it('sends the selected replay type with a formal import', async () => {
     global.fetch = vi.fn().mockResolvedValue(jsonResponse({ code: 200, data: { totalRows: 8 } }))
 

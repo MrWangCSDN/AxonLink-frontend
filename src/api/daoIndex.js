@@ -32,31 +32,17 @@ export function getDiiHealth() {
  *   elapsed7d: [ { task_id, day, elapsed_seconds, total_sqls }, ... ]         // 时间正序
  * }
  *
- * <p>本地 dev 没起后端时（fetch 命中 vite 的 SPA 兜底返回 index.html），
- * 自动降级返回 mock 数据，前端能看到完整布局。
- *
  * @param {string} env 环境，如 'uat'
  * @returns {Promise<object>}
  */
 export async function getDiiDashboard(env = 'uat') {
   const qs = toQuery({ env })
-  try {
-    const res = await request(`${PREFIX}/dashboard${qs}`)
-    // 后端连通且返回符合契约 → 直接用
-    if (res && typeof res === 'object' && (res.byDomain || res.latestTask !== undefined)) {
-      return res
-    }
-    // 返回是字符串（HTML 兜底） / 不是对象 → 走 mock 降级
-    throw new Error('dashboard 返回结构异常，使用 mock 降级')
-  } catch (e) {
-    // dev 环境后端不可达 / SPA 兜底 / 真实失败 — 全部走 mock 降级
-    // 用 console.warn 提示但不中断 UI
-    if (typeof console !== 'undefined') {
-      console.warn('[DiiDashboard] 后端不可达或返回异常，降级到 mock：', e?.message || e)
-    }
-    const { getDaoDashboardRealMock } = await import('../mocks/daoDashboardRealMock.js')
-    return getDaoDashboardRealMock(env)
+  const res = await request(`${PREFIX}/dashboard${qs}`)
+  if (!res || typeof res !== 'object' || Array.isArray(res)
+    || (!res.byDomain && res.latestTask === undefined)) {
+    throw new Error('dashboard 返回结构异常')
   }
+  return res
 }
 
 /* ───────────── SQL 分析结果 ───────────── */

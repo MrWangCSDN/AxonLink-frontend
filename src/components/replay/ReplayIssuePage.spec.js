@@ -1,3 +1,4 @@
+import { readImportBatch } from '../../utils/replayReleaseTime.js'
 import { config, flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import ReplayIssuePage from './ReplayIssuePage.vue'
@@ -87,6 +88,9 @@ vi.mock('../../api/replayIssues.js', () => ({
   updateReplayIssueDomain: vi.fn(),
 }))
 
+vi.mock('../../utils/replayReleaseTime.js', async importOriginal => ({
+  ...await importOriginal(), readImportBatch: vi.fn().mockResolvedValue(''),
+}))
 const fixtureRow = {
   id: 1, source_sheet: '贷款组', group_name: '贷款组', is_sandbox: 0, row_order: 2,
   domain: '贷款组', issue_domain: '贷款组', issue_domain_transfer_count: 0, sequence_no: '59', batch_no: 'RPT20260803-194444-3815',
@@ -122,7 +126,7 @@ function arrangeApi({ total = 4607, items = [fixtureRow] } = {}) {
   getReplayIssueOptions.mockResolvedValue({
     groups: ['公共组'],
     issueLevels: ['交易级'],
-    issueTypes: ['迁移问题', '防腐问题', '代码问题', '新核心下线', '参数问题', '平台问题', '合理差异', '规则性差异问题', '外围问题', '其他问题'],
+    issueTypes: ['迁移问题', '防腐问题', '代码问题', '新核心下线', '参数问题', '平台问题', '合理差异', '规则性差异问题', '外围问题', '需规问题', '其他问题'],
     issueStatuses: ['新建', '打开', '无需处理', '延后修复', '修复待验证', '重新打开', '已修复'],
     reviewStatuses: ['待审核', '已审核（未填写原因）', '已审核（已填写原因）'],
     coverageRounds: ['20260808-001', '20260807-001'],
@@ -221,6 +225,8 @@ async function openImport(wrapper) {
   const file = new File(['x'], 'issues.xlsx')
   Object.defineProperty(input.element, 'files', { configurable: true, value: [file] })
   await input.trigger('change')
+  await flushPromises()
+  await wrapper.get('[data-testid="import-release-at"]').setValue('2026-10-14T12:00:01')
   await wrapper.get('[data-testid="import-token"]').setValue('secret')
   return file
 }
@@ -287,7 +293,7 @@ describe('ReplayIssuePage', () => {
     expect(listReplayIssues.mock.calls.length).toBeGreaterThan(listCallsBeforeSwitch)
     expect(switched).toMatchObject({ replayType: 'DZ', offset: 0 })
     expect(switched.plannedCompletionDates).toBeUndefined()
-    expect(switched.weeklyTask).toBeUndefined()
+    expect(switched.weeklyTask).toBe(true)
     expect(switched.affectedTransactionCountOrder).toBeUndefined()
     expect(getReplayIssueStats).toHaveBeenLastCalledWith({ groupBy: 'issueDomain', replayType: 'DZ' })
 
@@ -385,7 +391,7 @@ describe('ReplayIssuePage', () => {
       '各组开发负责人问题排名',
       '计划完成情况',
     ])
-    expect(actions.findAll('[data-testid]')).toHaveLength(2)
+    expect(actions.findAll('[data-testid]')).toHaveLength(4)
     expect(actions.get('[data-testid="reset-filters"]').text()).toBe('重置筛选条件')
     expect(actions.find('[data-testid="planned-completion-entry"]').exists()).toBe(false)
     expect(actions.get('[data-testid="weekly-task-only"]').exists()).toBe(true)
@@ -398,7 +404,7 @@ describe('ReplayIssuePage', () => {
     await actions.get('[data-testid="reset-filters"]').trigger('click')
     await flushPromises()
     const resetParams = listReplayIssues.mock.calls.at(-1)[0]
-    expect(resetParams.weeklyTask).toBeUndefined()
+    expect(resetParams.weeklyTask).toBe(true)
     expect(resetParams.offset).toBe(0)
 
     await wrapper.get('[data-testid="query-panel-toggle"]').trigger('click')
@@ -1192,6 +1198,48 @@ describe('ReplayIssuePage', () => {
 
     expect(wrapper.get('[data-testid="review-1"]').attributes('title')).toBe('没有权限，请联系刘六、科技乙、审核甲进行审核')
   })
+
+  it.each(Array.from({ length: 8 }, (_, value) => [Boolean(value & 1), Boolean(value & 2), Boolean(value & 4)]))(
+    'combines task filters and retains all three choices on reset (%s, %s, %s)', async (unverified, related, priority) => {
+      const wrapper = mount(ReplayIssuePage)
+      try {
+        await flushPromises()
+        const keys = ['unverified-task-only', 'related-to-me-only', 'weekly-task-only']
+        expect(keys.map(key => wrapper.get(`[data-testid="${key}"]`).element.checked)).toEqual([true, true, false])
+        expect(listReplayIssues).toHaveBeenLastCalledWith(expect.objectContaining({ unverifiedOnly: true, relatedToMe: true }))
+        expect(wrapper.get('[data-testid="replay-summary-right-actions"]').findAll('label').map(label => label.text()))
+          .toEqual(['仅看未验证任务', '仅看自己相关任务', '仅看优先任务'])
+        for (const [index, value] of [unverified, related, priority].entries()) {
+          await wrapper.get(`[data-testid="${keys[index]}"]`).setValue(value)
+          await flushPromises()
+        }
+        const expected = { unverifiedOnly: unverified || undefined, relatedToMe: related || undefined, weeklyTask: priority || undefined }
+        const assertTaskFilters = params => {
+          for (const [key, value] of Object.entries(expected)) expect(params[key]).toBe(value)
+        }
+        assertTaskFilters(listReplayIssues.mock.calls.at(-1)[0])
+
+        const header = wrapper.findAll('thead th').at(visibleColumnLabels.indexOf('交易码'))
+        await header.get('.replay-header-filter-button').trigger('click')
+        await flushPromises()
+        assertTaskFilters(getReplayIssueHeaderFilterOptionCounts.mock.calls.at(-1)[0])
+        await wrapper.find('[data-testid="header-filter-panel"] input[type="checkbox"]').setValue(true)
+        await wrapper.find('[data-testid="header-filter-panel"] .replay-button-primary').trigger('click')
+        await flushPromises()
+        expect(listReplayIssues.mock.calls.at(-1)[0].transactionCodes).toHaveLength(1)
+        await wrapper.get('[data-testid="export-excel"]').trigger('click')
+        await flushPromises()
+        assertTaskFilters(exportReplayIssues.mock.calls.at(-1)[0])
+
+        await wrapper.get('[data-testid="reset-filters"]').trigger('click')
+        await flushPromises()
+        expect(keys.map(key => wrapper.get(`[data-testid="${key}"]`).element.checked)).toEqual([unverified, related, priority])
+        assertTaskFilters(listReplayIssues.mock.calls.at(-1)[0])
+        expect(listReplayIssues.mock.calls.at(-1)[0].offset).toBe(0)
+        expect(listReplayIssues.mock.calls.at(-1)[0].transactionCodes).toBeUndefined()
+      } finally { wrapper.unmount() }
+    },
+  )
 
   it('highlights weekly task rows and supports token-protected batch replacement plus task-only querying', async () => {
     const wrapper = mount(ReplayIssuePage)
@@ -2420,6 +2468,34 @@ describe('ReplayIssuePage', () => {
     expect(getReplayImportRounds).toHaveBeenCalledTimes(1)
   })
 
+  it('shows the batch previous noon and keeps a manual release while workbook preview is pending', async () => {
+    let resolveBatch
+    readImportBatch.mockImplementationOnce(()=>new Promise(resolve=>{resolveBatch=resolve}))
+    const w=mount(ReplayIssuePage);await flushPromises()
+    await w.get('[data-testid="open-import"]').trigger('click')
+    const input=w.get('[data-testid="import-file"]')
+    Object.defineProperty(input.element,'files',{value:[new File(['x'],'issues.xlsx')]})
+    await input.trigger('change')
+    const release=w.get('[data-testid="import-release-at"]')
+    expect(release.attributes('step')).toBe('1')
+    expect(w.get('[data-testid="submit-import"]').attributes('disabled')).toBeDefined()
+    await release.setValue('2026-10-13T11:30:01')
+    resolveBatch('RPT20261015-001');await flushPromises()
+    expect(release.element.value).toBe('2026-10-13T11:30:01')
+    await release.setValue('')
+    expect(w.get('[data-testid="submit-import"]').attributes('disabled')).toBeDefined()
+    w.unmount()
+  })
+  it('defaults the release input from the file batch date rather than today', async () => {
+    readImportBatch.mockResolvedValueOnce('DZ20240301-001')
+    const w=mount(ReplayIssuePage);await flushPromises()
+    await w.get('[data-testid="open-import"]').trigger('click')
+    const input=w.get('[data-testid="import-file"]')
+    Object.defineProperty(input.element,'files',{value:[new File(['x'],'issues.xlsx')]})
+    await input.trigger('change');await flushPromises()
+    expect(w.get('[data-testid="import-release-at"]').element.value).toMatch(/^2024-02-29T12:00(?::00)?$/)
+    w.unmount()
+  })
   it('successful import reports counts and refreshes stats options and first page', async () => {
     const wrapper = mount(ReplayIssuePage)
     await flushPromises()
@@ -2427,7 +2503,7 @@ describe('ReplayIssuePage', () => {
     await wrapper.get('[data-testid="submit-import"]').trigger('click')
     await flushPromises()
 
-    expect(importReplayIssues).toHaveBeenCalledWith(selectedFile, 'secret', 'QUERY')
+    expect(importReplayIssues).toHaveBeenCalledWith(selectedFile, 'secret', 'QUERY', '2026-10-14 12:00:01')
     expect(wrapper.text()).toContain('导入完成：16 条')
     expect(wrapper.text()).toContain('新增 0 条')
     expect(wrapper.text()).toContain('忽略 0 条')
@@ -2448,7 +2524,7 @@ describe('ReplayIssuePage', () => {
     await wrapper.get('[data-testid="submit-import"]').trigger('click')
     await flushPromises()
 
-    expect(importReplayIssues).toHaveBeenCalledWith(selectedFile, 'secret', 'DZ')
+    expect(importReplayIssues).toHaveBeenCalledWith(selectedFile, 'secret', 'DZ', '2026-10-14 12:00:01')
     expect(wrapper.find('[data-testid="full-refresh-modal"]').exists()).toBe(false)
   })
 
@@ -2852,7 +2928,7 @@ describe('ReplayIssuePage', () => {
       .toEqual(['打开', '无需处理', '延后修复', '修复待验证'])
     await wrapper.get('[data-testid="edit-status"]').setValue('打开')
     const editTypes = wrapper.get('[data-testid="edit-type"]').findAll('option').map((option) => option.text())
-    expect(editTypes.slice(-4)).toEqual(['合理差异', '规则性差异问题', '外围问题', '其他问题'])
+    expect(editTypes.slice(-5)).toEqual(['合理差异', '规则性差异问题', '外围问题', '需规问题', '其他问题'])
     expect(editTypes).not.toContain('规则差异问题')
     expect(editTypes).not.toContain('esf问题')
   })

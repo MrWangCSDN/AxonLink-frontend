@@ -39,16 +39,26 @@
           </div>
         </section>
 
-        <section class="editor-block fields-block">
+        <section ref="fieldsBlockRef" class="editor-block fields-block" tabindex="-1">
           <div class="block-heading"><strong>2. 选择并排序比对字段</strong><span>{{ isTableMissingCleanup ? '母库表已删除' : `母库 ${allColumns.length} 个` }} · 已选择 {{ selectedColumns.length }} 个</span></div>
           <div v-if="isTableMissingCleanup" class="table-missing-cleanup-warning" data-testid="table-missing-cleanup-warning">
             <strong>母库中已找不到该表</strong>
-            <span>当前只能查看历史登记并删除整表登记，不能修改字段或登记信息。</span>
+            <span>当前只能查看历史登记并删除整表登记，不能修改比对字段。</span>
           </div>
           <div v-if="isPrimaryKeyMissing" class="primary-key-missing-warning" data-testid="primary-key-missing-warning">
-            <strong>该表没有主键，请联系 DBA 创建表主键</strong>
-            <span>仅数据库 PRIMARY KEY 有效，创建完成后请重新打开登记页面。</span>
+            <strong>该表没有主键或唯一索引，请联系 DBA 创建可用索引</strong>
+            <span>创建完成后请重新打开登记页面。</span>
           </div>
+          <label v-if="selectedTable && !isTableMissingCleanup" class="comparison-key-picker">
+            <strong>选择索引</strong>
+            <select data-testid="comparison-key-select" :value="comparisonKey?.indexName || ''"
+              :disabled="metadataLoading || !columnsLoaded || !keyOptions.length" @change="selectComparisonKey($event.target.value)">
+              <option v-if="!comparisonKey" value="" disabled>请选择索引</option>
+              <option v-if="comparisonKey && keySelectionError" :value="comparisonKey.indexName" disabled>{{ formatComparisonKey(comparisonKey) }}（已失效）</option>
+              <option v-for="key in keyOptions" :key="key.indexName" :value="key.indexName">{{ formatComparisonKey(key) }}</option>
+            </select>
+          </label>
+          <p v-if="keySelectionError" class="registration-error" data-testid="comparison-key-error" role="alert">{{ keySelectionError }}</p>
           <div class="transfer-layout">
             <article class="field-panel">
               <header><strong>母库字段</strong><span>{{ availableColumns.length }} 个可选</span></header>
@@ -109,9 +119,9 @@
                   @dragover.prevent
                   @drop.stop="dropSelectedField(entry.index)"
                 >
-                  <input v-model="selectedSelection" type="checkbox" :value="entry.column.columnName" :disabled="isFieldMaintenanceDisabled || isProtectedPrimaryKey(entry.column)" :title="isProtectedPrimaryKey(entry.column) ? '母库主键，不可移除' : ''" @click.stop />
+                  <input v-model="selectedSelection" type="checkbox" :value="entry.column.columnName" :disabled="isFieldMaintenanceDisabled || isProtectedComparisonKey(entry.column)" :title="isProtectedComparisonKey(entry.column) ? (comparisonKey?.indexType === 'UNIQUE_INDEX' ? '唯一索引字段，不可移除' : '母库主键，不可移除') : ''" @click.stop />
                   <i @click.stop>⋮⋮</i><span><strong>{{ entry.index + 1 }}. {{ entry.column.columnName }}</strong><small>{{ entry.column.columnComment }}</small></span>
-                  <b v-if="entry.column.primaryKey" class="primary-key-marker">主键</b>
+                  <b v-if="isProtectedComparisonKey(entry.column) || (isTableMissingCleanup && entry.column.primaryKey)" :class="comparisonKey?.indexType === 'UNIQUE_INDEX' ? 'comparison-key-marker' : 'primary-key-marker'">{{ comparisonKey?.indexType === 'UNIQUE_INDEX' ? '唯一索引' : '主键' }}</b>
                   <b v-if="entry.column.missingInBase" class="missing-field-marker">母库已删除</b>
                   <button type="button" :data-testid="`move-selected-up-${entry.column.columnName}`" :disabled="isFieldMaintenanceDisabled || entry.column.missingInBase || entry.index === 0" title="上移" @click.stop="moveSelected(entry.index, -1)">↑</button>
                   <button type="button" :data-testid="`move-selected-down-${entry.column.columnName}`" :disabled="isFieldMaintenanceDisabled || entry.column.missingInBase || entry.index === selectedColumns.length - 1" title="下移" @click.stop="moveSelected(entry.index, 1)">↓</button>
@@ -121,13 +131,13 @@
           </div>
         </section>
 
-        <section class="editor-block scope-block">
+        <section ref="scopeBlockRef" class="editor-block scope-block" tabindex="-1">
           <div class="block-heading"><strong>3. 比对范围</strong><span>可选；不配置则全表比对</span></div>
           <ReplayDatabaseComparisonScopeEditor
             v-model="whereCondition"
             v-model:compare-limit="compareLimit"
             :columns="allColumns"
-            :primary-key-columns="primaryKeyColumnNames"
+            :primary-key-columns="comparisonKeyColumnNames"
             :disabled="isFieldMaintenanceDisabled"
             :errors="scopeBackendErrors"
           />
@@ -141,7 +151,7 @@
 
         <section v-if="selectedTable" class="editor-block sample-limit-block">
           <label for="editor-sample-limit">样本数</label>
-          <input id="editor-sample-limit" v-model.number="sampleLimit" data-testid="editor-sample-limit"
+          <input ref="sampleLimitInputRef" id="editor-sample-limit" v-model.number="sampleLimit" data-testid="editor-sample-limit"
             type="number" min="0" max="10000" step="1"
             :disabled="!canConfigureSampleLimit || isFieldMaintenanceDisabled"
             :aria-invalid="Boolean(sampleLimitError)" aria-describedby="editor-sample-help" />
@@ -149,35 +159,27 @@
           <p v-if="sampleLimitError" class="registration-error" role="alert">{{ sampleLimitError }}</p>
         </section>
 
-        <section class="editor-block registration-block">
-          <div class="block-heading"><strong>4. 登记信息</strong><span>带 * 为必填项</span></div>
-          <div class="registration-form">
-            <label>领域 *<select v-model="form.domain" :disabled="isFieldMaintenanceDisabled"><option value="">请选择</option><option v-for="domain in domains" :key="domain">{{ domain }}</option></select></label>
-            <label>小组负责人 *
-              <div class="group-owner-picker">
-                <input v-model="form.groupOwnerDisplay" data-testid="group-owner-search" type="search" placeholder="姓名或账号" :disabled="isFieldMaintenanceDisabled" @input="searchGroupOwners" />
-                <div v-if="groupOwnerOptions.length" class="group-owner-options">
-                  <button
-                    v-for="user in groupOwnerOptions"
-                    :key="user.username"
-                    type="button"
-                    :data-testid="`group-owner-option-${user.username}`"
-                    @click="selectGroupOwner(user)"
-                  >{{ user.displayName }}</button>
-                </div>
-              </div>
-            </label>
-          </div>
-          <p v-if="groupOwnerError" class="registration-error">{{ groupOwnerError }}</p>
-        </section>
+
       </div>
 
+      <p v-if="metadataError" class="registration-error save-error" data-testid="registration-metadata-error" role="alert">
+        {{ metadataError }}
+        <button type="button" data-testid="retry-registration-metadata" @click="retryMetadata?.()">重试</button>
+      </p>
       <p v-if="saveError?.type === 'SAVE_FAILED'" class="registration-error save-error" data-testid="registration-save-error" role="alert">{{ saveError.message }}</p>
 
       <footer class="editor-footer">
-        <span>{{ selectedTable ? `当前：${selectedTable.tableName}` : '请先检索并选择母库表' }}</span>
-        <button type="button" @click="emit('close')">取消</button>
-        <button type="button" data-testid="submit-registration" :class="isDeleteAction ? 'danger' : 'primary'" :disabled="!canSubmit" :title="hasMissingSelectedColumns && !isTableMissingCleanup ? '请先移除母库已删除字段' : ''" @click="submitRegistration">{{ isTableMissingCleanup ? '删除整表登记' : isDeleteMode ? '删除登记' : '保存' }}</button>
+        <div class="editor-save-guidance">
+          <span class="editor-current-table">{{ selectedTable ? `当前：${selectedTable.tableName}` : '请先检索并选择母库表' }}</span>
+          <div v-if="saveBlockers.length" class="save-blockers" data-testid="registration-save-hint" role="status" aria-live="polite">
+            <span>{{ saveHintText }}</span>
+            <button type="button" class="save-guidance-button" data-testid="go-to-save-blocker" @click="goToSaveBlocker">{{ saveBlockers[0].required ? '去填写' : '去查看' }}</button>
+          </div>
+        </div>
+        <div class="editor-footer-actions">
+          <button type="button" @click="emit('close')">取消</button>
+          <button type="button" data-testid="submit-registration" :class="isDeleteAction ? 'danger' : 'primary'" :disabled="!canSubmit" :title="hasMissingSelectedColumns && !isTableMissingCleanup ? '请先移除母库已删除字段' : ''" @click="submitRegistration">{{ isTableMissingCleanup ? '删除整表登记' : isDeleteMode ? '删除登记' : '保存' }}</button>
+        </div>
       </footer>
     </section>
     <section v-if="deleteConfirmationVisible" class="delete-confirmation" data-testid="delete-confirmation" role="alertdialog" aria-modal="true">
@@ -190,19 +192,19 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { Database } from 'lucide-vue-next'
-import { searchReplayIssueUsers } from '../../api/replayIssues.js'
-import { getMockColumns, searchMockTables } from './replayDatabaseComparisonMock.js'
+import { loadBaseColumns, searchBaseTables, searchTechnologyOwners } from '../../api/replayDatabaseComparison.js'
 import ReplayDatabaseComparisonScopeEditor from './ReplayDatabaseComparisonScopeEditor.vue'
 import { normalizeConditionTree, validateScopeDraft } from './replayDatabaseComparisonScope.js'
 
 const props = defineProps({
   registrations: { type: Array, default: () => [] },
   initialRegistration: { type: Object, default: null },
-  searchUsers: { type: Function, default: searchReplayIssueUsers },
-  loadColumns: { type: Function, default: getMockColumns },
-  searchTables: { type: Function, default: searchMockTables },
+  searchUsers: { type: Function, default: searchTechnologyOwners },
+  loadColumns: { type: Function, default: loadBaseColumns },
+  loadKeys: { type: Function, default: null },
+  searchTables: { type: Function, default: keyword => searchBaseTables(keyword, 20) },
   loadRegistration: { type: Function, default: null },
   saveError: { type: Object, default: null },
   canConfigureSampleLimit: { type: Boolean, default: false },
@@ -215,6 +217,21 @@ const tableSearchExecuted = ref(false)
 const selectedTable = ref(null)
 const allColumns = ref([])
 const columnsLoaded = ref(false)
+const keyOptions = ref([])
+const comparisonKey = ref(null)
+const formatComparisonKey = key => `${key.indexType === 'PRIMARY_KEY' ? '主键' : '唯一索引'} · ${key.indexName} · ${key.columnNames.join('、')}`
+const sameKey = (left, right) => Boolean(left && right && left.indexName === right.indexName
+  && left.indexType === right.indexType && JSON.stringify(left.columnNames) === JSON.stringify(right.columnNames))
+const keySelectionError = computed(() => {
+  if (!columnsLoaded.value || !comparisonKey.value || isTableMissingCleanup.value) return ''
+  const selected = comparisonKey.value
+  return keyOptions.value.some(key => sameKey(key, selected))
+    && selected.columnNames.every(name => allColumns.value.some(column => column.columnName === name))
+    ? '' : `索引 ${selected.indexName} 已删除或发生变化，请重新选择索引。`
+})
+const metadataLoading = ref(false)
+const metadataError = ref('')
+const retryMetadata = ref(null)
 const selectedColumns = ref([])
 const availableSelection = ref([])
 const selectedSelection = ref([])
@@ -227,6 +244,12 @@ const recentlyMovedFieldName = ref('')
 const deleteConfirmationVisible = ref(false)
 const groupOwnerOptions = ref([])
 const groupOwnerError = ref('')
+const showRequiredErrors = ref(false)
+const domainInputRef = ref(null)
+const groupOwnerInputRef = ref(null)
+const fieldsBlockRef = ref(null)
+const scopeBlockRef = ref(null)
+const sampleLimitInputRef = ref(null)
 const reconciledPrimaryKeySignature = ref('')
 const whereCondition = ref(null)
 const compareLimit = ref(null)
@@ -252,14 +275,15 @@ const isPrimaryKeyMissing = computed(() => Boolean(
   selectedTable.value
   && columnsLoaded.value
   && !isTableMissingCleanup.value
-  && currentPrimaryKeys(allColumns.value).length === 0
+  && keyOptions.value.length === 0
 ))
-const isFieldMaintenanceDisabled = computed(() => isTableMissingCleanup.value || isPrimaryKeyMissing.value)
-const isDeleteMode = computed(() => isEditing.value && selectedColumns.value.length === 0)
+const isFieldMaintenanceDisabled = computed(() => isTableMissingCleanup.value || isPrimaryKeyMissing.value
+  || metadataLoading.value || !columnsLoaded.value)
+const isDeleteMode = computed(() => isEditing.value && columnsLoaded.value && selectedColumns.value.length === 0)
 const isDeleteAction = computed(() => isTableMissingCleanup.value || isDeleteMode.value)
 const missingSelectedColumns = computed(() => selectedColumns.value.filter(column => column.missingInBase))
 const hasMissingSelectedColumns = computed(() => missingSelectedColumns.value.length > 0)
-const primaryKeyColumnNames = computed(() => currentPrimaryKeys(allColumns.value).map(column => column.columnName))
+const comparisonKeyColumnNames = computed(() => comparisonKey.value?.columnNames || [])
 const scopeBackendErrors = computed(() => props.saveError?.type === 'SCOPE_INVALID'
   ? props.saveError.errors || []
   : [])
@@ -267,14 +291,40 @@ const scopeDraftErrors = computed(() => validateScopeDraft(
   whereCondition.value, compareLimit.value, allColumns.value,
 ))
 const canSubmit = computed(() => {
-  if (!selectedTable.value) return false
+  if (!selectedTable.value || metadataLoading.value) return false
+  if (metadataError.value && !columnsLoaded.value) return false
   if (isTableMissingCleanup.value) return true
-  if (isPrimaryKeyMissing.value) return false
+  if (!columnsLoaded.value) return false
+  if (isPrimaryKeyMissing.value || keySelectionError.value || !comparisonKey.value) return false
   if (isDeleteMode.value) return true
   if (hasMissingSelectedColumns.value) return false
   if (scopeDraftErrors.value.length || sampleLimitError.value) return false
-  return selectedColumns.value.length > 0 && form.domain && form.groupOwnerUsername
+  return selectedColumns.value.length > 0
 })
+const saveBlockers = computed(() => {
+  if (!selectedTable.value || isTableMissingCleanup.value) return []
+  if (isPrimaryKeyMissing.value) return [{ key: 'fields', label: '该表没有主键或唯一索引，请联系 DBA 创建可用索引', standalone: true }]
+  if (isDeleteMode.value) return []
+  if (keySelectionError.value) return [{ key: 'fields', label: keySelectionError.value, standalone: true }]
+  const blockers = []
+  if (hasMissingSelectedColumns.value) blockers.push({ key: 'fields', label: '移除母库已删除字段' })
+  if (!selectedColumns.value.length) blockers.push({ key: 'fields', label: '选择比对字段' })
+  if (scopeDraftErrors.value.length) blockers.push({ key: 'scope', label: '补全或修正比对范围' })
+  if (sampleLimitError.value) blockers.push({ key: 'sample', label: '修正样本数' })
+  return blockers
+})
+const saveHintText = computed(() => saveBlockers.value[0]?.standalone
+  ? saveBlockers.value[0].label
+  : `保存前请完成：${saveBlockers.value.map(blocker => blocker.label).join('、')}`)
+const goToSaveBlocker = async () => {
+  const blocker = saveBlockers.value[0]
+  if (!blocker) return
+  showRequiredErrors.value = !isFieldMaintenanceDisabled.value
+  await nextTick()
+  const target = { fields: fieldsBlockRef.value, domain: domainInputRef.value, owner: groupOwnerInputRef.value, scope: scopeBlockRef.value, sample: sampleLimitInputRef.value }[blocker.key]
+  target?.scrollIntoView?.({ behavior: 'smooth', block: 'center' })
+  target?.focus?.({ preventScroll: true })
+}
 const availableColumns = computed(() => {
   const selectedNames = new Set(selectedColumns.value.map(column => column.columnName))
   return allColumns.value.filter(column => !selectedNames.has(column.columnName))
@@ -333,23 +383,57 @@ watch(tableKeywordInput, value => {
   }, 250)
 })
 
-watch(() => props.saveError, async saveError => {
-  if (!['PRIMARY_KEY_CHANGED', 'PRIMARY_KEY_MISSING'].includes(saveError?.type) || !selectedTable.value) return
+const requestMetadata = (load, apply, requestId, label) => {
+  if (requestId !== columnLoadRequestId) return
+  metadataLoading.value = true
+  metadataError.value = ''
+  retryMetadata.value = null
+  const fail = cause => {
+    if (requestId !== columnLoadRequestId) return
+    metadataLoading.value = false
+    metadataError.value = `${label}：${cause?.message || cause || '请求失败'}`
+    retryMetadata.value = () => requestMetadata(load, apply, requestId, label)
+  }
+  const complete = result => {
+    if (requestId !== columnLoadRequestId) return
+    metadataLoading.value = false
+    apply(result)
+  }
+  try {
+    const result = load()
+    if (result?.then) Promise.resolve(result).then(complete).catch(fail)
+    else complete(result)
+  } catch (cause) {
+    fail(cause)
+  }
+}
+
+watch(() => props.saveError, saveError => {
+  if (!['PRIMARY_KEY_CHANGED', 'PRIMARY_KEY_MISSING', 'COMPARISON_KEY_CHANGED'].includes(saveError?.type) || !selectedTable.value) return
+  const requestId = ++columnLoadRequestId
+  const tableName = selectedTable.value.tableName
   columnsLoaded.value = false
-  const latestColumns = await props.loadColumns(selectedTable.value.tableName)
-  allColumns.value = latestColumns || []
-  columnsLoaded.value = true
-  selectedColumns.value = reconcileSelectedColumns(
-    selectedColumns.value, allColumns.value, saveError.type === 'PRIMARY_KEY_CHANGED', 'edit',
-  )
-  reconciledPrimaryKeySignature.value = primaryKeySignature(allColumns.value)
-  selectedSelection.value = selectedSelection.value.filter(name => {
-    const column = selectedColumns.value.find(candidate => candidate.columnName === name)
-    return column && !isProtectedPrimaryKey(column)
-  })
+  requestMetadata(() => loadTableMetadata(tableName), metadata => {
+    applyMetadata(metadata)
+    if (props.loadKeys) {
+      selectedColumns.value = mergeRegisteredFields(selectedColumns.value, allColumns.value)
+      includeComparisonKeyColumns()
+    } else {
+      comparisonKey.value = keyOptions.value[0] || null
+      selectedColumns.value = reconcileSelectedColumns(
+        selectedColumns.value, allColumns.value, saveError.type === 'PRIMARY_KEY_CHANGED', 'edit',
+      )
+    }
+    reconciledPrimaryKeySignature.value = primaryKeySignature(allColumns.value)
+    selectedSelection.value = selectedSelection.value.filter(name => {
+      const column = selectedColumns.value.find(candidate => candidate.columnName === name)
+      return column && !isProtectedComparisonKey(column)
+    })
+  }, requestId, '母库字段刷新失败')
 })
 
 onBeforeUnmount(() => {
+  columnLoadRequestId += 1
   clearTimeout(tableSearchTimer)
   clearTimeout(recentMoveTimer)
 })
@@ -370,7 +454,8 @@ const mergeRegisteredFields = (registeredFields, currentColumns) => {
   })
 }
 
-const isProtectedPrimaryKey = column => Boolean(column.primaryKey && !column.missingInBase)
+const isProtectedComparisonKey = column => Boolean(comparisonKey.value?.columnNames
+  .some(name => name.toLocaleLowerCase() === column.columnName?.toLocaleLowerCase()))
 
 const currentPrimaryKeys = columns => columns
   .filter(column => column.primaryKey)
@@ -378,6 +463,56 @@ const currentPrimaryKeys = columns => columns
     (left.primaryKeyOrder ?? left.ordinalPosition ?? Number.MAX_SAFE_INTEGER)
     - (right.primaryKeyOrder ?? right.ordinalPosition ?? Number.MAX_SAFE_INTEGER)
   ))
+
+// Keep the columns-only prop compatible for callers predating index metadata.
+const loadTableMetadata = tableName => {
+  if (props.loadKeys) return Promise.all([
+    Promise.resolve().then(() => props.loadColumns(tableName)),
+    Promise.resolve().then(() => props.loadKeys(tableName)),
+  ]).then(([items, keys]) => ({ columns: items || [], keys: keys || [] }))
+  const columns = props.loadColumns(tableName)
+  const wrap = items => {
+    const primaryColumns = currentPrimaryKeys(items || [])
+    return { columns: items || [], keys: primaryColumns.length
+      ? [{ indexName: 'PRIMARY', indexType: 'PRIMARY_KEY', columnNames: primaryColumns.map(column => column.columnName) }] : [] }
+  }
+  return columns?.then ? Promise.resolve(columns).then(wrap) : wrap(columns)
+}
+const applyMetadata = metadata => {
+  allColumns.value = metadata.columns
+  keyOptions.value = [...metadata.keys].sort((left, right) => (
+    Number(right.indexType === 'PRIMARY_KEY') - Number(left.indexType === 'PRIMARY_KEY')
+    || (left.indexName < right.indexName ? -1 : left.indexName > right.indexName ? 1 : 0)
+  ))
+  columnsLoaded.value = true
+}
+const includeComparisonKeyColumns = () => {
+  if (comparisonKey.value?.indexType === 'UNIQUE_INDEX') {
+    const keyNames = new Set(comparisonKey.value.columnNames.map(name => name.toLocaleLowerCase()))
+    selectedColumns.value = selectedColumns.value.filter(column => (
+      !column.primaryKey || keyNames.has(column.columnName.toLocaleLowerCase())
+    ))
+  }
+  const selectedNames = new Set(selectedColumns.value.map(column => column.columnName))
+  const currentByName = new Map(allColumns.value.map(column => [column.columnName, column]))
+  for (const name of comparisonKey.value?.columnNames || []) {
+    if (!selectedNames.has(name) && currentByName.has(name)) selectedColumns.value.push(currentByName.get(name))
+  }
+  selectedSelection.value = selectedSelection.value.filter(name => !comparisonKey.value?.columnNames.includes(name))
+  availableSelection.value = availableSelection.value.filter(name => !comparisonKey.value?.columnNames.includes(name))
+}
+const selectComparisonKey = indexName => {
+  const selected = keyOptions.value.find(key => key.indexName === indexName)
+  if (!selected) return
+  const previousNames = new Set((comparisonKey.value?.columnNames || []).map(name => name.toLocaleLowerCase()))
+  const nextNames = new Set(selected.columnNames.map(name => name.toLocaleLowerCase()))
+  selectedColumns.value = selectedColumns.value.filter(column => (
+    !previousNames.has(column.columnName.toLocaleLowerCase()) || nextNames.has(column.columnName.toLocaleLowerCase())
+  ))
+  selectedSelection.value = selectedSelection.value.filter(name => !previousNames.has(name.toLocaleLowerCase()))
+  comparisonKey.value = { ...selected, columnNames: [...selected.columnNames] }
+  includeComparisonKeyColumns()
+}
 
 const primaryKeySignature = columns => currentPrimaryKeys(columns)
   .map(column => column.columnName.toLocaleLowerCase())
@@ -411,28 +546,34 @@ const resetFieldOrderFeedback = () => {
 }
 
 const selectTable = table => {
+  const requestId = ++columnLoadRequestId
   selectedTable.value = table
+  columnsLoaded.value = false
+  allColumns.value = []
+  selectedColumns.value = []
+  keyOptions.value = []
+  comparisonKey.value = null
+  metadataError.value = ''
+  retryMetadata.value = null
   const localRegistration = props.initialRegistration?.id === table.registrationId
     ? props.initialRegistration
     : props.registrations.find(item => item.tableName === table.tableName)
   const applyRegistration = registration => {
-    const requestId = ++columnLoadRequestId
+    if (requestId !== columnLoadRequestId) return
     columnsLoaded.value = false
-    const applyColumns = columns => {
+    const applyColumns = metadata => {
       if (requestId !== columnLoadRequestId) return
-      allColumns.value = columns || []
-      columnsLoaded.value = true
+      applyMetadata(metadata)
       const mode = table.registrationStatus === 'DELETED'
         ? 'reregister'
         : table.registrationStatus === 'ACTIVE' ? 'edit' : 'add'
       const metadataValidation = registration?.metadataValidation || table.metadataValidation
       selectedTable.value = { ...table, metadataValidation }
-      selectedColumns.value = reconcileSelectedColumns(
-        registration?.fields || [],
-        allColumns.value,
-        Boolean(metadataValidation?.primaryKeyChanged),
-        mode,
-      )
+      comparisonKey.value = registration?.comparisonKey || keyOptions.value[0] || null
+      selectedColumns.value = props.loadKeys
+        ? (mode === 'edit' ? mergeRegisteredFields(registration?.fields || [], allColumns.value) : [])
+        : reconcileSelectedColumns(registration?.fields || [], allColumns.value, Boolean(metadataValidation?.primaryKeyChanged), mode)
+      if (props.loadKeys) includeComparisonKeyColumns()
       reconciledPrimaryKeySignature.value = primaryKeySignature(allColumns.value)
       resetFieldOrderFeedback()
     }
@@ -442,9 +583,7 @@ const selectTable = table => {
       selectedColumns.value = mapHistoricalFields(registration?.fields || [])
       resetFieldOrderFeedback()
     } else {
-      const columns = props.loadColumns(table.tableName)
-      if (columns?.then) columns.then(applyColumns)
-      else applyColumns(columns)
+      requestMetadata(() => loadTableMetadata(table.tableName), applyColumns, requestId, '母库字段加载失败')
     }
     form.domain = registration?.domain || ''
     form.groupOwnerUsername = registration?.groupOwnerUsername || registration?.groupOwnerEmpNo || ''
@@ -455,6 +594,7 @@ const selectTable = table => {
     sampleLimit.value = registration?.sampleLimit ?? 100
     groupOwnerOptions.value = []
     groupOwnerError.value = ''
+    showRequiredErrors.value = false
     availableSelection.value = []
     selectedSelection.value = []
     fieldKeyword.value = ''
@@ -462,9 +602,7 @@ const selectTable = table => {
     fieldFilter.value = 'ALL'
   }
   if (!localRegistration && table.registrationStatus !== 'UNREGISTERED' && props.loadRegistration) {
-    const registration = props.loadRegistration(table.registrationId)
-    if (registration?.then) registration.then(applyRegistration)
-    else applyRegistration(registration)
+    requestMetadata(() => props.loadRegistration(table.registrationId), applyRegistration, requestId, '登记信息加载失败')
   } else applyRegistration(localRegistration)
 }
 
@@ -483,7 +621,7 @@ const invertAvailableSelection = () => {
 }
 const removableSelectedNames = () => filteredSelectedColumns.value
   .map(({ column }) => column)
-  .filter(column => !isProtectedPrimaryKey(column))
+  .filter(column => !isProtectedComparisonKey(column))
   .map(column => column.columnName)
 
 const selectAllSelected = () => { selectedSelection.value = removableSelectedNames() }
@@ -493,7 +631,7 @@ const invertSelectedSelection = () => {
 const toggleSelectedColumn = columnName => {
   if (isFieldMaintenanceDisabled.value) return
   const column = selectedColumns.value.find(candidate => candidate.columnName === columnName)
-  if (column && isProtectedPrimaryKey(column)) return
+  if (column && isProtectedComparisonKey(column)) return
   selectedSelection.value = selectedSelection.value.includes(columnName)
     ? selectedSelection.value.filter(name => name !== columnName)
     : [...selectedSelection.value, columnName]
@@ -510,7 +648,7 @@ const moveFieldsLeft = () => {
   if (isFieldMaintenanceDisabled.value) return
   const removedNames = new Set(selectedSelection.value)
   selectedColumns.value = selectedColumns.value.filter(column => (
-    isProtectedPrimaryKey(column) || !removedNames.has(column.columnName)
+    isProtectedComparisonKey(column) || !removedNames.has(column.columnName)
   ))
   selectedSelection.value = []
 }
@@ -562,14 +700,16 @@ const searchGroupOwners = async () => {
     return
   }
   try {
-    groupOwnerOptions.value = await props.searchUsers(keyword)
+    groupOwnerOptions.value = (await props.searchUsers(keyword))
+      .filter(user => String(user.empNo || '').trim())
   } catch (cause) {
     groupOwnerOptions.value = []
-    groupOwnerError.value = `小组负责人检索失败：${cause?.message || cause}`
+    groupOwnerError.value = `科技负责人检索失败：${cause?.message || cause}`
   }
 }
 
 const selectGroupOwner = user => {
+  if (!String(user.empNo || '').trim()) return
   form.groupOwnerUsername = user.username
   form.groupOwnerName = user.realName || user.displayName || user.username
   form.groupOwnerDisplay = user.displayName || user.realName || user.username
@@ -583,11 +723,15 @@ const submitRegistration = () => {
     deleteConfirmationVisible.value = true
     return
   }
-  const finishSubmit = latestColumns => {
-    const normalizedLatestColumns = latestColumns || []
-    allColumns.value = normalizedLatestColumns
-    columnsLoaded.value = true
-    if (currentPrimaryKeys(normalizedLatestColumns).length === 0) {
+  const finishSubmit = metadata => {
+    applyMetadata(metadata)
+    const normalizedLatestColumns = metadata.columns
+    if (props.loadKeys && keySelectionError.value) {
+      selectedColumns.value = mergeRegisteredFields(selectedColumns.value, allColumns.value)
+      return
+    }
+    if (!props.loadKeys) comparisonKey.value = keyOptions.value[0] || null
+    if (keyOptions.value.length === 0) {
       selectedColumns.value = selectedColumns.value.map((column, index) => {
         const latestColumn = normalizedLatestColumns.find(candidate => candidate.columnName === column.columnName)
         return latestColumn || { ...column, comparisonOrder: index + 1, missingInBase: true }
@@ -595,11 +739,11 @@ const submitRegistration = () => {
       return
     }
     const latestSignature = primaryKeySignature(normalizedLatestColumns)
-    if (latestSignature !== reconciledPrimaryKeySignature.value) {
+    if (!props.loadKeys && latestSignature !== reconciledPrimaryKeySignature.value) {
       selectedColumns.value = reconcileSelectedColumns(selectedColumns.value, normalizedLatestColumns, true, 'edit')
       selectedSelection.value = selectedSelection.value.filter(name => {
         const column = selectedColumns.value.find(candidate => candidate.columnName === name)
-        return column && !isProtectedPrimaryKey(column)
+        return column && !isProtectedComparisonKey(column)
       })
       reconciledPrimaryKeySignature.value = latestSignature
       return
@@ -615,6 +759,7 @@ const submitRegistration = () => {
     version: selectedTable.value.registrationVersion,
     tableName: selectedTable.value.tableName,
     tableComment: selectedTable.value.tableComment,
+    comparisonKeyName: comparisonKey.value.indexName,
     fieldNames: selectedColumns.value.map(column => column.columnName),
     fields: selectedColumns.value.map(column => ({ name: column.columnName, comment: column.columnComment })),
     domain: form.domain,
@@ -625,9 +770,9 @@ const submitRegistration = () => {
     ...(props.canConfigureSampleLimit ? { sampleLimit: sampleLimit.value } : {}),
     })
   }
-  const latestColumns = props.loadColumns(selectedTable.value.tableName)
-  if (latestColumns?.then) latestColumns.then(finishSubmit)
-  else finishSubmit(latestColumns)
+  const requestId = ++columnLoadRequestId
+  const tableName = selectedTable.value.tableName
+  requestMetadata(() => loadTableMetadata(tableName), finishSubmit, requestId, '保存前母库字段校验失败')
 }
 
 const confirmDelete = () => emit('delete', {
@@ -641,6 +786,9 @@ const confirmDelete = () => emit('delete', {
 const resetSelectedTable = () => {
   columnLoadRequestId += 1
   selectedTable.value = null
+  metadataLoading.value = false
+  metadataError.value = ''
+  retryMetadata.value = null
   allColumns.value = []
   columnsLoaded.value = false
   selectedColumns.value = []
@@ -651,6 +799,8 @@ const resetSelectedTable = () => {
   whereCondition.value = null
   compareLimit.value = null
   reconciledPrimaryKeySignature.value = ''
+  keyOptions.value = []
+  comparisonKey.value = null
   tableSearchExecuted.value = tableKeywordInput.value.trim().length >= 2
   groupOwnerOptions.value = []
   groupOwnerError.value = ''
@@ -670,6 +820,9 @@ if (props.initialRegistration) {
 </script>
 
 <style scoped>
+.comparison-key-picker { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; font-size: 12px; }
+.comparison-key-picker select { min-width: 0; flex: 1; padding: 7px 8px; border: 1px solid #cbd6de; border-radius: 4px; background: #fff; }
+.comparison-key-marker { padding: 2px 5px; border-radius: 8px; color: #176f74; background: #e3f5f2; font-size: 10px; white-space: nowrap; }
 .sample-limit-block { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
 .sample-limit-block label { font-weight: 600; }
 .sample-limit-block input { width: 110px; padding: 7px 10px; border: 1px solid var(--border-color, #d8e2dd); border-radius: 4px; }
@@ -683,7 +836,7 @@ if (props.initialRegistration) {
 .icon-close { border: 0; color: #fff; background: transparent; font-size: 28px; cursor: pointer; }
 .editor-body { min-height: 0; display: flex; flex-direction: column; overflow: auto; padding: 14px 18px; }
 .editor-block { margin-bottom: 12px; padding: 13px 15px; border: 1px solid #dbe3e8; border-radius: 6px; background: #fff; }
-.fields-block { min-height: 450px; flex: 1 1 0; display: flex; flex-direction: column; }
+.fields-block { min-height: 0; flex: 0 0 auto; display: flex; flex-direction: column; }
 .registration-block { flex: 0 0 auto; margin-bottom: 0; }
 .block-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 11px; color: #314454; }.block-heading strong { color: #176f74; }.block-heading span { color: #758392; font-size: 12px; }
 .table-search input { width: 100%; height: 34px; padding: 0 10px; border: 1px solid #cbd6de; border-radius: 4px; box-sizing: border-box; }
@@ -692,14 +845,27 @@ if (props.initialRegistration) {
 .selected-table { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-left: 4px solid #168478; background: #f0f8f7; }.selected-table > span { flex: 1; }.text-button { border: 0; color: #167e76; background: transparent; cursor: pointer; }
 .table-missing-cleanup-warning { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; padding: 9px 11px; border-left: 4px solid #d94a47; color: #a92f2b; background: #fff0ef; font-size: 12px; }.table-missing-cleanup-warning span { color: #b7524e; }
 .primary-key-missing-warning { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; padding: 9px 11px; border-left: 4px solid #d94a47; color: #a92f2b; background: #fff0ef; font-size: 12px; }.primary-key-missing-warning span { color: #b7524e; }
-.transfer-layout { min-height: 390px; flex: 1 1 0; display: grid; grid-template-columns: minmax(0, 1fr) 92px minmax(0, 1fr); gap: 12px; }.field-panel { height: 100%; min-height: 0; display: flex; flex-direction: column; overflow: hidden; border: 1px solid #d9e2e7; border-radius: 5px; background: #f5f8fa; }.field-panel > header { flex: 0 0 auto; display: flex; justify-content: space-between; padding: 9px 11px; color: #fff; background: #237b80; }.field-panel > header span { font-size: 12px; }.field-panel-placeholder { display: grid; min-height: 250px; place-items: center; padding: 20px; color: #8a96a1; text-align: center; }.transfer-actions { display: flex; flex-direction: column; justify-content: center; gap: 10px; }.transfer-actions button { padding: 7px 4px; }.selected-preview { margin: 0; padding: 0; list-style: none; }.selected-preview li { display: grid; grid-template-columns: auto auto minmax(0, 1fr) repeat(4, auto); align-items: center; gap: 7px; min-height: 42px; padding: 5px 8px; border-bottom: 1px solid #dfe7ec; background: #fff; cursor: pointer; }.selected-preview li:hover { background: #eef8f7; }.selected-preview small { display: block; color: #84909a; }.selected-preview li > i { color: #84919c; font-style: normal; cursor: grab; }.selected-preview li > span { min-width: 0; }.selected-preview li button { width: 27px; height: 27px; padding: 0; border: 1px solid #cad5dc; border-radius: 3px; background: #fff; }.selected-preview li button:disabled { opacity: .35; }
+.transfer-layout { height: clamp(320px, 48vh, 520px); min-height: 0; flex: 0 0 auto; display: grid; grid-template-columns: minmax(0, 1fr) 92px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: 12px; }.field-panel { min-height: 0; display: flex; flex-direction: column; overflow: hidden; border: 1px solid #d9e2e7; border-radius: 5px; background: #f5f8fa; }.field-panel > header { flex: 0 0 auto; display: flex; justify-content: space-between; padding: 9px 11px; color: #fff; background: #237b80; }.field-panel > header span { font-size: 12px; }.field-panel-placeholder { display: grid; min-height: 250px; place-items: center; padding: 20px; color: #8a96a1; text-align: center; }.transfer-actions { display: flex; flex-direction: column; justify-content: center; gap: 10px; }.transfer-actions button { padding: 7px 4px; }.selected-preview { margin: 0; padding: 0; list-style: none; }.selected-preview li { display: grid; grid-template-columns: auto auto minmax(0, 1fr) repeat(4, auto); align-items: center; gap: 7px; min-height: 42px; padding: 5px 8px; border-bottom: 1px solid #dfe7ec; background: #fff; cursor: pointer; }.selected-preview li:hover { background: #eef8f7; }.selected-preview small { display: block; color: #84909a; }.selected-preview li > i { color: #84919c; font-style: normal; cursor: grab; }.selected-preview li > span { min-width: 0; }.selected-preview li button { width: 27px; height: 27px; padding: 0; border: 1px solid #cad5dc; border-radius: 3px; background: #fff; }.selected-preview li button:disabled { opacity: .35; }
 .field-order-move { transition: transform 180ms ease; }.selected-preview li.is-recently-moved { position: relative; z-index: 1; border-color: #17a28f; background: #edfbf8; box-shadow: inset 4px 0 #17a28f, 0 0 0 2px rgba(23, 162, 143, .12); }.field-order-feedback { flex: 0 0 auto; padding: 7px 9px; border-bottom: 1px solid #a9ddd6; color: #176f74; background: #e7f7f4; font-size: 11px; }
-.field-tools { flex: 0 0 auto; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; padding: 7px; border-bottom: 1px solid #e2e8ec; background: #fff; }.field-tools input { min-width: 0; padding: 6px 7px; border: 1px solid #ccd7de; border-radius: 3px; }.field-filters, .selection-actions { display: flex; }.field-filters button, .selection-actions button { padding: 4px 7px; border: 1px solid #cad5dc; background: #fff; font-size: 11px; }.field-filters button.active { color: #fff; background: #168478; }.selection-tools { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-bottom: 1px solid #dfe7ec; background: #f6f9fa; }.selection-tools button { padding: 3px 8px; border: 1px solid #c4d0d8; border-radius: 3px; background: #fff; color: #26747a; }.selection-tools span { margin-left: auto; color: #7c8994; font-size: 11px; }.field-list-scroll { flex: 1 1 auto; min-height: 0; max-height: none; overflow: auto; background: #fff; }.available-field-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 8px; min-height: 42px; padding: 6px 8px; border-bottom: 1px solid #dfe7ec; background: #fff; cursor: pointer; }.available-field-row:hover { background: #eef8f7; }.available-field-row span, .available-field-row strong, .available-field-row small { min-width: 0; }.available-field-row strong, .available-field-row small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.available-field-row small { margin-top: 2px; color: #7f8b95; }.available-field-row em { color: #687682; font-size: 10px; font-style: normal; }.available-field-row input, .selected-preview input { width: 18px; height: 18px; margin: 0; accent-color: #168478; cursor: pointer; }.primary-key-marker, .missing-field-marker { padding: 2px 5px; border-radius: 8px; color: #d9363e; background: #fff0f0; font-size: 10px; font-weight: 700; white-space: nowrap; }.missing-fields-warning { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 7px 9px; border-bottom: 1px solid #efb5b3; color: #b52f2b; background: #fff0ef; font-size: 11px; }.missing-fields-warning span { color: #c34a46; }.selected-preview li.is-missing-in-base { border: 1px solid #e35a56; border-left-width: 4px; background: #fff1f0; }.selected-preview li.is-missing-in-base strong { color: #bc302c; }.selected-preview li.is-missing-in-base small { color: #b05c58; }.field-panel-placeholder.compact { min-height: 240px; }
+.field-tools { flex: 0 0 auto; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; padding: 7px; border-bottom: 1px solid #e2e8ec; background: #fff; }.field-tools input { min-width: 0; padding: 6px 7px; border: 1px solid #ccd7de; border-radius: 3px; }.field-filters, .selection-actions { display: flex; }.field-filters button, .selection-actions button { padding: 4px 7px; border: 1px solid #cad5dc; background: #fff; font-size: 11px; }.field-filters button.active { color: #fff; background: #168478; }.selection-tools { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-bottom: 1px solid #dfe7ec; background: #f6f9fa; }.selection-tools button { padding: 3px 8px; border: 1px solid #c4d0d8; border-radius: 3px; background: #fff; color: #26747a; }.selection-tools span { margin-left: auto; color: #7c8994; font-size: 11px; }.field-list-scroll { flex: 1 1 0; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior-y: contain; scrollbar-gutter: stable; background: #fff; }.available-field-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 8px; min-height: 42px; padding: 6px 8px; border-bottom: 1px solid #dfe7ec; background: #fff; cursor: pointer; }.available-field-row:hover { background: #eef8f7; }.available-field-row span, .available-field-row strong, .available-field-row small { min-width: 0; }.available-field-row strong, .available-field-row small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.available-field-row small { margin-top: 2px; color: #7f8b95; }.available-field-row em { color: #687682; font-size: 10px; font-style: normal; }.available-field-row input, .selected-preview input { width: 18px; height: 18px; margin: 0; accent-color: #168478; cursor: pointer; }.primary-key-marker, .missing-field-marker { padding: 2px 5px; border-radius: 8px; color: #d9363e; background: #fff0f0; font-size: 10px; font-weight: 700; white-space: nowrap; }.missing-fields-warning { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 7px 9px; border-bottom: 1px solid #efb5b3; color: #b52f2b; background: #fff0ef; font-size: 11px; }.selected-preview li.is-missing-in-base { border: 1px solid #e35a56; border-left-width: 4px; background: #fff1f0; }.selected-preview li.is-missing-in-base strong { color: #bc302c; }.selected-preview li.is-missing-in-base small { color: #b05c58; }.field-panel-placeholder.compact { min-height: 240px; }
 .registration-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }.registration-form label { display: grid; gap: 5px; color: #52606d; font-size: 12px; }.registration-form input, .registration-form select { box-sizing: border-box; width: 100%; padding: 7px 8px; border: 1px solid #cbd6de; border-radius: 4px; background: #fff; }
+.registration-form [aria-invalid="true"] { border-color: #c43f3a; background: #fff7f6; }
+.required-field-error { color: #b52f2b; font-size: 12px; }
 .save-error { flex-shrink: 0; padding: 8px 20px; }
 .group-owner-picker { position: relative; }.group-owner-options { position: absolute; z-index: 3; top: calc(100% + 4px); right: 0; left: 0; max-height: 160px; overflow: auto; border: 1px solid #cbd6de; border-radius: 4px; background: #fff; box-shadow: 0 7px 18px rgba(30, 53, 70, .16); }.group-owner-options button { width: 100%; padding: 8px 10px; border: 0; border-bottom: 1px solid #edf1f3; background: #fff; text-align: left; cursor: pointer; }.group-owner-options button:hover { background: #edf8f7; }.registration-error { margin: 8px 0 0; color: #c43f3a; font-size: 12px; }
-.editor-footer { display: flex; align-items: center; justify-content: flex-end; gap: 9px; padding: 11px 18px; border-top: 1px solid #dbe3e8; background: #fff; }.editor-footer span { margin-right: auto; color: #74818e; font-size: 12px; }.editor-footer button { min-width: 76px; padding: 7px 14px; border: 1px solid #cad4dc; border-radius: 4px; background: #fff; cursor: pointer; }.editor-footer button:disabled { opacity: .45; cursor: not-allowed; }
+.editor-footer { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 9px; padding: 11px 18px; border-top: 1px solid #dbe3e8; background: #fff; }.editor-footer button { min-width: 76px; flex-shrink: 0; padding: 7px 14px; border: 1px solid #cad4dc; border-radius: 4px; background: #fff; cursor: pointer; }.editor-footer button:disabled { opacity: .45; cursor: not-allowed; }
+.editor-footer-actions { grid-column: 3; display: flex; justify-content: flex-end; gap: 9px; }
+.editor-footer .scroll-down-cue { grid-column: 2; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 118px; padding: 2px 10px; border-color: #f3b1aa; border-radius: 8px; color: #c5342e; background: #fff4f1; font-size: 12px; font-weight: 600; }
+.scroll-down-cue svg { animation: scroll-down-pulse 1.5s ease-in-out infinite; filter: drop-shadow(0 0 4px rgba(220, 65, 55, .35)); }
+.scroll-down-cue:focus-visible { outline: 2px solid #c5342e; outline-offset: 2px; }
+@keyframes scroll-down-pulse { 0%, 100% { opacity: .45; transform: translateY(-3px); } 50% { opacity: 1; transform: translateY(3px); } }
+@media (prefers-reduced-motion: reduce) { .scroll-down-cue svg { animation: none; } }
+.editor-save-guidance { min-width: 0; margin-right: auto; display: grid; gap: 4px; }
+.editor-current-table { color: #74818e; font-size: 12px; overflow-wrap: anywhere; }
+.save-blockers { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; color: #9a5b0a; font-size: 12px; }
+.editor-footer .save-guidance-button { min-width: 0; padding: 3px 8px; border-color: #cda55a; color: #87510a; background: #fff8e8; font-size: 12px; }
 .danger { border-color: #d9534f !important; color: #fff !important; background: #d9534f !important; }.delete-confirmation { position: fixed; z-index: 1810; width: min(430px, 88vw); padding: 20px; border-radius: 7px; background: #fff; box-shadow: 0 16px 45px rgba(0, 0, 0, .35); }.delete-confirmation h4 { margin: 0 0 10px; color: #b93c38; }.delete-confirmation p { color: #56636f; line-height: 1.65; }.delete-confirmation div { display: flex; justify-content: flex-end; gap: 9px; }.delete-confirmation button { padding: 7px 13px; border: 1px solid #cbd5dc; border-radius: 4px; background: #fff; }
 .empty-result { padding: 18px; color: #87939e; text-align: center; }
-@media (max-width: 900px) { .comparison-editor { width: 96vw; height: 94vh; }.transfer-layout { grid-template-columns: 1fr; }.transfer-actions { flex-direction: row; }.registration-form { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 900px) { .comparison-editor { width: 96vw; height: 94vh; }.transfer-layout { height: auto; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(300px, 45vh) auto minmax(300px, 45vh); }.transfer-actions { flex-direction: row; }.registration-form { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 600px) { .editor-footer { grid-template-columns: minmax(0, 1fr) auto; }.editor-footer-actions { grid-column: 2; grid-row: 1; }.editor-footer .scroll-down-cue { grid-column: 1 / -1; grid-row: 2; justify-self: center; } }
 </style>

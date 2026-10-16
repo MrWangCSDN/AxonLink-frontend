@@ -1,5 +1,14 @@
-import { mount } from '@vue/test-utils'
-import { describe, expect, it, vi } from 'vitest'
+import { flushPromises, mount } from '@vue/test-utils'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+vi.mock('../../api/replayDatabaseComparison.js', () => ({
+  loadBaseColumns: vi.fn(),
+  searchBaseTables: vi.fn(),
+  searchTechnologyOwners: vi.fn(),
+}))
+
+import * as comparisonApi from '../../api/replayDatabaseComparison.js'
+import { metadataColumns, metadataTables } from './replayDatabaseComparison.spec-fixtures.js'
 import ReplayDatabaseComparisonEditor from './ReplayDatabaseComparisonEditor.vue'
 import ReplayDatabaseComparisonScopeEditor from './ReplayDatabaseComparisonScopeEditor.vue'
 
@@ -29,6 +38,49 @@ const selectedNames = wrapper => wrapper.findAll('[data-testid="selected-field-r
   .map(row => row.get('strong').text().replace(/^\d+\.\s*/, ''))
 
 describe('ReplayDatabaseComparisonEditor', () => {
+  beforeEach(() => {
+    comparisonApi.searchTechnologyOwners.mockReset().mockResolvedValue([])
+    comparisonApi.loadBaseColumns.mockReset().mockImplementation(metadataColumns)
+    comparisonApi.searchBaseTables.mockReset().mockImplementation(keyword => metadataTables
+      .filter(table => `${table.tableName} ${table.tableComment}`.toLowerCase().includes(keyword.toLowerCase()))
+      .map(({ columns, ...table }) => ({
+        ...table,
+        registrationStatus: table.tableName === registrations[0].tableName ? 'ACTIVE' : 'UNREGISTERED',
+        registrationId: table.tableName === registrations[0].tableName ? registrations[0].id : null,
+      })))
+  })
+
+  it('uses the real metadata API functions by default', async () => {
+    comparisonApi.searchBaseTables.mockResolvedValue([{
+      tableName: registrations[0].tableName,
+      tableComment: registrations[0].tableComment,
+      registrationStatus: 'ACTIVE',
+      registrationId: registrations[0].id,
+    }])
+    comparisonApi.loadBaseColumns.mockResolvedValue(metadataColumns(registrations[0].tableName))
+    comparisonApi.searchTechnologyOwners.mockResolvedValue([
+      { username: 'sunhy1', empNo: '100101', realName: '孙海英', displayName: '孙海英(100101)' },
+    ])
+    const wrapper = mount(ReplayDatabaseComparisonEditor, { props: { registrations } })
+    try {
+      await waitForTableSearch(wrapper, '冻结')
+      expect(comparisonApi.searchBaseTables).toHaveBeenCalledWith('冻结', 20)
+      await wrapper.get('[data-testid="table-search-result"]').trigger('click')
+      await flushPromises()
+      expect(comparisonApi.loadBaseColumns).toHaveBeenCalledWith(registrations[0].tableName)
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('omits manual registration information from the editor', () => {
+    const wrapper = mount(ReplayDatabaseComparisonEditor, { props: { registrations, initialRegistration: registrations[0] } })
+    expect(wrapper.find('.registration-block').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('4. 登记信息')
+    expect(wrapper.find('[data-testid="registration-domain"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="group-owner-search"]').exists()).toBe(false)
+  })
+
   it.each([false, true])('restores sample limit and enforces permission (%s)', async allowed => {
     const registration = { ...registrations[0], sampleLimit: 2500 }
     const wrapper = mount(ReplayDatabaseComparisonEditor, { props: {
@@ -125,34 +177,11 @@ describe('ReplayDatabaseComparisonEditor', () => {
     expect(wrapper.get('[data-testid="selected-fields"]').text()).toContain('acct_status')
   })
 
-  it('keeps only domain and a searchable group owner in registration information', async () => {
-    const searchUsers = vi.fn().mockResolvedValue([
-      { username: 'sunhy1', realName: '孙海英', displayName: '孙海英(sunhy1)' },
-    ])
-    const wrapper = mount(ReplayDatabaseComparisonEditor, {
-      props: { registrations, searchUsers },
-    })
-    const fieldLabels = wrapper.findAll('.registration-form > label').map(label => label.text())
-
-    expect(fieldLabels.some(label => label.startsWith('负责人'))).toBe(false)
-    expect(fieldLabels.some(label => label.startsWith('登记日期'))).toBe(false)
-    expect(fieldLabels.some(label => label.startsWith('备注'))).toBe(false)
-    await wrapper.get('[data-testid="group-owner-search"]').setValue('孙')
-    await wrapper.get('[data-testid="group-owner-search"]').trigger('input')
-
-    expect(searchUsers).toHaveBeenCalledWith('孙')
-    await wrapper.get('[data-testid="group-owner-option-sunhy1"]').trigger('click')
-    expect(wrapper.get('[data-testid="group-owner-search"]').element.value).toBe('孙海英(sunhy1)')
-  })
-
-  it('uses the five group domains and filters selected fields by name or comment', async () => {
+  it('filters selected fields by name or comment', async () => {
     const wrapper = mount(ReplayDatabaseComparisonEditor, {
       props: { registrations, initialRegistration: registrations[0] },
     })
 
-    expect(wrapper.findAll('.registration-form select option').map(option => option.text()).slice(1)).toEqual([
-      '存款组', '贷款组', '公共组', '结算组', '平台组',
-    ])
     await wrapper.get('[data-testid="selected-field-search"]').setValue('币种')
     expect(wrapper.findAll('[data-testid="selected-field-row"]')).toHaveLength(1)
     expect(wrapper.get('[data-testid="selected-fields"]').text()).toContain('currency_cd')
@@ -275,12 +304,10 @@ describe('ReplayDatabaseComparisonEditor', () => {
     await Promise.resolve()
 
     expect(wrapper.get('[data-testid="primary-key-missing-warning"]').text())
-      .toContain('该表没有主键，请联系 DBA 创建表主键')
+      .toContain('该表没有主键或唯一索引，请联系 DBA 创建可用索引')
     expect(wrapper.get('[data-testid="available-field-search"]').attributes('disabled')).toBeDefined()
     expect(wrapper.get('[data-testid="selected-field-search"]').attributes('disabled')).toBeDefined()
     expect(wrapper.get('[data-testid="move-fields-right"]').attributes('disabled')).toBeDefined()
-    expect(wrapper.get('.registration-form select').attributes('disabled')).toBeDefined()
-    expect(wrapper.get('[data-testid="group-owner-search"]').attributes('disabled')).toBeDefined()
     expect(wrapper.get('[data-testid="submit-registration"]').attributes('disabled')).toBeDefined()
   })
 
@@ -297,7 +324,7 @@ describe('ReplayDatabaseComparisonEditor', () => {
     })
 
     expect(wrapper.get('[data-testid="primary-key-missing-warning"]').text())
-      .toContain('该表没有主键，请联系 DBA 创建表主键')
+      .toContain('该表没有主键或唯一索引，请联系 DBA 创建可用索引')
     expect(wrapper.get('[data-testid="selected-field-row"] input').attributes('disabled')).toBeDefined()
     expect(wrapper.get('[data-testid="move-selected-up-customer_no"]').attributes('disabled')).toBeDefined()
     expect(wrapper.get('[data-testid="move-selected-down-customer_no"]').attributes('disabled')).toBeDefined()
@@ -333,7 +360,7 @@ describe('ReplayDatabaseComparisonEditor', () => {
     expect(wrapper.emitted('save')).toBeUndefined()
     expect(selectedNames(wrapper)).toEqual(['acct_no', 'status'])
     expect(wrapper.get('[data-testid="primary-key-missing-warning"]').text())
-      .toContain('该表没有主键，请联系 DBA 创建表主键')
+      .toContain('该表没有主键或唯一索引，请联系 DBA 创建可用索引')
     expect(wrapper.get('[data-testid="submit-registration"]').attributes('disabled')).toBeDefined()
   })
 
@@ -517,7 +544,7 @@ describe('ReplayDatabaseComparisonEditor', () => {
       props: { registrations, initialRegistration: registrations[0], loadColumns: () => noKeyColumns },
     })
     expect(wrapper.get('[data-testid="primary-key-missing-warning"]').text())
-      .toContain('该表没有主键，请联系 DBA 创建表主键')
+      .toContain('该表没有主键或唯一索引，请联系 DBA 创建可用索引')
     expect(wrapper.findAll('[data-testid="selected-field-row"] input[type="checkbox"]')
       .every(checkbox => checkbox.attributes('disabled') !== undefined)).toBe(true)
     expect(wrapper.get('[data-testid="move-fields-left"]').attributes('disabled')).toBeDefined()
@@ -681,7 +708,6 @@ describe('ReplayDatabaseComparisonEditor', () => {
     expect(wrapper.get('[data-testid="selected-fields"]').text()).toContain('acct_no')
     expect(wrapper.text()).not.toContain('legacy_field')
     expect(wrapper.find('.selected-table .text-button').exists()).toBe(true)
-    await wrapper.get('.registration-form select').setValue('存款组')
     expect(loadRegistration).toHaveBeenCalledWith(77)
     await wrapper.get('[data-testid="submit-registration"]').trigger('click')
     await Promise.resolve()
@@ -737,4 +763,355 @@ describe('ReplayDatabaseComparisonEditor', () => {
     expect(warning.text()).toContain('原顺序：acct_no、tenant_id')
     expect(warning.text()).toContain('当前顺序：tenant_id、acct_no')
   })
+  it.each(['rejection', 'throw'])('reports initial BASE metadata %s without treating the table as missing fields or lacking a primary key', async failureMode => {
+    const fail = () => {
+      const error = new Error('BASE 母库暂时不可用（503）')
+      if (failureMode === 'throw') throw error
+      return Promise.reject(error)
+    }
+    const loadColumns = vi.fn()
+      .mockImplementationOnce(fail)
+      .mockImplementation(metadataColumns)
+    const wrapper = mount(ReplayDatabaseComparisonEditor, { props: {
+      initialRegistration: registrations[0], registrations, loadColumns,
+    } })
+    try {
+      await flushPromises()
+      expect(wrapper.get('[data-testid="registration-metadata-error"]').text()).toContain('BASE 母库暂时不可用（503）')
+      expect(wrapper.find('[data-testid="primary-key-missing-warning"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="missing-fields-warning"]').exists()).toBe(false)
+      expect(wrapper.get('[data-testid="submit-registration"]').element.disabled).toBe(true)
+      expect(wrapper.get('[data-testid="submit-registration"]').text()).toBe('保存')
+      expect(wrapper.emitted('save')).toBeUndefined()
+      expect(wrapper.emitted('delete')).toBeUndefined()
+
+      await wrapper.get('[data-testid="retry-registration-metadata"]').trigger('click')
+      await flushPromises()
+      expect(wrapper.find('[data-testid="registration-metadata-error"]').exists()).toBe(false)
+      expect(selectedNames(wrapper)).toEqual(['fzn_cntl_id', 'currency_cd'])
+      expect(wrapper.get('[data-testid="submit-registration"]').element.disabled).toBe(false)
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('reports registration-detail failures and retries before allowing edits or deletion', async () => {
+    const loadRegistration = vi.fn()
+      .mockRejectedValueOnce(new Error('登记查询服务暂时不可用'))
+      .mockResolvedValue(registrations[0])
+    const wrapper = mount(ReplayDatabaseComparisonEditor, { props: {
+      searchTables: () => [{
+        tableName: registrations[0].tableName, tableComment: registrations[0].tableComment,
+        registrationStatus: 'ACTIVE', registrationId: registrations[0].id,
+      }],
+      loadRegistration,
+    } })
+    try {
+      await waitForTableSearch(wrapper, '冻结')
+      await wrapper.get('[data-testid="table-search-result"]').trigger('click')
+      await flushPromises()
+      expect(wrapper.get('[data-testid="registration-metadata-error"]').text()).toContain('登记查询服务暂时不可用')
+      expect(wrapper.get('[data-testid="submit-registration"]').element.disabled).toBe(true)
+      expect(wrapper.get('[data-testid="submit-registration"]').text()).toBe('保存')
+      expect(comparisonApi.loadBaseColumns).not.toHaveBeenCalled()
+      expect(wrapper.emitted('save')).toBeUndefined()
+      expect(wrapper.emitted('delete')).toBeUndefined()
+
+      await wrapper.get('[data-testid="retry-registration-metadata"]').trigger('click')
+      await flushPromises()
+      expect(loadRegistration).toHaveBeenCalledTimes(2)
+      expect(wrapper.find('[data-testid="registration-metadata-error"]').exists()).toBe(false)
+      expect(selectedNames(wrapper)).toEqual(['fzn_cntl_id', 'currency_cd'])
+      expect(wrapper.get('[data-testid="submit-registration"]').element.disabled).toBe(false)
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('keeps the entire edited draft when the final BASE recheck fails and saves it after retry', async () => {
+    const columns = metadataColumns(registrations[0].tableName)
+    const loadColumns = vi.fn()
+      .mockReturnValueOnce(columns)
+      .mockRejectedValueOnce(new Error('母库连接超时，请稍后重试'))
+      .mockResolvedValue(columns)
+    const wrapper = mount(ReplayDatabaseComparisonEditor, { props: {
+      initialRegistration: registrations[0], registrations, loadColumns, canConfigureSampleLimit: true,
+    } })
+    try {
+      await wrapper.get('[data-testid="editor-sample-limit"]').setValue('13')
+      await wrapper.get('[data-testid="move-selected-up-currency_cd"]').trigger('click')
+      const condition = { connector: 'AND', groups: [{ connector: 'AND', conditions: [
+        { columnName: 'currency_cd', operator: 'EQ', values: ['CNY'] },
+      ] }] }
+      const scope = wrapper.getComponent(ReplayDatabaseComparisonScopeEditor)
+      scope.vm.$emit('update:modelValue', condition)
+      scope.vm.$emit('update:compareLimit', 100)
+      await flushPromises()
+      await wrapper.get('[data-testid="submit-registration"]').trigger('click')
+      await flushPromises()
+
+      expect(wrapper.emitted('save')).toBeUndefined()
+      expect(wrapper.get('[data-testid="registration-metadata-error"]').text()).toContain('母库连接超时，请稍后重试')
+      expect(selectedNames(wrapper)).toEqual(['currency_cd', 'fzn_cntl_id'])
+      expect(wrapper.get('[data-testid="editor-sample-limit"]').element.value).toBe('13')
+      expect(scope.props('modelValue')).toEqual(condition)
+      expect(scope.props('compareLimit')).toBe(100)
+      expect(wrapper.find('[data-testid="primary-key-missing-warning"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="missing-fields-warning"]').exists()).toBe(false)
+      expect(wrapper.get('[data-testid="submit-registration"]').element.disabled).toBe(false)
+
+      await wrapper.get('[data-testid="retry-registration-metadata"]').trigger('click')
+      await flushPromises()
+      expect(wrapper.find('[data-testid="registration-metadata-error"]').exists()).toBe(false)
+      expect(wrapper.emitted('save')).toHaveLength(1)
+      expect(wrapper.emitted('save')[0][0]).toMatchObject({
+        fieldNames: ['currency_cd', 'fzn_cntl_id'],
+        sampleLimit: 13, whereCondition: condition, compareLimit: 100,
+      })
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('preserves selected fields when refreshing metadata after a server primary-key conflict fails', async () => {
+    const columns = metadataColumns(registrations[0].tableName)
+    const loadColumns = vi.fn()
+      .mockReturnValueOnce(columns)
+      .mockRejectedValueOnce(new Error('主键刷新时母库不可用'))
+      .mockResolvedValue(columns)
+    const wrapper = mount(ReplayDatabaseComparisonEditor, { props: {
+      initialRegistration: registrations[0], registrations, loadColumns,
+    } })
+    try {
+      await wrapper.setProps({ saveError: { type: 'PRIMARY_KEY_CHANGED' } })
+      await flushPromises()
+      expect(wrapper.get('[data-testid="registration-metadata-error"]').text()).toContain('主键刷新时母库不可用')
+      expect(selectedNames(wrapper)).toEqual(['fzn_cntl_id', 'currency_cd'])
+      expect(wrapper.find('[data-testid="primary-key-missing-warning"]').exists()).toBe(false)
+      expect(wrapper.get('[data-testid="submit-registration"]').element.disabled).toBe(true)
+      expect(wrapper.emitted('save')).toBeUndefined()
+
+      await wrapper.get('[data-testid="retry-registration-metadata"]').trigger('click')
+      await flushPromises()
+      expect(wrapper.find('[data-testid="registration-metadata-error"]').exists()).toBe(false)
+      expect(selectedNames(wrapper)).toEqual(['fzn_cntl_id', 'fzn_new_pk', 'currency_cd'])
+      expect(wrapper.get('[data-testid="submit-registration"]').element.disabled).toBe(false)
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  const keyColumns = [
+    { columnName: 'id', primaryKey: true, primaryKeyOrder: 1, ordinalPosition: 1 },
+    { columnName: 'tenant', primaryKey: false, nullable: true, ordinalPosition: 2 },
+    { columnName: 'code', primaryKey: false, nullable: true, ordinalPosition: 3 },
+  ]
+  const primary = { indexName: 'acct_pkey', indexType: 'PRIMARY_KEY', columnNames: ['id'] }
+  const unique = { indexName: 'acct_uq', indexType: 'UNIQUE_INDEX', columnNames: ['code', 'tenant'] }
+  const keyRegistration = { ...registrations[0], fields: [{ name: 'id' }] }
+
+  it('defaults to the physical primary key and switches whole nullable unique indexes without changing primary metadata', async () => {
+    const loadKeys = vi.fn().mockResolvedValue([unique, primary])
+    const wrapper = mount(ReplayDatabaseComparisonEditor, { props: {
+      initialRegistration: keyRegistration, loadColumns: () => keyColumns, loadKeys,
+    } })
+    await flushPromises()
+    expect(wrapper.get('[data-testid="comparison-key-select"]').element.value).toBe('acct_pkey')
+    expect(selectedNames(wrapper)).toEqual(['id'])
+    expect(wrapper.get('[data-testid="comparison-key-select"]').text()).toContain('唯一索引 · acct_uq · code、tenant')
+    await wrapper.get('[data-testid="comparison-key-select"]').setValue('acct_uq')
+    expect(selectedNames(wrapper)).toEqual(['code', 'tenant'])
+    const rows = wrapper.findAll('[data-testid="selected-field-row"]')
+    expect(rows).toHaveLength(2)
+    expect(rows.every(row => row.get('input').element.disabled)).toBe(true)
+    expect(rows.every(row => row.text().includes('唯一索引') && !row.text().includes('比对键'))).toBe(true)
+    expect(wrapper.findAll('[data-testid="selected-fields"] .primary-key-marker')).toHaveLength(0)
+    wrapper.getComponent(ReplayDatabaseComparisonScopeEditor).vm.$emit('update:compareLimit', 5)
+    await flushPromises()
+    expect(wrapper.getComponent(ReplayDatabaseComparisonScopeEditor).props('primaryKeyColumns')).toEqual(['code', 'tenant'])
+    await wrapper.get('[data-testid="submit-registration"]').trigger('click')
+    await flushPromises()
+    expect(loadKeys).toHaveBeenCalledTimes(2)
+    expect(wrapper.emitted('save')[0][0]).toMatchObject({ comparisonKeyName: 'acct_uq', fieldNames: ['code', 'tenant'] })
+    wrapper.unmount()
+  })
+
+  it('replaces only the old index fields when switching back and forth while retaining ordinary fields', async () => {
+    const wrapper = mount(ReplayDatabaseComparisonEditor, { props: {
+      initialRegistration: { ...keyRegistration, fields: [{ name: 'id' }, { name: 'memo' }] },
+      loadColumns: () => [...keyColumns, { columnName: 'memo', primaryKey: false, ordinalPosition: 4 }],
+      loadKeys: () => [primary, unique],
+    } })
+    await flushPromises()
+    expect(selectedNames(wrapper)).toEqual(['id', 'memo'])
+    expect(wrapper.get('[data-testid="selected-field-row"]').text()).toContain('主键')
+    await wrapper.get('[data-testid="comparison-key-select"]').setValue('acct_uq')
+    expect(selectedNames(wrapper)).toEqual(['memo', 'code', 'tenant'])
+    await wrapper.get('[data-testid="comparison-key-select"]').setValue('acct_pkey')
+    expect(selectedNames(wrapper)).toEqual(['memo', 'id'])
+    const selectedRows = wrapper.findAll('[data-testid="selected-field-row"]')
+    expect(selectedRows[0].text()).not.toContain('唯一索引')
+    expect(selectedRows[1].text()).toContain('主键')
+    expect(selectedRows[1].get('input').element.disabled).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('restores a saved unique selection and supports tables with only unique indexes', async () => {
+    const registration = { ...keyRegistration, comparisonKey: unique, fields: [{ name: 'tenant' }] }
+    const wrapper = mount(ReplayDatabaseComparisonEditor, { props: {
+      initialRegistration: registration, loadColumns: () => keyColumns.map(column => ({ ...column, primaryKey: false })),
+      loadKeys: () => [unique, { ...unique, indexName: 'z_last' }],
+    } })
+    await flushPromises()
+    expect(wrapper.get('[data-testid="comparison-key-select"]').element.value).toBe('acct_uq')
+    expect(selectedNames(wrapper)).toEqual(['tenant', 'code'])
+    expect(wrapper.find('[data-testid="primary-key-missing-warning"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="submit-registration"]').element.disabled).toBe(false)
+    await wrapper.get('[data-testid="submit-registration"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.emitted('save')[0][0].comparisonKeyName).toBe('acct_uq')
+    wrapper.unmount()
+  })
+
+  it('keeps every selected unique-index column locked even when its mother-table column is missing', async () => {
+    const registration = {
+      ...keyRegistration,
+      comparisonKey: unique,
+      fields: [{ name: 'code' }, { name: 'tenant' }, { name: 'id' }, { name: 'memo' }],
+    }
+    const wrapper = mount(ReplayDatabaseComparisonEditor, { props: {
+      initialRegistration: registration,
+      loadColumns: () => [...keyColumns.filter(column => column.columnName !== 'code'),
+        { columnName: 'memo', primaryKey: false, ordinalPosition: 4 }],
+      loadKeys: () => [primary, unique],
+    } })
+    await flushPromises()
+
+    const rows = wrapper.findAll('[data-testid="selected-field-row"]')
+    expect(selectedNames(wrapper)).toEqual(['code', 'tenant', 'memo'])
+    expect(rows[0].get('input').element.disabled).toBe(true)
+    expect(rows[1].get('input').element.disabled).toBe(true)
+    expect(rows[2].get('input').element.disabled).toBe(false)
+    await wrapper.get('[data-testid="selected-select-all"]').trigger('click')
+    expect(rows[0].get('input').element.checked).toBe(false)
+    expect(rows[1].get('input').element.checked).toBe(false)
+    expect(rows[2].get('input').element.checked).toBe(true)
+    await wrapper.get('[data-testid="move-fields-left"]').trigger('click')
+    expect(selectedNames(wrapper)).toEqual(['code', 'tenant'])
+    wrapper.unmount()
+  })
+
+  it('uses the first unique index by stable name when there is no primary key or saved choice', async () => {
+    const wrapper = mount(ReplayDatabaseComparisonEditor, { props: {
+      initialRegistration: keyRegistration,
+      loadColumns: () => keyColumns.map(column => ({ ...column, primaryKey: false })),
+      loadKeys: () => [{ ...unique, indexName: 'z_last' }, unique],
+    } })
+    await flushPromises()
+    expect(wrapper.get('[data-testid="comparison-key-select"]').element.value).toBe('acct_uq')
+    expect(selectedNames(wrapper)).toEqual(['id', 'code', 'tenant'])
+    wrapper.unmount()
+  })
+
+  it.each([{ keys: [] }, { keys: [{ ...unique, columnNames: ['tenant', 'code'] }] }])('blocks saving a removed or changed selected index without silently falling back (%j)', async ({ keys: changedKeys }) => {
+    const loadKeys = vi.fn().mockReturnValueOnce([primary, unique]).mockReturnValue([primary, ...changedKeys])
+    const wrapper = mount(ReplayDatabaseComparisonEditor, { props: {
+      initialRegistration: { ...keyRegistration, comparisonKey: unique }, loadColumns: () => keyColumns, loadKeys,
+    } })
+    await flushPromises()
+    await wrapper.get('[data-testid="submit-registration"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.emitted('save')).toBeUndefined()
+    expect(wrapper.get('[data-testid="comparison-key-error"]').text()).toContain('已删除或发生变化')
+    expect(wrapper.get('[data-testid="comparison-key-select"]').element.value).toBe('acct_uq')
+    expect(wrapper.get('[data-testid="submit-registration"]').element.disabled).toBe(true)
+    await wrapper.get('[data-testid="comparison-key-select"]').setValue('acct_pkey')
+    expect(wrapper.find('[data-testid="comparison-key-error"]').exists()).toBe(false)
+    await wrapper.get('[data-testid="submit-registration"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.emitted('save')[0][0].comparisonKeyName).toBe('acct_pkey')
+    wrapper.unmount()
+  })
+
+  it('blocks a table with no primary or unique index even if physical column flags are present', async () => {
+    const wrapper = mount(ReplayDatabaseComparisonEditor, { props: {
+      initialRegistration: keyRegistration, loadColumns: () => keyColumns, loadKeys: () => [],
+    } })
+    await flushPromises()
+    expect(wrapper.get('[data-testid="primary-key-missing-warning"]').text()).toContain('没有主键或唯一索引')
+    expect(wrapper.get('[data-testid="submit-registration"]').element.disabled).toBe(true)
+    wrapper.unmount()
+  })
+
+  it.each(['UNREGISTERED', 'DELETED'])('defaults a table with only unique indexes to the complete first key (%s)', async registrationStatus => {
+    const wrapper = mount(ReplayDatabaseComparisonEditor, { props: {
+      searchTables: () => [{ tableName: 'unique_only', registrationStatus }],
+      loadColumns: () => keyColumns.map(column => ({ ...column, primaryKey: false })),
+      loadKeys: () => [{ ...unique, indexName: 'z_last' }, unique],
+    } })
+    await waitForTableSearch(wrapper, 'unique')
+    await wrapper.get('[data-testid="table-search-result"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="comparison-key-select"]').element.value).toBe('acct_uq')
+    expect(selectedNames(wrapper)).toEqual(['code', 'tenant'])
+    expect(wrapper.find('[data-testid="primary-key-missing-warning"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('isolates late index metadata when selecting another table', async () => {
+    let finishFirst
+    const firstKeys = new Promise(resolve => { finishFirst = resolve })
+    const wrapper = mount(ReplayDatabaseComparisonEditor, { props: {
+      searchTables: () => ['first', 'second'].map(tableName => ({ tableName, registrationStatus: 'UNREGISTERED' })),
+      loadColumns: () => keyColumns,
+      loadKeys: tableName => tableName === 'first' ? firstKeys : [{ ...unique, indexName: 'second_uq' }],
+    } })
+    await waitForTableSearch(wrapper, 'table')
+    await wrapper.findAll('[data-testid="table-search-result"]')[0].trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="selected-table"] .text-button').trigger('click')
+    await wrapper.findAll('[data-testid="table-search-result"]')[1].trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="comparison-key-select"]').element.value).toBe('second_uq')
+    finishFirst([primary])
+    await flushPromises()
+    expect(wrapper.get('[data-testid="selected-table"]').text()).toContain('second')
+    expect(wrapper.get('[data-testid="comparison-key-select"]').element.value).toBe('second_uq')
+    expect(selectedNames(wrapper)).toEqual(['code', 'tenant'])
+    wrapper.unmount()
+  })
+
+  it('preserves a chosen index and the draft when key refresh fails and saves on retry', async () => {
+    const loadKeys = vi.fn().mockResolvedValueOnce([primary, unique])
+      .mockRejectedValueOnce(new Error('索引元数据不可用')).mockResolvedValue([primary, unique])
+    const wrapper = mount(ReplayDatabaseComparisonEditor, { props: {
+      initialRegistration: { ...keyRegistration, comparisonKey: unique }, loadColumns: () => keyColumns, loadKeys,
+    } })
+    await flushPromises()
+    await wrapper.get('[data-testid="submit-registration"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.emitted('save')).toBeUndefined()
+    expect(wrapper.get('[data-testid="registration-metadata-error"]').text()).toContain('索引元数据不可用')
+    expect(wrapper.get('[data-testid="comparison-key-select"]').element.value).toBe('acct_uq')
+    expect(selectedNames(wrapper)).toEqual(['code', 'tenant'])
+    await wrapper.get('[data-testid="retry-registration-metadata"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.emitted('save')[0][0]).toMatchObject({ comparisonKeyName: 'acct_uq', fieldNames: ['code', 'tenant'] })
+    wrapper.unmount()
+  })
+
+  it('blocks saving when a selected index column disappears even if keys metadata still lists it', async () => {
+    const loadColumns = vi.fn().mockReturnValueOnce(keyColumns).mockReturnValue(keyColumns.filter(column => column.columnName !== 'tenant'))
+    const wrapper = mount(ReplayDatabaseComparisonEditor, { props: {
+      initialRegistration: { ...keyRegistration, comparisonKey: unique }, loadColumns, loadKeys: () => [primary, unique],
+    } })
+    await flushPromises()
+    await wrapper.get('[data-testid="submit-registration"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.emitted('save')).toBeUndefined()
+    expect(wrapper.get('[data-testid="comparison-key-error"]').text()).toContain('已删除或发生变化')
+    expect(wrapper.get('[data-testid="submit-registration"]').element.disabled).toBe(true)
+    wrapper.unmount()
+  })
+
 })

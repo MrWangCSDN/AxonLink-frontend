@@ -1,5 +1,8 @@
-import { flushPromises, mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+enableAutoUnmount(afterEach)
+afterEach(() => vi.unstubAllEnvs())
 
 vi.mock('../../api/replayDatabaseComparison.js', () => ({
   createRegistration: vi.fn(),
@@ -7,6 +10,7 @@ vi.mock('../../api/replayDatabaseComparison.js', () => ({
   generateVersion: vi.fn(),
   loadAuditDetails: vi.fn(),
   loadBaseColumns: vi.fn(),
+  loadBaseKeys: vi.fn(),
   loadHeaderFilterOptions: vi.fn(),
   loadOptions: vi.fn(),
   loadLatestVersion: vi.fn(),
@@ -19,6 +23,7 @@ vi.mock('../../api/replayDatabaseComparison.js', () => ({
   searchAudits: vi.fn(),
   searchGroupedAudits: vi.fn(),
   searchBaseTables: vi.fn(),
+  searchTechnologyOwners: vi.fn(),
   searchRegistrations: vi.fn(),
   searchVersionSnapshot: vi.fn(),
   synchronizePrimaryKeys: vi.fn(),
@@ -35,44 +40,8 @@ import ReplayDatabaseComparisonPage from './ReplayDatabaseComparisonPage.vue'
 import ReplayDatabaseComparisonEditor from './ReplayDatabaseComparisonEditor.vue'
 
 describe('ReplayDatabaseComparisonPage', () => {
-  it('does not show configured-scope badges in the table-name column', () => {
-    const wrapper = mount(ReplayDatabaseComparisonPage)
-
-    expect(wrapper.get('[data-testid="table-name-kdpa_cb_acct_fzn_cntl_inf"]').text())
-      .not.toContain('已配置条件')
-    expect(wrapper.get('[data-testid="table-name-klna_ln_acct_base_info"]').text())
-      .not.toContain('限1000条')
-  })
-
-  it('shows, copies, and filters by the complete comparison scope', async () => {
-    const writeText = vi.fn().mockResolvedValue(undefined)
-    Object.defineProperty(navigator, 'clipboard', {
-      configurable: true,
-      value: { writeText },
-    })
-    const wrapper = mount(ReplayDatabaseComparisonPage)
-
-    expect(wrapper.get('[data-testid="query-condition-kdpa_cb_acct_fzn_cntl_inf"]').text())
-      .toContain("where status_cd = '1'")
-    expect(wrapper.get('[data-testid="query-condition-klna_ln_acct_base_info"]').text())
-      .toContain('order by loan_acct_no')
-    expect(wrapper.get('[data-testid="query-condition-klna_ln_acct_base_info"]').text())
-      .toContain('limit 1000')
-
-    await wrapper.get('[data-testid="expand-query-condition-klna_ln_acct_base_info"]').trigger('click')
-    await wrapper.get('[data-testid="copy-query-condition-klna_ln_acct_base_info"]').trigger('click')
-    expect(writeText).toHaveBeenCalledWith('order by loan_acct_no\nlimit 1000')
-
-    await wrapper.get('[data-filter-key="queryCondition"]').trigger('click')
-    const optionText = wrapper.findAll('[data-testid="header-filter-option"]')
-      .map(option => option.text()).join('\n')
-    expect(optionText).toContain('order by loan_acct_no')
-    expect(optionText).toContain('limit 1000')
-    wrapper.unmount()
-  })
 
   const useRealMode = (items = [], totals = {}) => {
-    vi.stubEnv('VITE_REPLAY_DB_COMPARE_MOCK', 'false')
     comparisonApi.synchronizePrimaryKeys.mockResolvedValue({})
     comparisonApi.loadOptions.mockResolvedValue({ domains: ['存款组'], canImport: false })
     comparisonApi.searchRegistrations.mockResolvedValue({
@@ -86,15 +55,269 @@ describe('ReplayDatabaseComparisonPage', () => {
   }
 
   beforeEach(() => {
-    vi.stubEnv('VITE_REPLAY_DB_COMPARE_MOCK', 'true')
     Object.values(comparisonApi).forEach(value => value?.mockReset?.())
     exportInitialImportErrors.mockReset()
     exportInitialImportErrors.mockResolvedValue(undefined)
     comparisonApi.loadLatestVersion.mockResolvedValue(null)
+    comparisonApi.loadOptions.mockResolvedValue({ domains: ['存款组'], canImport: false })
+    comparisonApi.searchRegistrations.mockResolvedValue({ items: [], page: 0, size: 50, total: 0 })
+    comparisonApi.loadHeaderFilterOptions.mockResolvedValue({ options: [], matchedRegistrationCount: 0 })
+    comparisonApi.synchronizePrimaryKeys.mockResolvedValue({})
+    comparisonApi.searchTechnologyOwners.mockResolvedValue([])
+    comparisonApi.loadBaseKeys.mockImplementation(async () => {
+      const columns = await comparisonApi.loadBaseColumns.mock.results.at(-1)?.value || []
+      const names = [...columns].filter(column => column.primaryKey)
+        .sort((left, right) => (left.primaryKeyOrder ?? left.ordinalPosition ?? 0) - (right.primaryKeyOrder ?? right.ordinalPosition ?? 0))
+        .map(column => column.columnName)
+      return names.length ? [{ indexName: 'PRIMARY', indexType: 'PRIMARY_KEY', columnNames: names }] : []
+    })
   })
 
   const registrationRow = { id: 3, tableName: 'acct', tableComment: '账户表', version: 7,
     domainName: '存款组', partitionNum: 16, sampleLimit: 0, fieldPreview: ['id(编号)'], fieldCount: 1 }
+
+  it.each(['add', 'edit', 'reregister'])('passes the comparison key name through the %s save route', async mode => {
+    useRealMode()
+    const wrapper = mount(ReplayDatabaseComparisonPage)
+    await flushPromises()
+    await wrapper.get('[data-testid="add-registration"]').trigger('click')
+    wrapper.getComponent(ReplayDatabaseComparisonEditor).vm.$emit('save', {
+      mode, id: 3, tableName: 'acct', comparisonKeyName: 'acct_uq', fieldNames: ['code', 'tenant'],
+      domain: '存款组', groupOwnerUsername: '101',
+    })
+    await flushPromises()
+    const api = mode === 'add' ? comparisonApi.createRegistration : mode === 'edit' ? comparisonApi.updateRegistration : comparisonApi.reregisterRegistration
+    expect(api.mock.calls.at(-1).at(-1)).toMatchObject({ comparisonKeyName: 'acct_uq', fieldNames: ['code', 'tenant'] })
+  })
+
+  it('displays the saved comparison index and uses its ordered columns in the scope preview', async () => {
+    const comparisonKey = { indexName: 'acct_uq', indexType: 'UNIQUE_INDEX', columnNames: ['code', 'tenant'] }
+    const detail = { ...registrationRow, comparisonKey, compareLimit: 10, fields: [
+      { columnName: 'id', primaryKey: true }, { columnName: 'tenant' }, { columnName: 'code' },
+    ] }
+    useRealMode([detail])
+    comparisonApi.loadRegistration.mockResolvedValue(detail)
+    comparisonApi.loadBaseColumns.mockResolvedValue(detail.fields)
+    comparisonApi.loadBaseKeys.mockResolvedValue([comparisonKey])
+    const wrapper = mount(ReplayDatabaseComparisonPage)
+    await flushPromises()
+    await wrapper.get('[data-testid="view-registration-acct"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="detail-comparison-key"]').text()).toBe('唯一索引 · acct_uq · code、tenant')
+    expect(wrapper.get('[data-testid="detail-field-code"]').text()).toContain('唯一索引')
+    expect(wrapper.get('[data-testid="detail-field-id"]').text()).not.toContain('主键')
+    expect(wrapper.get('[data-testid="detail-field-id"]').text()).not.toContain('比对键')
+    expect(wrapper.get('[data-testid="query-condition-acct"] .query-condition-content').text()).toBe('order by code,tenant\nlimit 10')
+    await wrapper.get('[data-testid="close-registration-detail"]').trigger('click')
+    await wrapper.get('[data-testid="edit-registration-acct"]').trigger('click')
+    await flushPromises()
+    expect(comparisonApi.loadBaseKeys).toHaveBeenCalledWith('acct')
+    expect(wrapper.getComponent(ReplayDatabaseComparisonEditor).props('initialRegistration').comparisonKey).toEqual(comparisonKey)
+  })
+
+  it('shows a first-load backend failure without preview rows and clears it after a successful retry', async () => {
+    useRealMode([registrationRow])
+    comparisonApi.searchRegistrations.mockRejectedValueOnce(Object.assign(new Error('HTTP 503'), { code: 503 }))
+    const wrapper = mount(ReplayDatabaseComparisonPage)
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="page-api-error"]').text()).toBe('HTTP 503')
+    expect(wrapper.get('[data-testid="page-api-error"]').attributes('role')).toBe('alert')
+    expect(wrapper.findAll('[data-testid="registration-row"]')).toHaveLength(0)
+    expect(wrapper.text()).not.toContain('Mock 数据')
+    expect(wrapper.text()).not.toContain('kdpa_cb_acct_fzn_cntl_inf')
+
+    await wrapper.get('[data-testid="reset-filters"]').trigger('click')
+    await flushPromises()
+    expect(comparisonApi.searchRegistrations).toHaveBeenCalledTimes(2)
+    expect(wrapper.find('[data-testid="page-api-error"]').exists()).toBe(false)
+    expect(wrapper.findAll('[data-testid="registration-row"]')).toHaveLength(1)
+    expect(wrapper.get('[data-testid="table-name-acct"]').text()).toContain('账户表')
+  })
+
+  it('clears stale filter candidates and blocks confirmation after a backend failure until retry succeeds', async () => {
+    useRealMode([registrationRow])
+    const options = { options: [{ value: '存款组', label: '存款组', count: 1 }], matchedRegistrationCount: 1 }
+    comparisonApi.loadHeaderFilterOptions
+      .mockResolvedValueOnce(options)
+      .mockRejectedValueOnce(Object.assign(new Error('筛选服务不可用 HTTP 503'), { code: 503 }))
+      .mockResolvedValueOnce(options)
+    const wrapper = mount(ReplayDatabaseComparisonPage)
+    await flushPromises()
+
+    await wrapper.get('[data-filter-key="domain"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="header-filter-option"] input').setValue(true)
+    await wrapper.get('[data-testid="header-filter-search"]').setValue('存款')
+    await wrapper.get('[aria-label="查询筛选选项"]').trigger('click')
+    await flushPromises()
+
+    const panel = wrapper.get('[data-testid="header-filter-panel"]')
+    expect(panel.get('[role="alert"]').text()).toContain('HTTP 503')
+    expect(wrapper.findAll('[data-testid="header-filter-option"]')).toHaveLength(0)
+    expect(wrapper.get('[data-testid="apply-header-filter"]').element.disabled).toBe(true)
+    await wrapper.get('[data-testid="apply-header-filter"]').trigger('click')
+    expect(comparisonApi.searchRegistrations).toHaveBeenCalledOnce()
+    expect(wrapper.get('[data-testid="table-name-acct"]').exists()).toBe(true)
+
+    await wrapper.get('[aria-label="查询筛选选项"]').trigger('click')
+    await flushPromises()
+    expect(panel.find('[role="alert"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="apply-header-filter"]').element.disabled).toBe(false)
+    expect(wrapper.findAll('[data-testid="header-filter-option"]')).toHaveLength(1)
+    await wrapper.get('[data-testid="apply-header-filter"]').trigger('click')
+    await flushPromises()
+    expect(comparisonApi.searchRegistrations).toHaveBeenLastCalledWith(expect.objectContaining({ domains: ['存款组'] }))
+  })
+
+  it.each(['view', 'edit'])('keeps a failed %s request closed and loads the saved registration on retry', async action => {
+    useRealMode([registrationRow])
+    comparisonApi.loadRegistration
+      .mockRejectedValueOnce(Object.assign(new Error('登记详情 HTTP 503'), { code: 503 }))
+      .mockResolvedValueOnce({
+        ...registrationRow, groupOwnerEmpNo: '100101', groupOwnerName: '孙海英',
+        fields: [{ columnName: 'id', columnComment: '编号', primaryKey: true, existsInBase: true }],
+      })
+    comparisonApi.loadBaseColumns.mockResolvedValue([{ columnName: 'id', columnComment: '编号', primaryKey: true }])
+    const wrapper = mount(ReplayDatabaseComparisonPage)
+    await flushPromises()
+
+    await wrapper.get(`[data-testid="${action}-registration-acct"]`).trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="page-api-error"]').text()).toContain('HTTP 503')
+    expect(wrapper.find('[data-testid="registration-detail-dialog"]').exists()).toBe(false)
+    expect(wrapper.findComponent(ReplayDatabaseComparisonEditor).exists()).toBe(false)
+    expect(comparisonApi.createRegistration).not.toHaveBeenCalled()
+    expect(comparisonApi.updateRegistration).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-testid="table-name-acct"]').exists()).toBe(true)
+
+    await wrapper.get(`[data-testid="${action}-registration-acct"]`).trigger('click')
+    await flushPromises()
+    expect(comparisonApi.loadRegistration).toHaveBeenCalledTimes(2)
+    expect(wrapper.find('[data-testid="page-api-error"]').exists()).toBe(false)
+    if (action === 'view') {
+      expect(wrapper.get('[data-testid="registration-detail-dialog"]').text()).toContain('id(编号)')
+    } else {
+      const editor = wrapper.findComponent(ReplayDatabaseComparisonEditor)
+      expect(editor.get('[data-testid="editor-title"]').text()).toBe('编辑登记')
+      expect(editor.props('initialRegistration')).toMatchObject({ id: 3, version: 7, tableName: 'acct' })
+    }
+  })
+
+  it('retains the row and deletion confirmation after rejection and reloads only after successful retry', async () => {
+    useRealMode([registrationRow])
+    comparisonApi.deleteRegistration
+      .mockRejectedValueOnce(Object.assign(new Error('删除 HTTP 503'), { code: 503 }))
+      .mockResolvedValueOnce({})
+    const wrapper = mount(ReplayDatabaseComparisonPage)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="delete-registration-acct"]').trigger('click')
+    await wrapper.get('[data-testid="confirm-list-delete"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="page-api-error"]').text()).toContain('HTTP 503')
+    expect(wrapper.get('[data-testid="list-delete-confirmation"]').text()).toContain('删除 HTTP 503')
+    expect(wrapper.get('[data-testid="table-name-acct"]').exists()).toBe(true)
+    expect(comparisonApi.searchRegistrations).toHaveBeenCalledOnce()
+
+    comparisonApi.searchRegistrations.mockResolvedValue({ items: [], page: 0, size: 50, total: 0 })
+    await wrapper.get('[data-testid="confirm-list-delete"]').trigger('click')
+    await flushPromises()
+    expect(comparisonApi.deleteRegistration).toHaveBeenCalledTimes(2)
+    expect(comparisonApi.searchRegistrations).toHaveBeenCalledTimes(2)
+    expect(wrapper.find('[data-testid="list-delete-confirmation"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="page-api-error"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="table-name-acct"]').exists()).toBe(false)
+  })
+
+  it('loads only API data even if the removed preview environment flag remains set', async () => {
+    vi.stubEnv('VITE_REPLAY_DB_COMPARE_MOCK', 'true')
+    useRealMode([registrationRow])
+    const wrapper = mount(ReplayDatabaseComparisonPage)
+    await flushPromises()
+
+    expect(comparisonApi.searchRegistrations).toHaveBeenCalledOnce()
+    expect(wrapper.findAll('[data-testid="registration-row"]')).toHaveLength(1)
+    expect(wrapper.get('[data-testid="table-name-acct"]').text()).toContain('账户表')
+    expect(wrapper.text()).not.toContain('Mock 数据')
+    expect(wrapper.text()).not.toContain('kdpa_cb_acct_fzn_cntl_inf')
+    wrapper.unmount()
+    vi.unstubAllEnvs()
+  })
+
+  it('requests server pages and resets the offset when page size changes', async () => {
+    useRealMode([registrationRow])
+    comparisonApi.searchRegistrations
+      .mockResolvedValueOnce({ items: [registrationRow], page: 0, size: 50, total: 125 })
+      .mockResolvedValueOnce({ items: [{ ...registrationRow, id: 4, tableName: 'loan' }], page: 1, size: 50, total: 125 })
+      .mockResolvedValueOnce({ items: [registrationRow], page: 0, size: 100, total: 125 })
+    const wrapper = mount(ReplayDatabaseComparisonPage)
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="page-summary"]').text()).toContain('第 1 / 3 页')
+    await wrapper.get('[data-testid="next-page"]').trigger('click')
+    await flushPromises()
+    expect(comparisonApi.searchRegistrations).toHaveBeenLastCalledWith(expect.objectContaining({ page: 1, size: 50 }))
+    expect(wrapper.find('[data-testid="table-name-acct"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="table-name-loan"]').exists()).toBe(true)
+
+    await wrapper.get('[data-testid="page-size"]').setValue('100')
+    await flushPromises()
+    expect(comparisonApi.searchRegistrations).toHaveBeenLastCalledWith(expect.objectContaining({ page: 0, size: 100 }))
+    expect(wrapper.get('[data-testid="page-summary"]').text()).toContain('第 1 / 2 页')
+    wrapper.unmount()
+  })
+
+  it('confirms list deletion, sends the saved version, and reloads the backend result', async () => {
+    useRealMode([registrationRow])
+    comparisonApi.deleteRegistration.mockResolvedValue({})
+    const wrapper = mount(ReplayDatabaseComparisonPage)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="delete-registration-acct"]').trigger('click')
+    expect(wrapper.get('[data-testid="list-delete-confirmation"]').text()).toContain('acct')
+    expect(comparisonApi.deleteRegistration).not.toHaveBeenCalled()
+    comparisonApi.searchRegistrations.mockResolvedValue({ items: [], page: 0, size: 50, total: 0 })
+    await wrapper.get('[data-testid="confirm-list-delete"]').trigger('click')
+    await flushPromises()
+
+    expect(comparisonApi.deleteRegistration).toHaveBeenCalledWith(3, expect.objectContaining({ version: 7 }))
+    expect(comparisonApi.searchRegistrations).toHaveBeenCalledTimes(2)
+    expect(wrapper.find('[data-testid="table-name-acct"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="page-summary"]').text()).toContain('共 0 条')
+    wrapper.unmount()
+  })
+
+  it('shows backend metadata drift and preserves historical fields in the detail response', async () => {
+    const missingFields = {
+      ...registrationRow,
+      metadataValidation: { status: 'MISSING_FIELDS', missingFieldNames: ['legacy'] },
+      fieldPreview: ['id(编号)', 'legacy(历史字段)'],
+    }
+    const missingTable = {
+      ...registrationRow, id: 4, tableName: 'removed_table',
+      metadataValidation: { status: 'TABLE_MISSING', missingFieldNames: [] },
+      fieldPreview: ['historical_id(历史主键)'],
+    }
+    useRealMode([missingFields, missingTable])
+    comparisonApi.loadRegistration.mockResolvedValue({
+      ...missingTable,
+      fields: [{ columnName: 'historical_id', columnComment: '历史主键', primaryKey: true, existsInBase: false }],
+    })
+    const wrapper = mount(ReplayDatabaseComparisonPage)
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="table-name-acct"]').text()).toContain('比对字段母库中不存在')
+    expect(wrapper.get('[data-testid="list-field-acct-legacy"]').classes()).toContain('is-missing-in-base-preview')
+    expect(wrapper.get('[data-testid="table-name-removed_table"]').text()).toContain('母库表已删除')
+    await wrapper.get('[data-testid="view-registration-removed_table"]').trigger('click')
+    await flushPromises()
+    const detail = wrapper.get('[data-testid="registration-detail-dialog"]')
+    expect(detail.get('[data-testid="detail-table-missing-warning"]').text()).toContain('当前展示的是历史登记快照')
+    expect(detail.text()).toContain('historical_id(历史主键)')
+    expect(detail.findAll('.is-missing-in-base')).toHaveLength(0)
+    wrapper.unmount()
+  })
   it('shows sample limit after query condition and in details without partition controls', async () => {
     useRealMode([registrationRow])
     comparisonApi.loadRegistration.mockResolvedValue({ ...registrationRow, fields: [] })
@@ -144,22 +367,6 @@ describe('ReplayDatabaseComparisonPage', () => {
     await flushPromises()
     if (mode === 'add') expect(comparisonApi.createRegistration).toHaveBeenCalledWith(expect.objectContaining({ sampleLimit: 0 }))
     else expect(comparisonApi.reregisterRegistration).toHaveBeenCalledWith(3, expect.objectContaining({ sampleLimit: 0 }))
-    wrapper.unmount()
-  })
-
-  it('keeps the default on mock edits even when an unauthorized payload supplies a sample limit', async () => {
-    const wrapper = mount(ReplayDatabaseComparisonPage)
-    const tableName = 'kdpa_cb_acct_fzn_cntl_inf'
-    expect(wrapper.get(`[data-testid="sample-limit-${tableName}"]`).text()).toBe('100')
-    await wrapper.get(`[data-testid="edit-registration-${tableName}"]`).trigger('click')
-    const editor = wrapper.findComponent(ReplayDatabaseComparisonEditor)
-    expect(editor.get('[data-testid="editor-sample-limit"]').element.disabled).toBe(true)
-    editor.vm.$emit('save', {
-      mode: 'edit', tableName, fields: [{ name: 'id', comment: '编号' }],
-      domain: '存款组', groupOwnerUsername: '101', groupOwnerName: '负责人', sampleLimit: 0,
-    })
-    await flushPromises()
-    expect(wrapper.get(`[data-testid="sample-limit-${tableName}"]`).text()).toBe('100')
     wrapper.unmount()
   })
 
@@ -381,29 +588,7 @@ describe('ReplayDatabaseComparisonPage', () => {
     expect(wrapper.get('[data-testid="generation-dialog"]').exists()).toBe(true)
   })
 
-  it('runs the complete strict gate against local rows in mock mode', async () => {
-    const wrapper = mount(ReplayDatabaseComparisonPage)
-    await flushPromises()
-
-    await wrapper.get('[data-testid="generate-version"]').trigger('click')
-    await wrapper.get('[data-testid="generation-token"]').setValue('sunline300348')
-    await wrapper.get('[data-testid="confirm-generate-version"]').trigger('click')
-    await flushPromises()
-
-    expect(comparisonApi.generateVersion).not.toHaveBeenCalled()
-    expect(wrapper.findAll('[data-testid="generation-gate-error-row"]')).toHaveLength(5)
-    expect(wrapper.get('[data-testid="generation-gate-errors"]').text()).toContain('legacy_deleted_field')
-    expect(wrapper.get('[data-testid="generation-gate-errors"]').text()).toContain('母库表已删除')
-    expect(wrapper.get('[data-testid="generation-gate-errors"]').text()).toContain('母库校验暂不可用')
-    expect(wrapper.get('[data-testid="generation-gate-errors"]').text()).toContain('排序主键已变更')
-    expect(wrapper.get('[data-testid="generation-gate-errors"]').text()).toContain('原顺序：loan_acct_no')
-    expect(wrapper.get('[data-testid="generation-gate-errors"]').text())
-      .toContain('当前顺序：customer_no、loan_acct_no')
-    expect(wrapper.get('[data-testid="generation-dialog"]').exists()).toBe(true)
-  })
-
   it('loads the first real list without waiting for primary-key synchronization and refreshes after changes', async () => {
-    vi.stubEnv('VITE_REPLAY_DB_COMPARE_MOCK', 'false')
     let finishSynchronization
     comparisonApi.synchronizePrimaryKeys.mockReturnValue(new Promise(resolve => { finishSynchronization = resolve }))
     comparisonApi.loadOptions.mockResolvedValue({ domains: ['存款组'], canImport: false })
@@ -437,7 +622,6 @@ describe('ReplayDatabaseComparisonPage', () => {
   })
 
   it('still loads the real list when primary-key synchronization is unavailable', async () => {
-    vi.stubEnv('VITE_REPLAY_DB_COMPARE_MOCK', 'false')
     comparisonApi.synchronizePrimaryKeys.mockRejectedValue(new Error('BASE unavailable'))
     comparisonApi.loadOptions.mockResolvedValue({ domains: ['存款组'], canImport: false })
     comparisonApi.searchRegistrations.mockResolvedValue({ items: [], page: 0, size: 50, total: 0 })
@@ -448,8 +632,7 @@ describe('ReplayDatabaseComparisonPage', () => {
     expect(comparisonApi.searchRegistrations).toHaveBeenCalledOnce()
   })
 
-  it('loads real server pages and details when mock mode is disabled', async () => {
-    vi.stubEnv('VITE_REPLAY_DB_COMPARE_MOCK', 'false')
+  it('loads server pages and details through the backend API', async () => {
     comparisonApi.loadOptions.mockResolvedValue({ domains: ['存款组'], canImport: false })
     comparisonApi.searchRegistrations.mockResolvedValue({
       items: [{
@@ -604,47 +787,6 @@ describe('ReplayDatabaseComparisonPage', () => {
     expect(wrapper.get('[data-testid="header-filter-panel"]').html()).not.toContain('（')
     expect(wrapper.get('[data-testid="header-filter-panel"]').html()).not.toContain('）')
   })
-  it('renders replay-style header filters and table-level mock registrations', () => {
-    const wrapper = mount(ReplayDatabaseComparisonPage)
-
-    expect(wrapper.get('h2').text()).toBe('回放数据库比对字段登记（尚未生成版本）')
-    expect(wrapper.get('[data-testid="global-audit-query"]').text()).toBe('审计日志查询')
-    expect(wrapper.get('[data-testid="audit-registration-kdpa_cb_acct_fzn_cntl_inf"]').text())
-      .toBe('审计日志')
-    expect(wrapper.find('[data-testid="database-comparison-separate-filter-form"]').exists()).toBe(false)
-    expect(wrapper.get('[data-testid="database-comparison-table-head"]').classes()).toContain('is-sticky')
-    const filterButtons = wrapper.findAll('[data-testid="database-comparison-header-filter"]')
-    expect(filterButtons).toHaveLength(7)
-    expect(filterButtons.every(button => button.classes().includes('replay-header-filter-button'))).toBe(true)
-    expect(filterButtons.every(button => button.find('i').exists())).toBe(true)
-    const headers = wrapper.findAll('thead th')
-    expect(headers[0].text()).toContain('表英文名 / 中文名')
-    expect(headers[0].classes()).toContain('primary-column')
-    expect(headers[0].attributes('style')).toContain('width: 127px')
-    expect(headers[3].attributes('style')).toContain('width: 90px')
-    expect(headers[4].attributes('style')).toContain('width: 75px')
-    expect(headers[5].attributes('style')).toContain('width: 90px')
-    expect(headers[6].attributes('style')).toContain('width: 90px')
-    expect(headers[7].attributes('style')).toContain('width: 51px')
-    expect(headers.slice(0, -1).every(header => header.classes().includes('has-white-divider'))).toBe(true)
-    expect(headers.some(header => header.text().includes('小组负责人'))).toBe(true)
-    expect(headers.some(header => header.text().includes('归属小组'))).toBe(false)
-    expect(headers.some(header => header.text().includes('归属大组'))).toBe(false)
-    expect(headers.some(header => header.text() === '修订人')).toBe(true)
-    expect(headers.some(header => header.text() === '负责人')).toBe(false)
-    expect(headers.some(header => header.text().includes('登记日期'))).toBe(true)
-    expect(headers.some(header => header.text() === '序号')).toBe(false)
-    expect(wrapper.text()).toContain('kdpa_cb_acct_fzn_cntl_inf')
-    expect(wrapper.text()).toContain('fzn_cntl_id(冻结控制编号)')
-    expect(wrapper.text()).toContain('lglpern_cd')
-    expect(wrapper.text()).not.toContain('lglpern_cd()')
-    expect(wrapper.text()).toContain('共 200 张表 · 共 1483 个比对字段')
-    expect(wrapper.text()).not.toContain('当前页')
-    expect(wrapper.findAll('[data-testid="registration-row"]')).toHaveLength(50)
-    expect(wrapper.classes()).toContain('is-fixed-page')
-    expect(wrapper.get('[data-testid="table-viewport"]').classes()).toContain('is-scroll-viewport')
-    expect(wrapper.get('[data-testid="fixed-pager"]').classes()).toContain('is-fixed-pager')
-  })
 
   it('keeps the initial import dialog open and renders the complete error list', async () => {
     const wrapper = mount(ReplayDatabaseComparisonPage)
@@ -654,7 +796,7 @@ describe('ReplayDatabaseComparisonPage', () => {
     expect(dialog.text()).toContain('存款、贷款、公共、结算')
     expect(dialog.text()).toContain('C 列：表英文名')
     expect(dialog.text()).toContain('E 列：字段英文名')
-    expect(dialog.text()).toContain('G 列：负责人（修订人，可空）')
+    expect(dialog.text()).toContain('领域和负责人以数据库表人员清单为准')
 
     await wrapper.get('[data-testid="initial-import-backdrop"]').trigger('click')
     expect(wrapper.find('[data-testid="initial-import-dialog"]').exists()).toBe(true)
@@ -707,145 +849,6 @@ describe('ReplayDatabaseComparisonPage', () => {
     expect(wrapper.get('[data-testid="initial-import-file-name"]').text()).toBe('母库初始化登记.xlsx')
   })
 
-  it('expands one row to show and copy every formatted field', async () => {
-    const writeText = vi.fn().mockResolvedValue(undefined)
-    Object.defineProperty(navigator, 'clipboard', {
-      configurable: true,
-      value: { writeText },
-    })
-    const wrapper = mount(ReplayDatabaseComparisonPage)
-
-    await wrapper.get('[data-testid="expand-fields-kdpa_cb_acct_fzn_cntl_inf"]').trigger('click')
-
-    const fieldCell = wrapper.get('[data-testid="fields-kdpa_cb_acct_fzn_cntl_inf"]')
-    expect(fieldCell.text()).toContain('acct_status(账户状态)')
-    expect(fieldCell.attributes('title')).toBe(
-      'fzn_cntl_id(冻结控制编号)、fzn_new_pk(新增联合主键)、lglpern_cd、fzn_cntl_amt(冻结金额)、currency_cd(币种)、effective_dt(生效日期)、acct_status(账户状态)',
-    )
-    expect(wrapper.get('table').classes()).toContain('is-fixed-layout')
-    expect(fieldCell.findAll('.field-item')).toHaveLength(7)
-    expect(fieldCell.get('.field-list').text()).toContain('冻结控制编号)、fzn_new_pk(新增联合主键)、lglpern_cd')
-    expect(fieldCell.text()).toContain('收起')
-    expect(fieldCell.text()).toContain('复制全部字段')
-
-    await wrapper.get('[data-testid="copy-fields-kdpa_cb_acct_fzn_cntl_inf"]').trigger('click')
-    expect(writeText).toHaveBeenCalledWith(
-      'fzn_cntl_id(冻结控制编号)、fzn_new_pk(新增联合主键)、lglpern_cd、fzn_cntl_amt(冻结金额)、currency_cd(币种)、effective_dt(生效日期)、acct_status(账户状态)',
-    )
-  })
-
-  it('shows query conditions after comparison fields with matching width, expansion, and copy', async () => {
-    const writeText = vi.fn().mockResolvedValue(undefined)
-    Object.defineProperty(navigator, 'clipboard', {
-      configurable: true,
-      value: { writeText },
-    })
-    const wrapper = mount(ReplayDatabaseComparisonPage)
-    const headers = wrapper.findAll('[data-testid="database-comparison-table-head"] th')
-      .map(header => header.text().trim())
-
-    expect(headers.slice(0, 6)).toEqual([
-      '表英文名 / 中文名', '领域', '比对字段', '查询条件', '样本数', '修订人',
-    ])
-    expect(wrapper.get('[data-testid="query-condition-header"]').attributes('style'))
-      .toBe(wrapper.get('[data-column-key="reviser"]').attributes('style'))
-    expect(wrapper.get('[data-testid="operation-header"]').attributes('style')).toContain('width: 130px')
-    expect(wrapper.get('[data-filter-key="queryCondition"]').exists()).toBe(true)
-
-    const tableName = 'kdpa_cb_acct_fzn_cntl_inf'
-    const conditionCell = wrapper.get(`[data-testid="query-condition-${tableName}"]`)
-    expect(conditionCell.text()).toContain("status_cd = '1'")
-    expect(conditionCell.text()).toContain('展开')
-
-    await wrapper.get(`[data-testid="expand-query-condition-${tableName}"]`).trigger('click')
-    expect(conditionCell.classes()).toContain('is-expanded')
-    expect(conditionCell.text()).toContain('收起')
-    expect(conditionCell.text()).toContain('复制全部条件')
-
-    await wrapper.get(`[data-testid="copy-query-condition-${tableName}"]`).trigger('click')
-    expect(writeText).toHaveBeenCalledWith("where status_cd = '1'")
-    expect(wrapper.get('[data-testid="query-condition-kdpl_cb_acct_fzn_cntl_oprn_detl"]').text())
-      .toContain('全表')
-
-    await wrapper.get('[data-filter-key="queryCondition"]').trigger('click')
-    await wrapper.get('[data-testid="header-filter-search"]').setValue('status_cd')
-    await wrapper.get('[aria-label="查询筛选选项"]').trigger('click')
-    expect(wrapper.findAll('[data-testid="header-filter-option"]')).toHaveLength(1)
-    expect(wrapper.get('[data-testid="header-filter-option"]').text()).toContain("status_cd = '1'")
-    await wrapper.get('[aria-label="关闭筛选"]').trigger('click')
-
-    await wrapper.get('[data-filter-key="queryCondition"]').trigger('click')
-    await wrapper.get('[data-testid="header-filter-search"]').setValue('全表')
-    await wrapper.get('[aria-label="查询筛选选项"]').trigger('click')
-    expect(wrapper.findAll('[data-testid="header-filter-option"]')).toHaveLength(1)
-    expect(wrapper.get('[data-testid="header-filter-option"]').text()).toContain('全表')
-  })
-
-  it('copies comparison fields through the legacy fallback when Clipboard API is unavailable', async () => {
-    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined })
-    const execCommand = vi.fn().mockReturnValue(true)
-    Object.defineProperty(document, 'execCommand', { configurable: true, value: execCommand })
-    const wrapper = mount(ReplayDatabaseComparisonPage)
-
-    await wrapper.get('[data-testid="expand-fields-kdpa_cb_acct_fzn_cntl_inf"]').trigger('click')
-    await wrapper.get('[data-testid="copy-fields-kdpa_cb_acct_fzn_cntl_inf"]').trigger('click')
-
-    expect(execCommand).toHaveBeenCalledWith('copy')
-    expect(wrapper.get('[data-testid="copy-fields-kdpa_cb_acct_fzn_cntl_inf"]').text()).toBe('已复制')
-  })
-
-  it('paginates all 200 mock registrations and changes page size', async () => {
-    const wrapper = mount(ReplayDatabaseComparisonPage)
-    const firstTable = wrapper.findAll('[data-testid="registration-row"]')[0].text()
-
-    expect(wrapper.get('[data-testid="page-summary"]').text()).toContain('第 1 / 4 页')
-    await wrapper.get('[data-testid="next-page"]').trigger('click')
-    expect(wrapper.get('[data-testid="page-summary"]').text()).toContain('第 2 / 4 页')
-    expect(wrapper.findAll('[data-testid="registration-row"]')[0].text()).not.toBe(firstTable)
-
-    await wrapper.get('[data-testid="page-size"]').setValue('100')
-    expect(wrapper.findAll('[data-testid="registration-row"]')).toHaveLength(100)
-    expect(wrapper.get('[data-testid="page-summary"]').text()).toContain('第 1 / 2 页')
-    expect(wrapper.findAll('[data-testid="page-number"]')).toHaveLength(0)
-  })
-
-  it('applies header filters and resets the filtered result', async () => {
-    const wrapper = mount(ReplayDatabaseComparisonPage)
-
-    await wrapper.get('[data-filter-key="domain"]').trigger('click')
-    expect(wrapper.get('[data-testid="header-filter-panel"]').exists()).toBe(true)
-    const loanOption = wrapper.findAll('[data-testid="header-filter-option"]')
-      .find(option => option.text().includes('贷款'))
-    await loanOption.get('input').setValue(true)
-    await wrapper.get('[data-testid="apply-header-filter"]').trigger('click')
-
-    expect(wrapper.findAll('[data-cell-role="domain-cell"]')
-      .every(cell => cell.attributes('title') === '贷款组')).toBe(true)
-    expect(wrapper.get('[data-testid="page-summary"]').text()).toContain('共 40 条')
-    expect(wrapper.text()).toContain('共 200 张表 · 共 1483 个比对字段')
-
-    await wrapper.get('[data-testid="reset-filters"]').trigger('click')
-    expect(wrapper.get('[data-testid="page-summary"]').text()).toContain('共 200 条')
-  })
-
-  it('opens a working option panel for every filterable header', async () => {
-    const wrapper = mount(ReplayDatabaseComparisonPage)
-
-    for (const button of wrapper.findAll('[data-testid="database-comparison-header-filter"]')) {
-      await button.trigger('click')
-      const panel = wrapper.get('[data-testid="header-filter-panel"]')
-      expect(panel.classes()).toContain('replay-header-filter-panel')
-      expect(panel.attributes('style')).toContain('left:')
-      expect(panel.attributes('style')).toContain('top:')
-      expect(panel.text()).toContain(`筛选 ${button.element.previousElementSibling.textContent}`)
-      expect(panel.get('[aria-label="查询筛选选项"]').find('svg').exists()).toBe(true)
-      expect(panel.find('[data-testid="header-filter-resize-handle"]').exists()).toBe(true)
-      expect(panel.get('.replay-header-filter-clear').classes()).toContain('is-bordered')
-      expect(wrapper.findAll('[data-testid="header-filter-option"]').length).toBeGreaterThan(0)
-      await wrapper.get('[aria-label="关闭筛选"]').trigger('click')
-    }
-  })
-
   it('keeps the real-data filter panel anchored after loading options asynchronously', async () => {
     useRealMode()
     let finishLoading
@@ -866,32 +869,6 @@ describe('ReplayDatabaseComparisonPage', () => {
     expect(panelStyle).toContain('top: 124px')
     finishLoading()
     await flushPromises()
-  })
-
-  it('does not search filter options until the search button is clicked', async () => {
-    const wrapper = mount(ReplayDatabaseComparisonPage)
-    await wrapper.get('[data-filter-key="tableName"]').trigger('click')
-    const originalOptionCount = wrapper.findAll('[data-testid="header-filter-option"]').length
-
-    await wrapper.get('[data-testid="header-filter-search"]').setValue('不存在的表')
-
-    expect(wrapper.findAll('[data-testid="header-filter-option"]')).toHaveLength(originalOptionCount)
-    await wrapper.get('[aria-label="查询筛选选项"]').trigger('click')
-    expect(wrapper.findAll('[data-testid="header-filter-option"]')).toHaveLength(0)
-  })
-
-  it('opens the shared editor in add and edit modes', async () => {
-    const wrapper = mount(ReplayDatabaseComparisonPage)
-
-    await wrapper.get('[data-testid="add-registration"]').trigger('click')
-    expect(wrapper.findComponent(ReplayDatabaseComparisonEditor).exists()).toBe(true)
-    expect(wrapper.get('[data-testid="editor-title"]').text()).toBe('新增登记')
-    expect(wrapper.findComponent(ReplayDatabaseComparisonEditor).text()).not.toContain('固定 Schema：CCBS_BASE')
-    await wrapper.get('[aria-label="关闭新增登记"]').trigger('click')
-
-    await wrapper.get('[data-testid="edit-registration-kdpa_cb_acct_fzn_cntl_inf"]').trigger('click')
-    expect(wrapper.get('[data-testid="editor-title"]').text()).toBe('编辑登记')
-    expect(wrapper.get('[data-testid="selected-table"]').text()).toContain('kdpa_cb_acct_fzn_cntl_inf')
   })
 
   it('uses complete registration details when list preview contains only three fields', async () => {
@@ -925,49 +902,6 @@ describe('ReplayDatabaseComparisonPage', () => {
       .findAll('[data-testid="selected-field-row"]')).toHaveLength(5)
   })
 
-  it('fills the current login as reviser and local system date when a registration is saved', async () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(new Date('2026-09-12T16:30:00Z'))
-    const wrapper = mount(ReplayDatabaseComparisonPage)
-    await wrapper.get('[data-testid="add-registration"]').trigger('click')
-
-    wrapper.findComponent(ReplayDatabaseComparisonEditor).vm.$emit('save', {
-      tableName: 'kpb_new_comparison_table',
-      tableComment: '新增比对表',
-      fields: [{ name: 'id', comment: '主键' }],
-      domain: '公共组',
-      groupOwnerUsername: 'sunhy1',
-      groupOwnerName: '孙海英',
-    })
-    await wrapper.vm.$nextTick()
-
-    const firstRow = wrapper.findAll('[data-testid="registration-row"]')[0].text()
-    expect(firstRow).toContain('管理员')
-    expect(wrapper.get('[data-testid="reviser-kpb_new_comparison_table"]').attributes('title')).toBe('管理员')
-    expect(firstRow).toContain('孙海英(sunhy1)')
-    expect(firstRow).toContain('2026-09-13')
-    vi.useRealTimers()
-  })
-
-  it('keeps edit and delete available to every logged-in user and opens both audit entries', async () => {
-    const wrapper = mount(ReplayDatabaseComparisonPage)
-    const tableName = 'kdpa_cb_acct_fzn_cntl_inf'
-
-    for (const action of ['view', 'edit', 'delete', 'audit']) {
-      const button = wrapper.get(`[data-testid="${action}-registration-${tableName}"]`)
-      expect(button.classes()).toContain('operation-button')
-      expect(button.attributes('disabled')).toBeUndefined()
-    }
-    await wrapper.get(`[data-testid="view-registration-${tableName}"]`).trigger('click')
-    expect(wrapper.get('[data-testid="registration-detail-dialog"]').text()).toContain('对公存款账户冻结控制信息')
-    await wrapper.get('[data-testid="close-registration-detail"]').trigger('click')
-    await wrapper.get(`[data-testid="audit-registration-${tableName}"]`).trigger('click')
-    expect(wrapper.get('[data-testid="audit-table-filter"]').element.value).toBe(tableName)
-    await wrapper.get('[data-testid="close-audit-dialog"]').trigger('click')
-    await wrapper.get('[data-testid="global-audit-query"]').trigger('click')
-    expect(wrapper.get('[data-testid="registration-audit-dialog"]').text()).toContain('全局审计日志查询')
-  })
-
   it('loads and pages global audit logs by table', async () => {
     useRealMode()
     comparisonApi.searchGroupedAudits.mockResolvedValue({
@@ -991,198 +925,7 @@ describe('ReplayDatabaseComparisonPage', () => {
     expect(comparisonApi.searchGroupedAudits).toHaveBeenLastCalledWith(expect.objectContaining({ page: 1, size: 20 }))
   })
 
-  it('keeps and highlights registered fields that no longer exist in BASE metadata', async () => {
-    const wrapper = mount(ReplayDatabaseComparisonPage)
-    const tableName = 'kdpl_cb_acct_fzn_cntl_oprn_detl'
-
-    await wrapper.get(`[data-testid="view-registration-${tableName}"]`).trigger('click')
-
-    const detail = wrapper.get('[data-testid="registration-detail-dialog"]')
-    expect(detail.get('[data-testid="detail-missing-fields-warning"]').text()).toContain('1 个字段已从母库删除')
-    expect(detail.get('[data-testid="detail-field-legacy_deleted_field"]').classes()).toContain('is-missing-in-base')
-    expect(detail.get('[data-testid="detail-field-legacy_deleted_field"]').text()).toContain('母库已删除')
-    expect(detail.get('[data-testid="detail-field-fzn_cntl_oprn_sn"]').classes()).not.toContain('is-missing-in-base')
-  })
-
-  it('labels field drift and strikes through only missing comparison fields in the list', async () => {
-    const wrapper = mount(ReplayDatabaseComparisonPage)
-    const tableName = 'kdpl_cb_acct_fzn_cntl_oprn_detl'
-
-    const tableCell = wrapper.get(`[data-testid="table-name-${tableName}"]`)
-    expect(tableCell.text()).toContain('比对字段母库中不存在')
-    expect(tableCell.classes()).toContain('is-table-missing')
-    expect(tableCell.get('.metadata-status').classes()).toContain('is-table-missing-status')
-    expect(wrapper.get(`[data-testid="list-field-${tableName}-fzn_cntl_oprn_sn"]`).classes())
-      .not.toContain('is-missing-in-base-preview')
-    await wrapper.get(`[data-testid="expand-fields-${tableName}"]`).trigger('click')
-    expect(wrapper.get(`[data-testid="list-field-${tableName}-legacy_deleted_field"]`).classes())
-      .toContain('is-missing-in-base-preview')
-
-    await wrapper.get('[data-testid="expand-fields-removed_base_table"]').trigger('click')
-    expect(wrapper.get('[data-testid="table-name-removed_base_table"]').text())
-      .not.toContain('比对字段母库中不存在')
-    expect(wrapper.get('[data-testid="list-field-removed_base_table-historical_id"]').classes())
-      .not.toContain('is-missing-in-base-preview')
-  })
-
-  it('does not expose primary-key drift in the list or detail', async () => {
-    const wrapper = mount(ReplayDatabaseComparisonPage)
-    const tableName = 'kdpa_cb_acct_fzn_cntl_inf'
-
-    const tableCell = wrapper.get(`[data-testid="table-name-${tableName}"]`)
-    expect(tableCell.text()).not.toContain('比对字段母库中不存在')
-    expect(tableCell.text()).not.toContain('母库主键已变更')
-    expect(tableCell.find('[data-testid="primary-key-changed-status"]').exists()).toBe(false)
-
-    await wrapper.get(`[data-testid="view-registration-${tableName}"]`).trigger('click')
-    expect(wrapper.find('[data-testid="detail-primary-key-changed-warning"]').exists()).toBe(false)
-    expect(wrapper.get('[data-testid="table-name-removed_base_table"]').text())
-      .not.toContain('母库主键已变更')
-    expect(wrapper.get('[data-testid="table-name-base_unavailable_table"]').text())
-      .not.toContain('母库主键已变更')
-  })
-
-  it('actually inserts the mock newly added primary key into the editor', async () => {
-    const wrapper = mount(ReplayDatabaseComparisonPage)
-    const tableName = 'kdpa_cb_acct_fzn_cntl_inf'
-
-    await wrapper.get(`[data-testid="edit-registration-${tableName}"]`).trigger('click')
-
-    const selectedFields = wrapper.findComponent(ReplayDatabaseComparisonEditor)
-      .findAll('[data-testid="selected-field-row"]')
-      .map(row => row.get('strong').text().replace(/^\d+\.\s*/, ''))
-    expect(selectedFields).toContain('fzn_new_pk')
-    expect(selectedFields.slice(0, 2)).toEqual(['fzn_cntl_id', 'fzn_new_pk'])
-    expect(selectedFields).not.toContain('legacy_deleted_field')
-    expect(wrapper.find('[data-testid="missing-fields-warning"]').exists()).toBe(false)
-  })
-
-  it('seamlessly keeps a former composite key as a normal comparison field', async () => {
-    const wrapper = mount(ReplayDatabaseComparisonPage)
-    const tableName = 'klna_ln_acct_base_info'
-    const tableCell = wrapper.get(`[data-testid="table-name-${tableName}"]`)
-
-    expect(tableCell.text()).not.toContain('母库主键已变更')
-    expect(tableCell.text()).not.toContain('比对字段母库中不存在')
-    await wrapper.get(`[data-testid="edit-registration-${tableName}"]`).trigger('click')
-
-    const editor = wrapper.findComponent(ReplayDatabaseComparisonEditor)
-    const customerRow = editor.findAll('[data-testid="selected-field-row"]')
-      .find(row => row.text().includes('customer_no'))
-    expect(customerRow.text()).not.toContain('主键')
-    expect(customerRow.get('input').attributes('disabled')).toBeUndefined()
-    expect(editor.findAll('.primary-key-marker')).toHaveLength(1)
-    expect(editor.find('[data-testid="primary-key-drift-warning"]').exists()).toBe(false)
-    expect(editor.find('[data-testid="missing-fields-warning"]').exists()).toBe(false)
-  })
-
-  it('shows only the missing-field warning when a former composite key is deleted from BASE', async () => {
-    const wrapper = mount(ReplayDatabaseComparisonPage)
-    const tableName = 'kpba_pb_product_parameter'
-    const tableCell = wrapper.get(`[data-testid="table-name-${tableName}"]`)
-
-    expect(tableCell.text()).not.toContain('母库主键已变更')
-    expect(tableCell.text()).toContain('比对字段母库中不存在')
-    await wrapper.get(`[data-testid="edit-registration-${tableName}"]`).trigger('click')
-
-    const editor = wrapper.findComponent(ReplayDatabaseComparisonEditor)
-    expect(editor.find('[data-testid="primary-key-drift-warning"]').exists()).toBe(false)
-    expect(editor.get('[data-testid="missing-fields-warning"]').text()).toContain('1 个字段已从母库删除')
-    const deletedKeyRow = editor.findAll('[data-testid="selected-field-row"]')
-      .find(row => row.text().includes('legacy_partition_id'))
-    expect(deletedKeyRow.classes()).toContain('is-missing-in-base')
-    expect(deletedKeyRow.text()).toContain('主键')
-    expect(deletedKeyRow.text()).toContain('母库已删除')
-    expect(deletedKeyRow.get('input').attributes('disabled')).toBeUndefined()
-  })
-
-  it('filters mock registrations by the synthetic missing-field label', async () => {
-    const wrapper = mount(ReplayDatabaseComparisonPage)
-    await wrapper.get('[data-filter-key="tableName"]').trigger('click')
-    await wrapper.get('[data-testid="header-filter-search"]').setValue('不存在')
-    await wrapper.get('[aria-label="查询筛选选项"]').trigger('click')
-
-    const option = wrapper.findAll('[data-testid="header-filter-option"]')
-      .find(item => item.text().includes('比对字段母库中不存在'))
-    expect(option).toBeTruthy()
-    await option.get('input').setValue(true)
-    await wrapper.get('[data-testid="apply-header-filter"]').trigger('click')
-
-    expect(wrapper.findAll('[data-testid="registration-row"]')).toHaveLength(2)
-    expect(wrapper.findAll('[data-testid="registration-row"]')
-      .map(row => row.attributes('data-row-table'))).toEqual([
-      'kdpl_cb_acct_fzn_cntl_oprn_detl',
-      'kpba_pb_product_parameter',
-    ])
-  })
-
-  it('filters mock registrations by the synthetic missing-table label', async () => {
-    const wrapper = mount(ReplayDatabaseComparisonPage)
-    await wrapper.get('[data-filter-key="tableName"]').trigger('click')
-    await wrapper.get('[data-testid="header-filter-search"]').setValue('已删除')
-    await wrapper.get('[aria-label="查询筛选选项"]').trigger('click')
-
-    const option = wrapper.findAll('[data-testid="header-filter-option"]')
-      .find(item => item.text().includes('母库表已删除'))
-    expect(option).toBeTruthy()
-    await option.get('input').setValue(true)
-    await wrapper.get('[data-testid="apply-header-filter"]').trigger('click')
-
-    expect(wrapper.findAll('[data-testid="registration-row"]')).toHaveLength(1)
-    expect(wrapper.get('[data-testid="registration-row"]').attributes('data-row-table'))
-      .toBe('removed_base_table')
-  })
-
-  it('filters mock registrations by the missing-condition-field label', async () => {
-    const wrapper = mount(ReplayDatabaseComparisonPage)
-    await wrapper.get('[data-filter-key="tableName"]').trigger('click')
-    await wrapper.get('[data-testid="header-filter-search"]').setValue('条件字段')
-    await wrapper.get('[aria-label="查询筛选选项"]').trigger('click')
-
-    const option = wrapper.findAll('[data-testid="header-filter-option"]')
-      .find(item => item.text().includes('条件字段母库中不存在'))
-    expect(option).toBeTruthy()
-    await option.get('input').setValue(true)
-    await wrapper.get('[data-testid="apply-header-filter"]').trigger('click')
-
-    expect(wrapper.findAll('[data-testid="registration-row"]')).toHaveLength(1)
-    expect(wrapper.get('[data-testid="registration-row"]').attributes('data-row-table'))
-      .toBe('kpba_pb_product_parameter')
-  })
-
-  it('does not offer a synthetic primary-key drift filter for mock registrations', async () => {
-    const wrapper = mount(ReplayDatabaseComparisonPage)
-    await wrapper.get('[data-filter-key="tableName"]').trigger('click')
-    await wrapper.get('[data-testid="header-filter-search"]').setValue('主键')
-    await wrapper.get('[aria-label="查询筛选选项"]').trigger('click')
-
-    const option = wrapper.findAll('[data-testid="header-filter-option"]')
-      .find(item => item.text().includes('母库主键已变更'))
-    expect(option).toBeUndefined()
-  })
-
-  it('shows and filters the limited-comparison ordering primary-key drift label', async () => {
-    const wrapper = mount(ReplayDatabaseComparisonPage)
-    const driftCell = wrapper.get('[data-testid="table-name-klna_ln_acct_base_info"]')
-    expect(driftCell.text()).toContain('排序主键已变更')
-
-    await wrapper.get('[data-filter-key="tableName"]').trigger('click')
-    await wrapper.get('[data-testid="header-filter-search"]').setValue('排序主键')
-    await wrapper.get('[aria-label="查询筛选选项"]').trigger('click')
-
-    const option = wrapper.findAll('[data-testid="header-filter-option"]')
-      .find(item => item.text().includes('排序主键已变更'))
-    expect(option).toBeTruthy()
-    await option.get('input').setValue(true)
-    await wrapper.get('[data-testid="apply-header-filter"]').trigger('click')
-
-    expect(wrapper.findAll('[data-testid="registration-row"]')).toHaveLength(1)
-    expect(wrapper.get('[data-testid="registration-row"]').attributes('data-row-table'))
-      .toBe('klna_ln_acct_base_info')
-  })
-
   it('maps the synthetic table option to metadata status for real searches', async () => {
-    vi.stubEnv('VITE_REPLAY_DB_COMPARE_MOCK', 'false')
     comparisonApi.loadOptions.mockResolvedValue({ domains: ['存款组'], canImport: false })
     comparisonApi.searchRegistrations.mockResolvedValue({ items: [], page: 0, size: 50, total: 0 })
     comparisonApi.loadHeaderFilterOptions.mockResolvedValue({
@@ -1210,7 +953,6 @@ describe('ReplayDatabaseComparisonPage', () => {
   })
 
   it('maps the missing-condition-field option to its independent metadata filter', async () => {
-    vi.stubEnv('VITE_REPLAY_DB_COMPARE_MOCK', 'false')
     comparisonApi.loadOptions.mockResolvedValue({ domains: ['存款组'], canImport: false })
     comparisonApi.searchRegistrations.mockResolvedValue({ items: [], page: 0, size: 50, total: 0 })
     comparisonApi.loadHeaderFilterOptions.mockResolvedValue({
@@ -1237,7 +979,6 @@ describe('ReplayDatabaseComparisonPage', () => {
   })
 
   it('maps the missing-table option to TABLE_MISSING for real searches', async () => {
-    vi.stubEnv('VITE_REPLAY_DB_COMPARE_MOCK', 'false')
     comparisonApi.loadOptions.mockResolvedValue({ domains: ['存款组'], canImport: false })
     comparisonApi.searchRegistrations.mockResolvedValue({ items: [], page: 0, size: 50, total: 0 })
     comparisonApi.loadHeaderFilterOptions.mockResolvedValue({
@@ -1260,7 +1001,6 @@ describe('ReplayDatabaseComparisonPage', () => {
   })
 
   it('discards obsolete primary-key drift options returned by the server', async () => {
-    vi.stubEnv('VITE_REPLAY_DB_COMPARE_MOCK', 'false')
     comparisonApi.loadOptions.mockResolvedValue({ domains: ['存款组'], canImport: false })
     comparisonApi.searchRegistrations.mockResolvedValue({ items: [], page: 0, size: 50, total: 0 })
     comparisonApi.loadHeaderFilterOptions.mockResolvedValue({
@@ -1276,8 +1016,7 @@ describe('ReplayDatabaseComparisonPage', () => {
       .some(option => option.text().includes('母库主键已变更'))).toBe(false)
   })
 
-  it('keeps the editor open and reloads keys after a required-primary-key response', async () => {
-    vi.stubEnv('VITE_REPLAY_DB_COMPARE_MOCK', 'false')
+  it('keeps the editor open and requires index reselection after the selected primary key changes', async () => {
     comparisonApi.loadOptions.mockResolvedValue({ domains: ['存款组'], canImport: false })
     comparisonApi.searchRegistrations.mockResolvedValue({
       items: [{
@@ -1325,12 +1064,13 @@ describe('ReplayDatabaseComparisonPage', () => {
     const editor = wrapper.findComponent(ReplayDatabaseComparisonEditor)
     expect(editor.exists()).toBe(true)
     expect(editor.findAll('[data-testid="selected-field-row"]')
-      .map(row => row.get('strong').text().replace(/^\d+\.\s*/, ''))).toEqual(['a', 'f', 'd'])
+      .map(row => row.get('strong').text().replace(/^\d+\.\s*/, ''))).toEqual(['a', 'd'])
+    expect(editor.get('[data-testid="comparison-key-error"]').text()).toContain('已删除或发生变化')
+    expect(editor.get('[data-testid="submit-registration"]').element.disabled).toBe(true)
     expect(editor.find('[data-testid="primary-key-drift-warning"]').exists()).toBe(false)
   })
 
   it('keeps the editor open and blocks saving after a missing-primary-key response', async () => {
-    vi.stubEnv('VITE_REPLAY_DB_COMPARE_MOCK', 'false')
     comparisonApi.loadOptions.mockResolvedValue({ domains: ['存款组'], canImport: false })
     comparisonApi.searchRegistrations.mockResolvedValue({
       items: [{
@@ -1376,81 +1116,10 @@ describe('ReplayDatabaseComparisonPage', () => {
     const editor = wrapper.findComponent(ReplayDatabaseComparisonEditor)
     expect(editor.exists()).toBe(true)
     expect(editor.get('[data-testid="primary-key-missing-warning"]').text())
-      .toContain('该表没有主键，请联系 DBA 创建表主键')
+      .toContain('该表没有主键或唯一索引，请联系 DBA 创建可用索引')
     expect(editor.findAll('[data-testid="selected-field-row"]')
       .map(row => row.get('strong').text().replace(/^\d+\.\s*/, ''))).toEqual(['acct_no', 'status'])
     expect(editor.get('[data-testid="submit-registration"]').attributes('disabled')).toBeDefined()
   })
 
-  it('highlights only confirmed missing BASE tables in the list', () => {
-    const wrapper = mount(ReplayDatabaseComparisonPage)
-
-    const missingCell = wrapper.get('[data-testid="table-name-removed_base_table"]')
-    expect(missingCell.classes()).toContain('is-table-missing')
-    expect(missingCell.text()).toContain('母库表已删除')
-    const unavailableCell = wrapper.get('[data-testid="table-name-base_unavailable_table"]')
-    expect(unavailableCell.classes()).not.toContain('is-table-missing')
-    expect(wrapper.get('[data-testid="metadata-unavailable-base_unavailable_table"]').text())
-      .toContain('母库校验暂不可用')
-    for (const action of ['view', 'edit', 'delete', 'audit']) {
-      expect(wrapper.get(`[data-testid="${action}-registration-removed_base_table"]`).attributes('disabled'))
-        .toBeUndefined()
-    }
-  })
-
-  it('shows one table-level warning and keeps historical fields in detail', async () => {
-    const wrapper = mount(ReplayDatabaseComparisonPage)
-
-    await wrapper.get('[data-testid="view-registration-removed_base_table"]').trigger('click')
-
-    const dialog = wrapper.get('[data-testid="registration-detail-dialog"]')
-    expect(dialog.get('[data-testid="detail-table-missing-warning"]').text())
-      .toContain('当前展示的是历史登记快照')
-    expect(dialog.findAll('.is-missing-in-base')).toHaveLength(0)
-    expect(dialog.text()).toContain('historical_id(历史主键)')
-    expect(dialog.text()).toContain('主键')
-    expect(dialog.get('[data-testid="delete-missing-table-registration"]').exists()).toBe(true)
-  })
-
-  it('requires confirmation before deleting a registration from the list', async () => {
-    const wrapper = mount(ReplayDatabaseComparisonPage)
-    const tableName = 'kdpa_cb_acct_fzn_cntl_inf'
-    const originalCount = wrapper.findAll('[data-testid="registration-row"]').length
-
-    await wrapper.get(`[data-testid="delete-registration-${tableName}"]`).trigger('click')
-    expect(wrapper.get('[data-testid="list-delete-confirmation"]').text()).toContain(tableName)
-    expect(wrapper.text()).toContain(tableName)
-    await wrapper.get('[data-testid="confirm-list-delete"]').trigger('click')
-
-    expect(wrapper.findAll('[data-testid="registration-row"]')).toHaveLength(originalCount)
-    expect(wrapper.get('[data-testid="page-summary"]').text()).toContain('共 199 条')
-    expect(wrapper.text()).not.toContain(tableName)
-  })
-
-  it('contains and copies every compact cell without wrapping after field expansion', async () => {
-    const writeText = vi.fn().mockResolvedValue(undefined)
-    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
-    const wrapper = mount(ReplayDatabaseComparisonPage)
-    const tableName = 'kdpa_cb_acct_fzn_cntl_inf'
-    const compactCells = [
-      [`table-name-${tableName}`, `${tableName} / 对公存款账户冻结控制信息`],
-      [`domain-${tableName}`, '存款组'],
-      [`reviser-${tableName}`, '周皓'],
-      [`group-owner-${tableName}`, '孙海英(sunhy1)'],
-      [`date-${tableName}`, '2026-09-07'],
-    ]
-
-    for (const [testId, fullValue] of compactCells) {
-      const cell = wrapper.get(`[data-testid="${testId}"]`)
-      expect(cell.classes()).toContain('compact-copy-cell')
-      expect(cell.attributes('title')).toBe(fullValue)
-      expect(cell.get('.compact-cell-content').text()).not.toBe('')
-      await wrapper.get(`[data-testid="copy-${testId}"]`).trigger('click')
-      expect(writeText).toHaveBeenLastCalledWith(fullValue)
-    }
-
-    await wrapper.get(`[data-testid="expand-fields-${tableName}"]`).trigger('click')
-    expect(wrapper.get(`[data-row-table="${tableName}"]`).classes()).toContain('is-fields-expanded')
-    expect(wrapper.findAll(`[data-row-table="${tableName}"] .compact-cell-content`)).toHaveLength(5)
-  })
 })

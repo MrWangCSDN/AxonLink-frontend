@@ -145,13 +145,6 @@
               <div class="at-body-toolbar">
                 <span class="at-body-type">JSON</span>
                 <div class="at-body-actions">
-                  <button class="at-body-action-btn" @click="loadMockBody" title="填入贷款申请 Mock 数据（100字段）">
-                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                      <path d="M6 1.5v5M3 4.5L6 7.5l3-3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
-                      <path d="M1.5 9h9" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
-                    </svg>
-                    Mock 数据
-                  </button>
                   <button class="at-body-action-btn" @click="formatJson" title="格式化 JSON">
                     <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
                       <path d="M1.5 3h9M1.5 6h6M1.5 9h7.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
@@ -206,20 +199,7 @@
                   {{ copied ? '已复制' : '复制' }}
                 </button>
               </template>
-              <button v-if="!response" class="at-mock-resp-btn" @click="loadMockResponse">
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                  <path d="M6 1.5v5M3 4.5L6 7.5l3-3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
-                  <path d="M1.5 9h9" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
-                </svg>
-                加载 Mock 响应
-              </button>
-              <button v-else class="at-mock-resp-btn" @click="loadMockResponse">
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                  <path d="M2 6a4 4 0 1 1 4 4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
-                  <path d="M2 4v2h2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-                重置 Mock
-              </button>
+
             </div>
 
             <div v-if="!response && !requestError" class="at-response-empty">
@@ -228,7 +208,6 @@
                 <path d="M13 20h14M20 13v14" stroke="var(--at-border)" stroke-width="1.5" stroke-linecap="round"/>
               </svg>
               <p>点击发送后在此查看响应</p>
-              <span>或点击「加载 Mock 响应」预览效果</span>
             </div>
 
             <div v-else-if="requestError" class="at-response-error">
@@ -379,107 +358,6 @@ const insertTab = (e) => {
   ta.setSelectionRange(s + 2, s + 2)
 }
 watch(bodyText, () => { jsonError.value = '' })
-
-// ── Mock 数据 ──
-const MOCK_REQUEST = {
-  txCode: "TD0101", txName: "贷款申请提交", channelCode: "APP", channelName: "手机银行",
-  requestTime: "2026-03-22T10:00:00", requestNo: "REQ202603221000001", version: "1.0.0", clientIp: "192.168.1.100",
-  customerId: "CUS202603220001", customerName: "张三", customerType: "INDIVIDUAL",
-  idType: "01", idNo: "110101199001011234", idExpiryDate: "2030-01-01",
-  mobile: "13800138000", email: "zhangsan@example.com", gender: "M", birthday: "1990-01-01", nationality: "CN",
-  loanProduct: "CONSUMER_LOAN", loanProductName: "个人消费贷款",
-  loanPurpose: "PERSONAL_CONSUMPTION", loanPurposeDesc: "个人消费",
-  applyAmount: 50000.00, currency: "CNY", loanTerm: 12, termUnit: "MONTH",
-  repayMethod: "EQUAL_INSTALLMENT", expectedRate: 0.0436,
-  gracePeriod: 0, firstRepayDate: "2026-05-22",
-  applyBranch: "110100", applyBranchName: "北京市分行", applyStaff: "STAFF001",
-  annualIncome: 120000.00, incomeSource: "SALARY", incomeProofType: "PAYSLIP",
-  employerName: "北京某科技有限公司", employerType: "PRIVATE", workYears: 5,
-  monthlyNetIncome: 8500.00, otherIncome: 2000.00,
-  totalAssets: 800000.00, realEstate: 600000.00, vehicle: 200000.00,
-  financialAssets: 50000.00, liabilityTotal: 100000.00, debtRatio: 0.12,
-  residenceType: "OWNER", residenceAddress: "北京市朝阳区某某路1号",
-  residenceCity: "110100", residenceCityName: "北京市",
-  residenceDistrict: "110105", residenceDistrictName: "朝阳区",
-  residenceZip: "100020", residenceSince: "2015-06-01",
-  permanentAddress: "北京市朝阳区某某路1号", isResidenceSameAsPermanent: true,
-  emergencyContactName: "李四", emergencyContactRelation: "SPOUSE", emergencyContactMobile: "13900139000",
-  guarantorName: "王五", guarantorIdNo: "110101198501011234",
-  guarantorMobile: "13700137000", guarantorRelation: "PARENT", guarantorAnnualIncome: 100000.00,
-  settlementAccountNo: "6222020200000001", settlementBankCode: "ICBC", settlementBankName: "中国工商银行",
-  settlementAccountName: "张三", repayAccountNo: "6222020200000001",
-  repayBankCode: "ICBC", repayBankName: "中国工商银行", autoRepay: true,
-  creditScore: 720, creditGrade: "A", blacklistCheck: false, antifraudScore: 95,
-  debtOverdueCount: 0, maxOverdueDays: 0, creditCardCount: 2,
-  creditCardLimit: 50000.00, creditCardBalance: 8000.00,
-  existingLoansCount: 0, existingLoansBalance: 0.00, loanApplyCount30d: 1,
-  attachmentList: ["ID_FRONT.jpg", "ID_BACK.jpg", "INCOME_PROOF.pdf"],
-  agreementCode: "AGR_CONSUMER_V1", agreementVersion: "1.0",
-  agreementSignTime: "2026-03-22T09:58:00", agreementSignIp: "192.168.1.100",
-  isAgreePrivacyPolicy: true, isAgreeMarketingInfo: false, dataEncryption: "AES256",
-  extField1: "EXT001", extField2: "2026", extField3: "ONLINE",
-  extField4: "NORMAL", extField5: "CAMPAIGN_2026Q1", remark: "客户申请消费贷款，资质良好"
-}
-
-const MOCK_RESPONSE_DATA = {
-  respCode: "000000", respMsg: "贷款申请受理成功", txCode: "TD0101", txName: "贷款申请提交",
-  requestNo: "REQ202603221000001", responseNo: "RSP202603221000001",
-  responseTime: "2026-03-22T10:00:03", processTime: 2847,
-  approvalStatus: "APPROVED", approvalStatusName: "已审批通过",
-  approvalTime: "2026-03-22T10:00:02", approvalStaff: "SYS_AUTO",
-  approvalBranch: "110100", approvalBranchName: "北京市分行",
-  rejectionReason: null, approvalRemark: "系统自动审批通过，信用评分达标",
-  reviewLevel: "AUTO", reviewResult: "PASS",
-  loanNo: "LOAN202603220001", loanContractNo: "CONTRACT202603220001",
-  loanContractDate: "2026-03-22", actualAmount: 50000.00, actualRate: 0.0436,
-  actualTerm: 12, actualTermUnit: "MONTH", actualRepayMethod: "EQUAL_INSTALLMENT",
-  firstRepayDate: "2026-05-22", lastRepayDate: "2027-04-22",
-  totalRepayAmount: 51191.40, totalInterest: 1191.40,
-  monthlyPayment: 4265.95, principalPerMonth: 4166.67, interestPerMonth: 99.28,
-  feePerMonth: 0.00, totalFee: 0.00, prepaymentFee: 0.01,
-  lateFeeRate: 0.00050, graceDays: 3,
-  disbursementStatus: "PENDING", expectedDisbDate: "2026-03-24",
-  disbAccountNo: "6222020200000001", disbBankCode: "ICBC",
-  disbBankName: "中国工商银行", disbAccountName: "张三",
-  disbChannelCode: "INTERBANK", disbRemark: "预计 T+2 放款",
-  creditLimit: 100000.00, availableLimit: 50000.00,
-  riskLevel: "LOW", nextStep: "等待放款，如需咨询请联系客服 400-800-0000"
-}
-
-const MOCK_HEADERS = [
-  { key: 'content-type',                value: 'application/json;charset=UTF-8' },
-  { key: 'transfer-encoding',           value: 'chunked' },
-  { key: 'connection',                  value: 'keep-alive' },
-  { key: 'date',                        value: new Date().toUTCString() },
-  { key: 'server',                      value: 'AxonLink/1.0 (Spring Boot 3.1)' },
-  { key: 'x-request-id',               value: 'REQ202603221000001' },
-  { key: 'x-response-id',              value: 'RSP202603221000001' },
-  { key: 'x-process-time',             value: '2847' },
-  { key: 'x-rate-limit-limit',         value: '100' },
-  { key: 'x-rate-limit-remaining',     value: '99' },
-  { key: 'x-rate-limit-reset',         value: '1711101600' },
-  { key: 'cache-control',              value: 'no-cache, no-store, must-revalidate' },
-  { key: 'pragma',                     value: 'no-cache' },
-  { key: 'expires',                    value: '0' },
-  { key: 'vary',                       value: 'Accept-Encoding' },
-  { key: 'access-control-allow-origin', value: '*' },
-]
-
-const loadMockBody = () => {
-  bodyText.value = JSON.stringify(MOCK_REQUEST, null, 2)
-  jsonError.value = ''
-  activeTab.value = 'body'
-}
-
-const loadMockResponse = () => {
-  const body = JSON.stringify(MOCK_RESPONSE_DATA, null, 2)
-  response.value = {
-    status: 200, statusText: 'OK', time: 2847,
-    size: body.length < 1024 ? body.length + ' B' : (body.length / 1024).toFixed(1) + ' KB',
-    body, raw: body, headers: MOCK_HEADERS, isMock: true
-  }
-  requestError.value = ''
-}
 
 // ── 发送请求 ──
 const sendRequest = async () => {
@@ -727,12 +605,6 @@ watch(() => props.visible, (v) => {
   font-size: 11px; color: var(--at-text-faint); cursor: pointer; transition: color 0.15s, border-color 0.15s;
 }
 .at-copy-btn:hover { color: #4F7CFF; border-color: #4F7CFF; }
-.at-mock-resp-btn {
-  margin-left: auto; display: flex; align-items: center; gap: 4px; padding: 3px 10px;
-  background: rgba(18,184,134,0.07); border: 1px solid rgba(18,184,134,0.3); border-radius: 5px;
-  font-size: 11px; color: #12B886; cursor: pointer; font-weight: 500; transition: background 0.15s, border-color 0.15s;
-}
-.at-mock-resp-btn:hover { background: rgba(18,184,134,0.14); border-color: #12B886; }
 
 .at-response-empty {
   flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;

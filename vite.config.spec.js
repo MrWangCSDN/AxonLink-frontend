@@ -6,24 +6,15 @@ afterEach(() => {
 })
 
 describe('vite runtime mode', () => {
-  it('uses the real backend proxy when mock mode is not explicitly enabled', () => {
-    vi.stubEnv('VITE_USE_MOCK', '')
+  it.each(['development', 'production'])('uses the real backend even if the removed mock flag is set in %s mode', mode => {
+    vi.stubEnv('VITE_USE_MOCK', '1')
 
-    const config = createViteConfig({ mode: 'development' })
+    const config = createViteConfig({ mode })
 
-    expect(config.plugins.map(plugin => plugin.name)).not.toContain('dao-index-mock')
+    expect(config.plugins.map(plugin => plugin.name)).toEqual(['vite:vue'])
     expect(config.server.proxy['/api']).toMatchObject({
       target: 'http://localhost:8123',
       changeOrigin: true,
     })
-  })
-
-  it('enables mock middleware only when explicitly requested', () => {
-    vi.stubEnv('VITE_USE_MOCK', '1')
-
-    const config = createViteConfig({ mode: 'development' })
-
-    expect(config.plugins.map(plugin => plugin.name)).toContain('dao-index-mock')
-    expect(config.server).toEqual({})
   })
 })

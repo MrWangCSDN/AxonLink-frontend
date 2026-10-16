@@ -31,8 +31,16 @@ export function searchBaseTables(keyword, limit = 20) {
   return request(`${PREFIX}/metadata/tables${query({ keyword, limit })}`)
 }
 
+export function searchTechnologyOwners(keyword = '', limit = 20) {
+  return request(`${PREFIX}/technology-owners${query({ keyword, limit: Math.min(Math.max(limit, 1), 50) })}`)
+}
+
 export function loadBaseColumns(tableName, keyword = '') {
   return request(`${PREFIX}/metadata/tables/${encodeURIComponent(tableName)}/columns${query({ keyword })}`)
+}
+
+export function loadBaseKeys(tableName) {
+  return request(`${PREFIX}/metadata/tables/${encodeURIComponent(tableName)}/keys`)
 }
 
 export function synchronizePrimaryKeys() {

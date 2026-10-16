@@ -78,7 +78,26 @@
         <thead>
           <tr>
             <th class="replay-select-column"><input type="checkbox" :checked="allSelected" :disabled="!items.length" data-testid="select-all" @change="toggleAll" /></th>
-            <th v-for="column in schema.columns" :key="column.key">{{ column.label }}</th>
+            <th v-for="column in schema.columns" :key="column.key" :class="{ 'replay-column-with-help': column.help }">
+              <span class="replay-column-heading">
+                <span>{{ column.label }}</span>
+                <button
+                  v-if="column.help"
+                  class="replay-column-help"
+                  type="button"
+                  :aria-label="column.help"
+                  :aria-describedby="reviewerHelp.visible ? 'bank-owner-tooltip' : undefined"
+                  :data-tooltip="column.help"
+                  data-testid="bank-owner-help"
+                  @mouseenter="showReviewerHelp"
+                  @mouseleave="hideReviewerHelp"
+                  @focus="showReviewerHelp"
+                  @blur="hideReviewerHelp"
+                >
+                  <CircleHelp :size="14" :stroke-width="2" aria-hidden="true" />
+                </button>
+              </span>
+            </th>
             <th class="replay-operation-column">操作</th>
           </tr>
         </thead>
@@ -95,7 +114,7 @@
                   type="button"
                   :data-testid="`review-${row.id}`"
                   :disabled="!row.canReview"
-                  :title="row.reviewDisabledReason || '审核通过'"
+                  :title="reviewButtonTitle(row)"
                   @click="reviewRow(row)"
                 >审核</button>
                 <button class="replay-button replay-button-compact" type="button" :data-testid="`edit-${row.id}`" @click="openEdit(row)">修改</button>
@@ -113,6 +132,15 @@
         </tbody>
       </table>
     </div>
+
+    <div
+      v-if="reviewerHelp.visible"
+      id="bank-owner-tooltip"
+      class="replay-column-tooltip"
+      role="tooltip"
+      :style="reviewerHelp.style"
+      data-testid="bank-owner-tooltip"
+    >{{ REVIEWER_HELP_TEXT }}</div>
 
     <footer class="replay-pager">
       <span>共 {{ total }} 条，第 {{ page + 1 }} / {{ pageCount }} 页</span>
@@ -177,7 +205,7 @@
               <thead><tr><th>字段</th><th>原值</th><th>新值</th></tr></thead>
               <tbody>
                 <tr v-for="change in operation.changes" :key="change.field">
-                  <td>{{ change.label }}</td>
+                  <td>{{ changeLabel(change) }}</td>
                   <td>{{ formatChangeValue(change, change.oldValue) }}</td>
                   <td>{{ formatChangeValue(change, change.newValue) }}</td>
                 </tr>
@@ -204,6 +232,31 @@
       </section>
     </div>
 
+    <div v-if="reviewerMappingWarningCodes.length" class="replay-modal-mask">
+      <section
+        class="replay-confirm-modal"
+        role="alertdialog"
+        aria-modal="true"
+        aria-label="新增成功，但暂不可审核"
+        data-testid="reviewer-mapping-warning"
+      >
+        <h3 class="replay-warning-title">新增成功，但暂不可审核</h3>
+        <p v-if="reviewerMappingWarningCodes.length === 1" class="replay-confirm-text">
+          未找到审核负责人。服务码 {{ reviewerMappingWarningCodes[0] }} 尚未映射到全量交易人员，请联系敬恒杰维护清单。
+        </p>
+        <template v-else>
+          <p class="replay-confirm-text">未找到审核负责人。以下服务码尚未映射到全量交易人员：</p>
+          <ul class="replay-warning-codes">
+            <li v-for="code in reviewerMappingWarningCodes" :key="code">{{ code }}</li>
+          </ul>
+        </template>
+        <p v-if="reviewerMappingWarningCodes.length > 1" class="replay-confirm-text">请联系敬恒杰维护清单。</p>
+        <div class="replay-confirm-actions">
+          <button class="replay-button replay-button-primary" type="button" data-testid="close-reviewer-mapping-warning" @click="closeReviewerMappingWarning">我知道了</button>
+        </div>
+      </section>
+    </div>
+
     <transition name="replay-toast">
       <div v-if="toast.visible" class="replay-toast" :class="`replay-toast-${toast.kind}`" role="status" data-testid="toast">
         {{ toast.text }}
@@ -214,6 +267,7 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { CircleHelp } from 'lucide-vue-next'
 import {
   batchCreateReplayConfigs,
   batchDeleteReplayConfigs,
@@ -228,10 +282,12 @@ import {
   updateReplayConfig,
 } from '../../api/replayConfigs.js'
 
+const REVIEWER_HELP_TEXT = '未找到行方负责人时，该条记录不可审核，请联系敬恒杰维护清单。'
+
 const REVIEW_COLUMNS = [
   { key: 'oldTransactionCode', label: '老核心交易码' },
   { key: 'developer', label: '开发人员' },
-  { key: 'bankOwner', label: '行方负责人' },
+  { key: 'bankOwner', label: '行方负责人', help: REVIEWER_HELP_TEXT },
   { key: 'reviewStatus', label: '审核状态', display: 'review' },
 ]
 
@@ -246,9 +302,9 @@ const TABS = [
 
 const SORT_CREATE_FORM = [
   { key: 'tranCode', label: '4 位交易码', kind: 'text', required: true, placeholder: '如 6208' },
-  { key: 'oldSortField', label: '老核心排序字段', kind: 'text', required: true, placeholder: 'A.B 或 A(B,C)' },
-  { key: 'newSortField', label: '新核心排序字段', kind: 'text', required: true, placeholder: 'A.B 或 A(B,C)' },
-  { key: 'ignoreReason', label: '忽略原因', kind: 'textarea', required: true, maxlength: 512 },
+  { key: 'oldSortField', label: '老核心排序字段', kind: 'text', required: true, placeholder: '单个属性：A.B；多个属性：A(B,C)' },
+  { key: 'newSortField', label: '新核心排序字段', kind: 'text', required: true, placeholder: '单个属性：A.B；多个属性：A(B,C)' },
+  { key: 'ignoreReason', label: '排序原因', kind: 'textarea', required: true, maxlength: 512 },
 ]
 
 const SCHEMAS = {
@@ -358,19 +414,20 @@ const SCHEMAS = {
       { key: 'origTrcd', label: '服务码' },
       { key: 'origArryName', label: '对象/数组名称' },
       { key: 'origFieldName', label: '排序字段' },
-      { key: 'ignoreReason', label: '忽略原因', long: true },
+      { key: 'ignoreReason', label: '排序原因', long: true },
       ...REVIEW_COLUMNS,
     ],
     confirmFields: [
       { key: 'origTrcd', label: '服务码' },
       { key: 'origArryName', label: '对象/数组名称' },
       { key: 'origFieldName', label: '排序字段' },
+      { key: 'ignoreReason', label: '排序原因' },
     ],
     form: [
       { key: 'origTrcd', label: '服务码', kind: 'serviceCode', required: true },
       { key: 'origArryName', label: '对象/数组名称', kind: 'text', required: true },
       { key: 'origFieldName', label: '排序字段', kind: 'text', required: true },
-      { key: 'ignoreReason', label: '忽略原因', kind: 'textarea', required: true, maxlength: 512 },
+      { key: 'ignoreReason', label: '排序原因', kind: 'textarea', required: true, maxlength: 512 },
     ],
   },
 }
@@ -388,6 +445,8 @@ const internalTransactionCode = ref('')
 const reviewableByMe = ref(false)
 const filters = reactive({})
 const selectedIds = ref([])
+const reviewerMappingWarningCodes = ref([])
+const reviewerHelp = reactive({ visible: false, style: {} })
 const domainOptions = ref([])
 const exporting = ref(false)
 
@@ -421,7 +480,7 @@ const activeForm = computed(() => (isSortCreate.value ? SORT_CREATE_FORM : schem
 const formRows = computed(() => (isMultiCreate.value ? createRows.value : [draft]))
 const createHint = computed(() => {
   if (isSortCreate.value) {
-    return '保存后按映射生成 3 条：&sop 用老核心排序字段，&soap 与 &bzjson 用新核心排序字段。'
+    return '按 A 对象的单个属性 B 排序时填写 A.B；按 A 对象的多个属性 B、C 排序时填写 A(B,C)。保存后按映射生成 3 条：&sop 使用老核心排序字段，&soap 与 &bzjson 使用新核心排序字段。'
   }
   if (isMultiCreate.value) {
     return '最多可一次新增 3 条，每条独立填写，可只填其中部分；任一条重复则整批不写入。'
@@ -470,6 +529,11 @@ function formatChangeValue(change, value) {
     if (String(value) === '0') return '未审核'
   }
   return value
+}
+
+function changeLabel(change) {
+  if (isSortTab.value && change.field === 'ignore_reason') return '排序原因'
+  return change.label
 }
 
 function resetFilters() {
@@ -638,12 +702,58 @@ function validateFields(row, form) {
   return ''
 }
 
+function serviceCodeOf(row) {
+  return String(row?.tranCode || row?.origTrcd || row?.serviceCode || '').trim()
+}
+
+function showReviewerHelp(event) {
+  const rect = event.currentTarget.getBoundingClientRect()
+  const width = Math.min(300, window.innerWidth - 24)
+  const left = Math.min(Math.max(12, rect.right - width), window.innerWidth - width - 12)
+  reviewerHelp.style = {
+    top: `${rect.bottom + 8}px`,
+    left: `${left}px`,
+    width: `${width}px`,
+  }
+  reviewerHelp.visible = true
+}
+
+function hideReviewerHelp() {
+  reviewerHelp.visible = false
+}
+
+function unmappedReviewerServiceCodes(created) {
+  const rows = Array.isArray(created) ? created : created ? [created] : []
+  return [...new Set(rows
+    .filter((row) => row?.reviewDisabledReason === '无审核人')
+    .map(serviceCodeOf)
+    .filter(Boolean))]
+}
+
+function showReviewerMappingWarning(created) {
+  reviewerMappingWarningCodes.value = unmappedReviewerServiceCodes(created)
+}
+
+function closeReviewerMappingWarning() {
+  reviewerMappingWarningCodes.value = []
+}
+
+function reviewerMissingMessage(row) {
+  const serviceCode = serviceCodeOf(row)
+  return `未找到审核负责人。服务码 ${serviceCode} 尚未映射到全量交易人员，请联系敬恒杰维护清单。`
+}
+
+function reviewButtonTitle(row) {
+  if (row?.reviewDisabledReason === '无审核人') return reviewerMissingMessage(row)
+  return row?.reviewDisabledReason || '审核通过'
+}
+
 function validateDraft() {
   const base = validateFields(draft, activeForm.value)
   if (base) return base
   if (isSortCreate.value) {
-    if (!isValidSortField(draft.oldSortField)) return '老核心排序字段格式不正确，应为 A.B 或 A(B,C)'
-    if (!isValidSortField(draft.newSortField)) return '新核心排序字段格式不正确，应为 A.B 或 A(B,C)'
+    if (!isValidSortField(draft.oldSortField)) return '老核心排序字段格式不正确：单个属性请填写 A.B，多个属性请填写 A(B,C)'
+    if (!isValidSortField(draft.newSortField)) return '新核心排序字段格式不正确：单个属性请填写 A.B，多个属性请填写 A(B,C)'
     return ''
   }
   return schema.value.validate ? schema.value.validate(draft) : ''
@@ -692,6 +802,7 @@ async function submitBatchCreate() {
     const created = await batchCreateReplayConfigs(activeTab.value, items)
     showToast(`新增成功（${created?.length ?? items.length} 条）`)
     editOpen.value = false
+    showReviewerMappingWarning(created)
     await load()
   } catch (cause) {
     formError.value = cause?.message || '新增失败'
@@ -726,6 +837,7 @@ async function submitForm() {
     } else {
       const created = await createReplayConfig(activeTab.value, payload)
       showToast(Array.isArray(created) ? `新增成功（${created.length} 条）` : '新增成功')
+      showReviewerMappingWarning(created)
     }
     editOpen.value = false
     await load()
@@ -905,6 +1017,11 @@ onUnmounted(() => {
 .replay-table{width:100%;border-collapse:collapse;background:var(--bg-card,#fff);table-layout:fixed}
 .replay-table th,.replay-table td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--border,#e5e7eb);font-size:13px;word-break:break-all;vertical-align:top}
 .replay-table thead th{position:sticky;top:0;z-index:2;background:#0d6672;color:#fff}
+.replay-table thead th.replay-column-with-help{z-index:3;width:116px}
+.replay-column-heading{display:inline-flex;align-items:center;gap:4px;white-space:nowrap;word-break:normal}
+.replay-column-help{position:relative;display:inline-flex;flex:0 0 auto;align-items:center;justify-content:center;width:18px;height:18px;padding:0;border:0;background:transparent;color:inherit;cursor:help}
+.replay-column-help:focus-visible{outline:2px solid #fff;outline-offset:2px;border-radius:3px}
+.replay-column-tooltip{position:fixed;z-index:1200;padding:8px 10px;border:1px solid var(--border,#e5e7eb);border-radius:6px;background:var(--bg-card,#fff);box-shadow:0 6px 18px rgba(0,0,0,.18);color:var(--text-main,#1f2937);font-size:12px;font-weight:400;line-height:1.5;text-align:left;white-space:normal;word-break:normal;pointer-events:none}
 .replay-select-column{width:44px}
 .replay-operation-column{width:262px;white-space:nowrap}
 .replay-operation-buttons{display:flex;gap:5px}
@@ -932,6 +1049,8 @@ onUnmounted(() => {
 .replay-history-changes{width:100%;border-collapse:collapse}
 .replay-history-changes th,.replay-history-changes td{padding:6px 8px;border-bottom:1px solid var(--border,#eef0f3);font-size:12px;text-align:left;word-break:break-all}
 .replay-confirm-modal{width:min(360px,calc(100vw - 32px));display:grid;gap:18px;padding:20px;background:var(--bg-card,#fff);border-radius:8px;box-shadow:0 12px 32px rgba(0,0,0,.2)}
+.replay-warning-title{margin:0;font-size:15px}
+.replay-warning-codes{max-height:160px;margin:0;padding-left:20px;overflow:auto;word-break:break-all}
 .replay-confirm-text{margin:0;font-size:14px;color:var(--text-primary,#1f2937)}
 .replay-confirm-detail{margin:0;display:grid;gap:6px}
 .replay-confirm-row{display:grid;grid-template-columns:88px 1fr;gap:8px;font-size:13px}

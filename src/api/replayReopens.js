@@ -3,7 +3,9 @@ import { request } from './index.js'
 const PREFIX = '/ai/parallel-replay/issues/reopens'
 const id = encodeURIComponent
 const read = (path, params = {}) => {
-  const query = Object.entries(params).filter(([, value]) => value !== '' && value !== undefined && value !== null)
+  const query = Object.entries(params)
+    .flatMap(([key, value]) => (Array.isArray(value) ? value : [value]).map(item => [key, item]))
+    .filter(([, value]) => value !== '' && value !== undefined && value !== null)
     .map(([key, value]) => `${id(key)}=${id(value)}`).join('&')
   return request(`${PREFIX}${path}${query ? `?${query}` : ''}`)
 }

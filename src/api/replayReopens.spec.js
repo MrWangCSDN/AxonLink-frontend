@@ -9,6 +9,16 @@ describe('reopen API contract', () => {
     expect(await api.getReopenStatistics({ issueKey: 'A|B', replayType: 'QUERY', onlyMine: false })).toEqual({ totalEvents: 6 })
     expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues/reopens/statistics?issueKey=A%7CB&replayType=QUERY&onlyMine=false')
   })
+  it('encodes selected batch names as repeated parameters without splitting commas', async () => {
+    global.fetch = vi.fn().mockResolvedValue(response({ totalEvents: 6 }))
+    await api.getReopenStatistics({ replayType: 'ALL', batchNames: ['RPT-1', 'DZ-2,A&B'], onlyMine: false })
+    expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues/reopens/statistics?replayType=ALL&batchNames=RPT-1&batchNames=DZ-2%2CA%26B&onlyMine=false')
+  })
+  it('omits empty batch selections while preserving scalar batch filters and false values', async () => {
+    global.fetch = vi.fn().mockResolvedValue(response({ totalEvents: 6 }))
+    await api.getReopenStatistics({ replayType: 'QUERY', batchNames: [], batchName: 'RPT-legacy', onlyMine: false, issueDomain: '' })
+    expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues/reopens/statistics?replayType=QUERY&batchName=RPT-legacy&onlyMine=false')
+  })
   it.each([
     ['getReopenPermissions', [], '/permissions', undefined],
     ['getReopenFilters', [{ replayType: 'DZ' }], '/filters?replayType=DZ', undefined],

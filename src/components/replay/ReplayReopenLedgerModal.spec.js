@@ -2,6 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import Ledger from './ReplayReopenLedgerModal.vue'
 import * as api from '../../api/replayReopens.js'
+
 vi.mock('../../api/replayReopens.js', () => ({
   getReopenPermissions: vi.fn(), getReopenFilters: vi.fn(), listReopenEvents: vi.fn(), getReopenStatistics: vi.fn(),
   createReopenAppeal: vi.fn(), getReopenHistory: vi.fn(), searchReopenDevelopers: vi.fn(), listReopenAppeals: vi.fn(),
@@ -9,122 +10,215 @@ vi.mock('../../api/replayReopens.js', () => ({
   assignReopenEvent: vi.fn(), getReopenPolicies: vi.fn(), saveReopenPolicy: vi.fn(),
 }))
 vi.mock('../../api/replayIssues.js', () => ({ searchReplayIssueUsers: vi.fn().mockResolvedValue([]) }))
-const event = (id, overrides = {}) => ({ event: { id, issueKey: `KEY-${id}`, occurrenceNo: id, issueDomain: '结算组', batchName: `RPT-${id}`, currentOwnerUsername: 'zhang', currentOwnerName: '张晨', defaultOwnerName: '张晨', version: 4 }, canAppeal: true, requiresRecheck: false, canAssign: false, ...overrides })
-const page = (items, total = items.length) => ({ items, total, page: 1, pageSize: 20 })
-const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r }); return { promise, resolve } }
+
+const deferred = () => {
+  let resolve
+  const promise = new Promise(r => { resolve = r })
+  return { promise, resolve }
+}
+const statistics = totalEvents => ({
+  totalEvents, distinctIssues: 8, pendingEvents: 3,
+  people: [{ username: null, realName: null, defaultCount: 2, adjustedIn: 0, adjustedOut: 0, currentCount: 2, issueCount: 2, pendingCount: 0 }],
+  batches: [],
+})
+const batch = (wrapper, name) => wrapper.get(`input[data-batch="${name}"]`)
+const apply = async wrapper => {
+  await wrapper.get('[data-testid="apply-reopen-filters"]').trigger('submit')
+  await flushPromises()
+}
+
 beforeEach(() => {
   vi.resetAllMocks()
-  api.getReopenPermissions.mockResolvedValue({ enabled: true, canManagePermissions: false, policies: [], issueDomains: ['结算组'] })
-  api.getReopenFilters.mockResolvedValue({ batchNames: ['RPT-1', 'RPT-2'], issueDomains: ['结算组'] })
-  api.listReopenEvents.mockResolvedValue(page([event(1)], 40))
-  api.getReopenStatistics.mockResolvedValue({ totalEvents: 40, distinctIssues: 8, pendingEvents: 3, people: [{ username: null, realName: null, defaultCount: 2, currentCount: 2, issueCount: 2 }], batches: [] })
-  api.searchReopenDevelopers.mockResolvedValue([{ username: 'liu', realName: '刘洋', displayName: '刘洋(liu)' }])
-  api.getReopenHistory.mockResolvedValue(page([
-    { id: 1, action: 'APPEAL_SUBMITTED', fromOwnerName: '甲', toOwnerName: '乙', reason: '申请调整' },
-    { id: 2, action: 'APPEAL_APPROVED', fromOwnerName: '甲', toOwnerName: '丙', reason: '核实后调整' },
-    { id: 3, action: 'APPEAL_REJECTED', fromOwnerName: '丙', toOwnerName: '丙', reason: '依据不足' },
-  ], 30))
-  api.listReopenAppeals.mockResolvedValue(page([]))
+  api.getReopenPermissions.mockResolvedValue({ enabled: true, canManagePermissions: true, policies: [], issueDomains: ['结算组'] })
+  api.getReopenFilters.mockResolvedValue({ batchNames: ['RPT-1', 'RPT-2', 'DZ-1', 'OTHER-1'], issueDomains: ['结算组'] })
+  api.getReopenStatistics.mockResolvedValue(statistics(40))
+  api.listReopenEvents.mockResolvedValue({ items: [], total: 0 })
 })
-describe('reopen workbench', () => {
-  it('keeps the originating import scope across ledger, statistics and appeals and can clear it', async () => {
-    const w = mount(Ledger, { props: { replayType: 'QUERY', sourceRoundId: 1022 } })
+
+describe('reopen personnel and batch statistics', () => {
+  it('opens statistics directly without hidden issue or import constraints or workflow pages', async () => {
+    const w = mount(Ledger, { props: { replayType: 'ALL' }, attrs: { issueKey: 'KEY-1', sourceRoundId: 1022 } })
     await flushPromises()
-    expect(api.listReopenEvents).toHaveBeenLastCalledWith(expect.objectContaining({ sourceRoundId: 1022 }))
-    expect(w.get('[data-testid="source-round-filter"]').element.value).toBe('1022')
-    await w.get('[data-testid="tab-statistics"]').trigger('click'); await flushPromises()
-    expect(api.getReopenStatistics).toHaveBeenLastCalledWith(expect.objectContaining({ sourceRoundId: 1022 }))
-    await w.get('[data-testid="tab-appeals"]').trigger('click'); await flushPromises()
-    expect(api.listReopenAppeals).toHaveBeenLastCalledWith(expect.objectContaining({ sourceRoundId: 1022 }))
-    await w.get('[data-testid="all-reopen-batches"]').trigger('click'); await flushPromises()
-    expect(w.get('[data-testid="source-round-filter"]').element.value).toBe('')
-    expect(api.listReopenAppeals).toHaveBeenLastCalledWith(expect.objectContaining({ sourceRoundId: '' }))
-    w.unmount()
-  })
-  it('shows disabled state without requesting ledger or changing the issue list', async () => {
-    api.getReopenPermissions.mockResolvedValue({ enabled: false })
-    const w = mount(Ledger)
-    await flushPromises()
-    expect(w.text()).toContain('尚未启用')
+
+    expect(api.getReopenStatistics).toHaveBeenLastCalledWith({ replayType: 'ALL', batchNames: [], onlyMine: false })
     expect(api.listReopenEvents).not.toHaveBeenCalled()
-    expect(api.getReopenStatistics).not.toHaveBeenCalled()
-    w.unmount()
-  })
-  it('paginates events, keeps cross-batch explicit selection and submits actual versions', async () => {
-    const w = mount(Ledger, { props: { replayType: 'QUERY', issueKey: '' } })
-    await flushPromises()
-    await w.get('[data-testid="select-event-1"]').setValue(true)
-    api.listReopenEvents.mockResolvedValueOnce(page([event(2)], 40))
-    await w.get('[data-testid="events-next"]').trigger('click'); await flushPromises()
-    expect(api.listReopenEvents).toHaveBeenLastCalledWith(expect.objectContaining({ replayType: 'QUERY', page: 2, pageSize: 20 }))
-    await w.get('[data-testid="select-event-2"]').setValue(true)
-    await w.get('[data-testid="open-adjustment"]').trigger('click'); await flushPromises()
-    await w.get('[data-testid="suggested-owner"] select').setValue('liu')
-    await w.get('[data-testid="request-reason"]').setValue('公共组件遗漏')
-    await w.get('[data-testid="request-evidence"]').setValue('日志 1022')
-    api.createReopenAppeal.mockRejectedValueOnce(new Error('版本冲突'))
-    await w.get('[data-testid="submit-adjustment"]').trigger('submit'); await flushPromises()
-    expect(api.createReopenAppeal).toHaveBeenCalledWith(expect.objectContaining({ eventIds: [1, 2], expectedVersions: { 1: 4, 2: 4 }, kind: 'APPEAL', suggestedOwnerUsername: 'liu', reason: '公共组件遗漏', evidence: '日志 1022' }))
-    expect(w.get('[data-testid="request-evidence"]').element.value).toBe('日志 1022')
-    const firstRequest = api.createReopenAppeal.mock.calls[0][0]
-    api.createReopenAppeal.mockResolvedValue({ id: 4 })
-    await w.get('[data-testid="submit-adjustment"]').trigger('submit'); await flushPromises()
-    expect(api.createReopenAppeal.mock.calls[1][0].requestId).toBe(firstRequest.requestId)
-    expect(w.emitted('changed')).toHaveLength(1)
-    w.unmount()
-  })
-  it('ignores late filter responses and does not select undisplayed records', async () => {
-    const late = deferred()
-    api.listReopenEvents.mockReturnValueOnce(late.promise).mockResolvedValueOnce(page([event(2)], 1))
-    const w = mount(Ledger)
-    await flushPromises()
-    await w.get('[data-testid="batch-filter"]').setValue('RPT-2')
-    await w.get('[data-testid="apply-reopen-filters"]').trigger('submit'); await flushPromises()
-    late.resolve(page([event(1)], 100)); await flushPromises()
-    expect(w.find('[data-testid="select-event-1"]').exists()).toBe(false)
-    expect(w.find('[data-testid="select-event-2"]').exists()).toBe(true)
-    await w.get('[data-testid="select-page"]').setValue(true)
-    expect(w.get('[data-testid="open-adjustment"]').text()).toContain('1')
-    w.unmount()
-  })
-  it('keeps request drafts through audit lookup, pagination and filter errors', async () => {
-    const w = mount(Ledger); await flushPromises()
-    await w.get('[data-testid="select-event-1"]').setValue(true)
-    await w.get('[data-testid="open-adjustment"]').trigger('click'); await flushPromises()
-    await w.get('[data-testid="request-reason"]').setValue('保留原因')
-    await w.get('[data-testid="history-1"]').trigger('click'); await flushPromises()
-    const audit = w.get('[aria-label="调整审计"]')
-    expect(audit.text()).toContain('通过调整')
-    expect(audit.text()).toContain('归属记录')
-    expect(audit.text()).toContain('建议：甲 → 乙（未生效）')
-    expect(audit.text()).toContain('甲 → 丙（已生效）')
-    expect(audit.text()).toContain('归属未变：丙')
-    await w.get('[data-testid="history-next"]').trigger('click'); await flushPromises()
-    expect(api.getReopenHistory).toHaveBeenLastCalledWith(1, { page: 2, pageSize: 20 })
-    api.listReopenEvents.mockRejectedValueOnce(new Error('筛选失败'))
-    await w.get('[data-testid="apply-reopen-filters"]').trigger('submit'); await flushPromises()
-    expect(w.get('[data-testid="request-reason"]').element.value).toBe('保留原因')
-    w.unmount()
-  })
-  it('uses server capabilities and requires new evidence for recheck selections', async () => {
-    api.listReopenEvents.mockResolvedValue(page([event(1, { canAppeal: false }), event(2, { requiresRecheck: true })]))
-    const w = mount(Ledger); await flushPromises()
-    expect(w.get('[data-testid="select-event-1"]').attributes('disabled')).toBeDefined()
-    await w.get('[data-testid="select-event-2"]').setValue(true)
-    await w.get('[data-testid="open-adjustment"]').trigger('click'); await flushPromises()
-    expect(w.text()).toContain('补充新证据')
-    expect(w.get('[data-testid="submit-adjustment"]').attributes('disabled')).toBeDefined()
-    w.unmount()
-  })
-  it('loads statistics for all matched events independently of the ledger page', async () => {
-    const w = mount(Ledger, { props: { replayType: 'DZ', issueKey: 'KEY-1' } }); await flushPromises()
-    await w.get('[data-testid="tab-statistics"]').trigger('click'); await flushPromises()
-    expect(api.getReopenStatistics).toHaveBeenLastCalledWith(expect.objectContaining({ replayType: 'DZ', issueKey: 'KEY-1' }))
-    expect(api.getReopenStatistics.mock.calls.at(-1)[0]).not.toHaveProperty('page')
+    expect(api.listReopenAppeals).not.toHaveBeenCalled()
+    expect(api.getReopenPolicies).not.toHaveBeenCalled()
+    expect(w.find('[data-testid="tab-events"]').exists()).toBe(false)
+    expect(w.find('[data-testid="tab-appeals"]').exists()).toBe(false)
+    expect(w.find('[data-testid="tab-policies"]').exists()).toBe(false)
+    expect(w.find('[data-testid="issue-key-filter"]').exists()).toBe(false)
+    expect(w.find('[data-testid="source-round-filter"]').exists()).toBe(false)
+    for (const label of ['问题所属领域', '问题 key', '来源导入轮次', '事件编号', '当前负责人账号']) {
+      expect(w.text()).not.toContain(label)
+    }
+    expect(w.text()).toContain('人员与批次统计')
     expect(w.text()).toContain('40 次')
     expect(w.text()).toContain('8 个问题')
     expect(w.text()).toContain('3 次待审')
     expect(w.text()).toContain('2 次待归属')
     w.unmount()
+  })
+
+  it('selects multiple batches across transaction types and keeps applied arrays independent from drafts', async () => {
+    const w = mount(Ledger)
+    await flushPromises()
+    await batch(w, 'RPT-1').setValue(true)
+    await batch(w, 'DZ-1').setValue(true)
+    await apply(w)
+
+    expect(api.getReopenStatistics).toHaveBeenLastCalledWith({ replayType: 'ALL', batchNames: ['RPT-1', 'DZ-1'], onlyMine: false })
+    const applied = api.getReopenStatistics.mock.calls.at(-1)[0]
+    await batch(w, 'RPT-2').setValue(true)
+    expect(applied.batchNames).toEqual(['RPT-1', 'DZ-1'])
+    expect(w.get('[data-testid="applied-reopen-scope"]').text()).toContain('RPT-1、DZ-1')
+    expect(w.get('[data-testid="applied-reopen-scope"]').text()).not.toContain('RPT-2')
+    w.unmount()
+  })
+
+  it('restricts query and accounting batches immediately and preserves only compatible selections', async () => {
+    const w = mount(Ledger)
+    await flushPromises()
+    await batch(w, 'RPT-1').setValue(true)
+    await batch(w, 'DZ-1').setValue(true)
+    await w.get('[data-testid="replay-type-filter"]').setValue('QUERY')
+    await flushPromises()
+
+    expect(api.getReopenFilters).toHaveBeenLastCalledWith({ replayType: 'QUERY' })
+    expect(batch(w, 'RPT-1').element.checked).toBe(true)
+    expect(w.find('input[data-batch="DZ-1"]').exists()).toBe(false)
+    expect(w.find('input[data-batch="OTHER-1"]').exists()).toBe(false)
+    await batch(w, 'RPT-2').setValue(true)
+    await apply(w)
+    expect(api.getReopenStatistics).toHaveBeenLastCalledWith({ replayType: 'QUERY', batchNames: ['RPT-1', 'RPT-2'], onlyMine: false })
+
+    await w.get('[data-testid="replay-type-filter"]').setValue('DZ')
+    await flushPromises()
+    expect(w.find('input[data-batch="RPT-1"]').exists()).toBe(false)
+    expect(batch(w, 'DZ-1').exists()).toBe(true)
+    expect(w.get('[data-testid="all-batches-option"]').element.checked).toBe(true)
+    await apply(w)
+    expect(api.getReopenStatistics).toHaveBeenLastCalledWith({ replayType: 'DZ', batchNames: [], onlyMine: false })
+    w.unmount()
+  })
+
+  it('clears batches within the selected type and preserves only-mine scope', async () => {
+    const w = mount(Ledger, { props: { replayType: 'QUERY' } })
+    await flushPromises()
+    await batch(w, 'RPT-1').setValue(true)
+    await w.get('[data-testid="only-mine-filter"]').setValue(true)
+    await apply(w)
+    expect(api.getReopenStatistics).toHaveBeenLastCalledWith({ replayType: 'QUERY', batchNames: ['RPT-1'], onlyMine: true })
+
+    await w.get('[data-testid="all-reopen-batches"]').trigger('click')
+    await flushPromises()
+    expect(api.getReopenStatistics).toHaveBeenLastCalledWith({ replayType: 'QUERY', batchNames: [], onlyMine: true })
+    expect(w.get('[data-testid="all-batches-option"]').element.checked).toBe(true)
+    await batch(w, 'RPT-2').setValue(true)
+    await w.get('[data-testid="all-batches-option"]').setValue(true)
+    await apply(w)
+    expect(api.getReopenStatistics).toHaveBeenLastCalledWith({ replayType: 'QUERY', batchNames: [], onlyMine: true })
+    w.unmount()
+  })
+
+  it('ignores late batch options from a previous transaction type', async () => {
+    const late = deferred()
+    api.getReopenFilters.mockReturnValueOnce(late.promise).mockResolvedValueOnce({ batchNames: ['DZ-2'], issueDomains: [] })
+    const w = mount(Ledger)
+    await flushPromises()
+    await w.get('[data-testid="replay-type-filter"]').setValue('DZ')
+    await flushPromises()
+    late.resolve({ batchNames: ['RPT-old'], issueDomains: [] })
+    await flushPromises()
+
+    expect(batch(w, 'DZ-2').exists()).toBe(true)
+    expect(w.find('input[data-batch="RPT-old"]').exists()).toBe(false)
+    w.unmount()
+  })
+
+  it('ignores late statistics after another scope has been applied', async () => {
+    const late = deferred()
+    api.getReopenStatistics.mockReturnValueOnce(late.promise).mockResolvedValueOnce(statistics(2))
+    const w = mount(Ledger)
+    await flushPromises()
+    await batch(w, 'RPT-2').setValue(true)
+    await apply(w)
+    late.resolve(statistics(99))
+    await flushPromises()
+
+    expect(w.get('[aria-label="重开人员统计"]').text()).toContain('2 次')
+    expect(w.get('[aria-label="重开人员统计"]').text()).not.toContain('99 次')
+    w.unmount()
+  })
+
+  it('removes stale totals when loading another scope fails and allows retry', async () => {
+    const w = mount(Ledger)
+    await flushPromises()
+    expect(w.find('[aria-label="重开人员统计"]').exists()).toBe(true)
+    api.getReopenStatistics.mockRejectedValueOnce(new Error('统计读取失败'))
+    await batch(w, 'RPT-1').setValue(true)
+    await apply(w)
+
+    expect(w.get('[role="alert"]').text()).toContain('统计读取失败')
+    expect(w.find('[aria-label="重开人员统计"]').exists()).toBe(false)
+    await apply(w)
+    expect(w.find('[aria-label="重开人员统计"]').exists()).toBe(true)
+    w.unmount()
+  })
+
+  it('shows permission failures and disabled feature state without loading data', async () => {
+    api.getReopenPermissions.mockRejectedValueOnce(new Error('权限读取失败'))
+    const failed = mount(Ledger)
+    await flushPromises()
+    expect(failed.get('[role="alert"]').text()).toContain('权限读取失败')
+    expect(api.getReopenStatistics).not.toHaveBeenCalled()
+    failed.unmount()
+
+    api.getReopenPermissions.mockResolvedValueOnce({ enabled: false })
+    const disabled = mount(Ledger)
+    await flushPromises()
+    expect(disabled.text()).toContain('尚未启用')
+    expect(api.getReopenFilters).not.toHaveBeenCalled()
+    expect(api.getReopenStatistics).not.toHaveBeenCalled()
+    disabled.unmount()
+  })
+
+  it('keeps batch lookup errors visible through statistics success and retries for the current type', async () => {
+    api.getReopenFilters.mockRejectedValueOnce(new Error('批次读取失败'))
+    const w = mount(Ledger)
+    await flushPromises()
+    expect(w.get('[role="alert"]').text()).toContain('批次读取失败')
+    expect(w.find('[aria-label="重开人员统计"]').exists()).toBe(true)
+    api.getReopenFilters.mockResolvedValueOnce({ batchNames: ['RPT-retry'], issueDomains: [] })
+    await w.get('[role="alert"] button').trigger('click')
+    await flushPromises()
+    expect(batch(w, 'RPT-retry').exists()).toBe(true)
+    expect(w.find('[role="alert"]').exists()).toBe(false)
+    w.unmount()
+  })
+
+  it('closes the batch picker with Escape or applying a selection', async () => {
+    const w = mount(Ledger)
+    await flushPromises()
+    const picker = w.get('[data-testid="batch-filter"]')
+    picker.element.open = true
+    await picker.trigger('keydown', { key: 'Escape' })
+    expect(picker.element.open).toBe(false)
+    picker.element.open = true
+    await batch(w, 'RPT-1').setValue(true)
+    await apply(w)
+    expect(picker.element.open).toBe(false)
+    w.unmount()
+  })
+
+  it('ignores pending permission resolution after closing', async () => {
+    const permission = deferred()
+    api.getReopenPermissions.mockReturnValueOnce(permission.promise)
+    const w = mount(Ledger)
+    w.unmount()
+    permission.resolve({ enabled: true })
+    await flushPromises()
+    expect(api.getReopenStatistics).not.toHaveBeenCalled()
+    expect(api.getReopenFilters).not.toHaveBeenCalled()
   })
 })

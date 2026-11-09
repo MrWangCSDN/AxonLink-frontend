@@ -51,10 +51,10 @@
           </div>
           <label v-if="selectedTable && !isTableMissingCleanup" class="comparison-key-picker">
             <strong>选择索引</strong>
-            <select data-testid="comparison-key-select" :value="comparisonKey?.indexName || ''"
+            <select data-testid="comparison-key-select" :value="keySelectionError ? '' : (comparisonKey?.indexName || '')"
               :disabled="metadataLoading || !columnsLoaded || !keyOptions.length" @change="selectComparisonKey($event.target.value)">
               <option v-if="!comparisonKey" value="" disabled>请选择索引</option>
-              <option v-if="comparisonKey && keySelectionError" :value="comparisonKey.indexName" disabled>{{ formatComparisonKey(comparisonKey) }}（已失效）</option>
+              <option v-if="comparisonKey && keySelectionError" value="" disabled>{{ formatComparisonKey(comparisonKey) }}（已失效）</option>
               <option v-for="key in keyOptions" :key="key.indexName" :value="key.indexName">{{ formatComparisonKey(key) }}</option>
             </select>
           </label>
@@ -454,7 +454,7 @@ const mergeRegisteredFields = (registeredFields, currentColumns) => {
   })
 }
 
-const isProtectedComparisonKey = column => Boolean(comparisonKey.value?.columnNames
+const isProtectedComparisonKey = column => Boolean(!column.missingInBase && comparisonKey.value?.columnNames
   .some(name => name.toLocaleLowerCase() === column.columnName?.toLocaleLowerCase()))
 
 const currentPrimaryKeys = columns => columns

@@ -160,7 +160,7 @@
     <div v-if="importOpen" class="slow-modal-mask" @click.self="!importing && (importOpen = false)">
       <div class="slow-modal">
         <h3>导入慢SQL明细</h3>
-        <p class="slow-hint">5 列：微服务 / 抽象SQL / 执行参数 / 执行耗时 / 来源文件；首行表头自动跳过。
+        <p class="slow-hint">支持两种5列格式：微服务 / 抽象SQL / 执行参数 / 执行耗时 / 来源文件，或 slowSqlStatement / ServiceName / 执行参数 / 执行耗时 / 来源文件；首行表头自动识别。
           导入时按 (微服务+抽象SQL) 聚合：取最大耗时代表行并统计执行次数；同轮次重复导入会覆盖。</p>
         <input type="file" accept=".xlsx,.xls,.csv" :disabled="importing" @change="onFile" />
         <input v-model="importRound" class="slow-input full" maxlength="20" :disabled="importing"

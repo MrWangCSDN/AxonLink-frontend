@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  exportReplayIssues,
   getReplayIssueOptions,
   getReplayIssueHeaderFilterOptionCounts,
   getReplayImportRounds,
@@ -49,6 +50,33 @@ afterEach(() => {
 })
 
 describe('replay issues API', () => {
+  it.each(['ASC', 'DESC'])('sends sent volume sorting %s alongside the query in the list request', async order => {
+    global.fetch = vi.fn().mockResolvedValue(jsonResponse({ code: 200, data: { total: 0, items: [] } }))
+
+    await listReplayIssues({ sentTransactionCountOrder: order, groupNames: ['公共组'], limit: 100, offset: 100 })
+
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({
+      query: { limit: 100, offset: 100, groupNames: ['公共组'] }, sentTransactionCountOrder: order,
+    })
+  })
+
+  it('keeps sent volume sorting and filters in the export query string', async () => {
+    global.fetch = vi.fn().mockResolvedValue(new Response('not available', { status: 503 }))
+
+    await expect(exportReplayIssues({ sentTransactionCountOrder: 'DESC', groupNames: ['公共组'], replayType: 'DZ' }))
+      .rejects.toThrow('not available')
+
+    expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues/export?sentTransactionCountOrder=DESC&groupNames=%E5%85%AC%E5%85%B1%E7%BB%84&replayType=DZ')
+  })
+
+  it('sends global serial sorting alongside the query in the list request', async () => {
+    global.fetch = vi.fn().mockResolvedValue(jsonResponse({ code: 200, data: { total: 0, items: [] } }))
+    await listReplayIssues({ globalSerialNoOrder: 'DESC', globalSerialNos: ['0001'], offset: 50 })
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({
+      query: { limit: 50, offset: 50, globalSerialNos: ['0001'] }, globalSerialNoOrder: 'DESC',
+    })
+  })
+
   it('sends long list and header filters in JSON request bodies', async () => {
     const longDescription = '超长问题描述'.repeat(2000)
     global.fetch = vi.fn()

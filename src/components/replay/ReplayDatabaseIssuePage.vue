@@ -2,7 +2,7 @@
   <section class="database-issues-page" aria-label="回放数据库问题清单">
     <header class="database-toolbar">
       <div class="database-title"><button class="icon-button mobile-navigation" aria-label="打开导航" @click="$emit('toggleNavigation')"><Menu :size="18" /></button><div><h2>回放数据库问题清单</h2><p>按批次跟踪表级与字段级差异</p></div></div>
-      <div class="toolbar-actions"><button class="button" data-testid="reset-filters" @click="reset">重置筛选条件</button><button class="button primary" data-testid="open-import" @click="openImport"><Upload :size="15" />导入 Excel</button><button class="button" data-testid="export-issues" :disabled="exporting" @click="exportRows"><Download :size="15" />{{ exporting ? '导出中…' : '导出 Excel' }}</button><button class="icon-button" title="刷新清单" aria-label="刷新清单" :disabled="loading" @click="refresh"><RefreshCw :size="16" /></button></div>
+      <div class="toolbar-actions"><button class="button" data-testid="reset-filters" @click="reset">重置筛选条件</button><button class="button primary" data-testid="open-import" @click="openImport"><Upload :size="15" />导入 Excel</button><button class="button" data-testid="export-issues" :disabled="exporting" @click="exportRows"><Download :size="15" />{{ exporting ? '导出中…' : '导出 Excel' }}</button><button class="button" type="button" data-testid="export-report" @click="openReport"><Download :size="15" />导出报表</button><button class="icon-button" title="刷新清单" aria-label="刷新清单" :disabled="loading" @click="refresh"><RefreshCw :size="16" /></button></div>
     </header>
     <p v-if="error" class="message error" role="alert">{{ error }}</p>
     <div class="table-viewport" :aria-busy="loading" @scroll="closeHeaderFilter">
@@ -10,8 +10,51 @@
         <button v-if="column.key === 'differenceCount'" type="button" class="replay-count-sort-button" :class="{ 'is-active': differenceCountOrder !== '' }" :data-sort="differenceCountOrder ? differenceCountOrder.toLowerCase() : 'default'" :title="differenceCountSortLabel" :aria-label="differenceCountSortLabel" data-testid="difference-count-sort" @click.stop="toggleDifferenceCountSort"><ArrowUpNarrowWide v-if="differenceCountOrder === 'ASC'" :size="17" aria-hidden="true" /><ArrowDownWideNarrow v-else :size="17" aria-hidden="true" /></button>
         <button v-else-if="headerFilterConfig[column.key]" class="replay-header-filter-button" :class="{ active: headerFilters[column.key]?.length }" :data-testid="`header-filter-${column.key}`" :title="`筛选${column.label}`" :aria-label="`筛选${column.label}`" :aria-expanded="headerFilterOpen && activeHeaderColumn?.key === column.key" @click.stop="openHeaderFilter(column, $event)"><i aria-hidden="true"></i></button></th></tr></thead><tbody>
         <tr v-for="row in rows" :key="row.id">
-          <td v-for="column in columns" :key="column.key" :class="{ 'number-cell': column.key === 'differenceCount', 'status-cell': column.key === 'issueStatus', 'human-cell': ['issueType','cooperationPerson'].includes(column.key), 'analysis-cell': ['initialAnalysis','finalSolution','remark'].includes(column.key) }">
-            <div v-if="column.key === 'operation'" class="row-actions"><button class="button compact" :data-testid="`edit-${row.id}`" :disabled="!canEdit(row)" @click="openEdit(row)"><Pencil :size="12" />编辑</button><button class="button compact" :data-testid="`tracking-${row.id}`" @click="openTracking(row)"><History :size="12" />问题跟踪</button></div>
+          <td v-for="column in columns" :key="column.key" :class="{ 'plan-date-table-cell': column.key === 'plannedCompletionDate', 'number-cell': ['total528','totalCcbs','only528Count','onlyCcbsCount','differenceCount'].includes(column.key), 'status-cell': column.key === 'issueStatus', 'human-cell': ['issueType','cooperationPerson'].includes(column.key), 'analysis-cell': ['initialAnalysis','finalSolution','remark'].includes(column.key) }">
+            <div v-if="column.key === 'operation'" class="row-actions"><button class="button compact" :data-testid="`edit-${row.id}`" :disabled="!canEdit(row)" :title="!issueTypesReady ? '问题类型尚未加载，请稍后或刷新重试' : undefined" @click="openEdit(row)"><Pencil :size="12" />编辑</button><button class="button compact" :data-testid="`tracking-${row.id}`" @click="openTracking(row)"><History :size="12" />问题跟踪</button></div>
+              <div
+                v-else-if="column.key === 'plannedCompletionDate'"
+                class="replay-plan-date-cell replay-plan-date-emphasis"
+                :class="{ 'is-repair-date-locked': hasDefectRepairDate(row) }"
+                :data-testid="`plan-date-display-${row.id}`"
+                :title="hasDefectRepairDate(row) ? '已有缺陷修复日期，计划验证日期不可修改' : undefined"
+              >
+                <input
+                  v-if="editingPlanDateId === row.id"
+                  v-model="planDateDraft"
+                  :data-testid="`plan-date-input-${row.id}`"
+                  type="text"
+                  inputmode="numeric"
+                  maxlength="10"
+                  placeholder="2026-08-26"
+                  :disabled="planDateSavingId === row.id"
+                  @blur="savePlanDate(row)"
+                  @keydown.enter.prevent="savePlanDate(row)"
+                  @keydown.esc.prevent="cancelPlanDateEdit"
+                />
+                <button v-else-if="canEditPlanDate(row)" type="button" class="replay-plan-date-edit" :data-testid="`plan-date-edit-${row.id}`" title="点击编辑计划验证日期" @click.stop="startPlanDateEdit(row)">
+                  <span :data-testid="`plan-date-value-${row.id}`">{{ display(row.plannedCompletionDate) }}</span><Pencil :size="12" aria-hidden="true" />
+                </button>
+                <span v-else :data-testid="`plan-date-value-${row.id}`">{{ display(row.plannedCompletionDate) }}</span>
+                <span
+                  v-if="planDateChangeCount(row) > 0"
+                  class="replay-issue-domain-history replay-plan-date-history"
+                  :data-testid="`plan-date-change-count-${row.id}`"
+                  tabindex="0"
+                  @mouseenter="loadPlanDateChanges(row)"
+                  @focus="loadPlanDateChanges(row)"
+                >
+                  <History :size="12" aria-hidden="true" /><b>{{ planDateChangeCount(row) }}</b>
+                  <span class="replay-issue-domain-tooltip" :data-testid="`plan-date-change-history-${row.id}`" role="tooltip">
+                    <span v-if="planDateHistoryLoading[row.id]">正在加载…</span>
+                    <span v-else-if="planDateHistoryErrors[row.id]">{{ planDateHistoryErrors[row.id] }}</span>
+                    <span v-else v-for="entry in planDateHistories[row.id] || []" :key="`${entry.changedAt}-${entry.plannedCompletionDate ?? 'empty'}`">
+                      <strong>计划时间：{{ entry.plannedCompletionDate || '-' }}</strong>
+                      <em>{{ planDateOperator(entry) }}　{{ entry.changedAt }}</em>
+                    </span>
+                  </span>
+                </span>
+              </div>
             <div v-else-if="column.key === 'tableName'" class="table-name-cell" :title="[row.tableName, row.tableComment].filter(Boolean).join('\n')">
               <button type="button" class="cell-copy cell-text table-name-english" :data-testid="`copy-${row.id}-tableName`" aria-label="复制表英文名" :title="copyTitle('表英文名',row.tableName)" :disabled="!hasCopyValue(row.tableName)" @click.stop="copyValue(row.tableName,'表英文名')">{{ display(row.tableName) }}</button>
               <button type="button" class="cell-copy cell-text table-name-chinese" :data-testid="`copy-${row.id}-tableComment`" aria-label="复制表中文名" :title="copyTitle('表中文名',row.tableComment)" :disabled="!hasCopyValue(row.tableComment)" @click.stop="copyValue(row.tableComment,'表中文名')">{{ display(row.tableComment) }}</button>
@@ -24,12 +67,13 @@
                 <button type="button" class="cell-copy-icon" :data-testid="`copy-${row.id}-reviewStatus`" aria-label="复制审核状态" :title="copyTitle(column.label,reviewStatusLabel(row))" @click.stop="copyValue(reviewStatusLabel(row),column.label)"><Copy :size="13" aria-hidden="true" /></button>
               </div>
             </template>
-            <button v-else type="button" class="cell-copy cell-text" :class="{ 'is-fixed': column.key === 'issueStatus' && row.issueStatus === '已修复' }" :data-testid="`copy-${row.id}-${column.key}`" :aria-label="`复制${column.label}`" :title="copyTitle(column.label,row[column.key])" :disabled="!hasCopyValue(row[column.key])" @click.stop="copyValue(row[column.key],column.label)">{{ column.key === 'differenceCount' ? formatCount(row[column.key]) : display(row[column.key]) }}</button>
+            <button v-else type="button" class="cell-copy cell-text" :class="{ 'is-fixed': column.key === 'issueStatus' && row.issueStatus === '已修复' }" :data-testid="`copy-${row.id}-${column.key}`" :aria-label="`复制${column.label}`" :title="copyTitle(column.label,row[column.key])" :disabled="!hasCopyValue(row[column.key])" @click.stop="copyValue(row[column.key],column.label)">{{ ['total528','totalCcbs','only528Count','onlyCcbsCount','differenceCount'].includes(column.key) ? formatCount(row[column.key]) : display(row[column.key]) }}</button>
           </td>
         </tr>
         <tr v-if="!rows.length && !loading"><td :colspan="columns.length" class="empty-state">{{ error ? '加载失败，请重试' : '暂无问题，请导入 BD 的每日核对结果报表' }}</td></tr>
       </tbody></table>
     </div>
+    <p v-if="planDateError" class="message error" role="alert" data-testid="plan-date-error">{{ planDateError }}</p>
     <p v-if="copyMessage" class="copy-feedback" :class="{ 'is-error': copyFailed }" :role="copyFailed ? 'alert' : 'status'" aria-live="polite" aria-atomic="true" data-testid="copy-feedback">{{ copyMessage }}</p>
     <div v-if="headerFilterOpen" class="replay-header-filter-panel" :style="headerFilterPanelStyle" data-testid="header-filter-panel" role="dialog" :aria-label="`筛选${activeHeaderColumn?.label}`">
       <header><strong>筛选 {{ activeHeaderColumn?.label }}</strong></header>
@@ -43,18 +87,35 @@
     </div>
     <footer class="pagination"><span>共 {{ total }} 条，第 {{ pageNumber }} / {{ pageCount }} 页</span><label>每页 <select v-model.number="limit" @change="queryRows"><option :value="50">50</option><option :value="100">100</option><option :value="200">200</option></select> 条</label><button class="icon-button" aria-label="上一页" title="上一页" :disabled="offset === 0 || loading" @click="changePage(-1)"><ChevronLeft :size="16" /></button><button class="icon-button" aria-label="下一页" title="下一页" :disabled="offset + limit >= total || loading" @click="changePage(1)"><ChevronRight :size="16" /></button></footer>
 
+    <ReplayDatabaseIssueReportDialog v-if="reportOpen" @close="reportOpen = false" />
+
     <div v-if="importOpen" class="modal-mask" @click.self="closeImport"><section class="dialog import-dialog" role="dialog" aria-modal="true" aria-labelledby="database-import-title"><header><div><h3 id="database-import-title">导入数据库问题</h3><p>导入 BD 每日核对结果报表</p></div><button class="icon-button" :disabled="importing" aria-label="关闭导入" @click="closeImport"><X :size="17" /></button></header>
-      <p>选择 BD 导出报表，需包含“表明细”和“表字段明细”。仅导入差异笔数大于 0 的问题。</p><p>领域、开发负责人、科技负责人按表英文名关联数据库表人员清单。Excel 中的领域和负责人列可省略。</p><label><span>Excel 文件</span><input type="file" accept=".xlsx,.xls" data-testid="import-file" :disabled="importing" @change="selectFile" /><small v-if="importFile">{{ importFile.name }}</small></label>
+      <p>选择 BD 导出报表，需包含“表明细”和“表字段明细”。问题级别为“表级”或“字段级”；表级使用表英文名作为 issue_id，并展示 528/ccbs 总量及单侧存在数量。</p><p>领域、开发负责人、科技负责人按表英文名关联数据库表人员清单。Excel 中的领域和负责人列可省略。</p><label><span>Excel 文件</span><input type="file" accept=".xlsx,.xls" data-testid="import-file" :disabled="importing" @change="selectFile" /><small v-if="importFile">{{ importFile.name }}</small></label>
+      <label><span>导入口令</span><input v-model="importToken" type="password" autocomplete="off" data-testid="import-token" :disabled="importing" placeholder="X-DII-Trigger-Token" /></label>
       <label>批次号<input v-model="importBatch" placeholder="DB20261012-01" data-testid="import-batch" :disabled="importing" /><small>新报表自动读取批次号；旧报表请补填。填写值须与文件批次一致。</small></label>
+      <label><span>登记历史版本 <span aria-hidden="true">*</span></span>
+        <select v-model="importRegistrationVersionNo" data-testid="import-registration-version" :disabled="importing || importVersionsLoading || importContextLoading || !!importBoundVersion">
+          <option value="" disabled>请选择登记历史版本</option>
+          <option v-for="version in importVersionOptions" :key="version.versionNo" :value="version.versionNo">{{ version.versionNo }}{{ version.latest ? '（最新）' : '' }}</option>
+        </select>
+        <small v-if="importSelectedVersion">{{ importSelectedVersion.generatedName || '系统' }} · {{ importSelectedVersion.generatedAt?.replace('T',' ') || '-' }} · {{ importSelectedVersion.tableCount }} 张表 · {{ importSelectedVersion.fieldCount }} 个字段</small>
+        <small v-if="importBoundVersion">本批次已关联版本 {{ importBoundVersion.versionNo }}，本次导入沿用该版本。</small>
+        <small v-else>默认最新版本，可选择历史版本。报表字段总数按所选版本统计。</small>
+      </label>
+      <p v-if="importVersionsLoading || importContextLoading" role="status">{{ importVersionsLoading ? '正在读取登记历史版本…' : '正在确认批次关联版本…' }}</p>
+      <button v-if="importVersions.length < importVersionTotal" type="button" class="button compact" data-testid="import-version-more" :disabled="importVersionsLoading || importing" @click="loadImportVersions(false)">加载更多历史版本</button>
+      <p v-if="importVersionsLoaded && !importVersionOptions.length && !importVersionsError" class="message error" role="alert">暂无登记历史版本，请先生成登记历史版本。</p>
+      <div v-if="importVersionsError" class="message error" role="alert">{{ importVersionsError }} <button type="button" class="button compact" data-testid="import-versions-retry" @click="loadImportVersions(true)">重试读取版本</button></div>
+      <div v-if="importContextError" class="message error" role="alert">{{ importContextError }} <button type="button" class="button compact" data-testid="import-context-retry" @click="loadImportContext">重试读取批次关联</button></div>
       <label><span>发版时间 <span aria-hidden="true">*</span></span><input v-model="importReleaseAt" type="datetime-local" step="1" required data-testid="import-release-at" :disabled="importing" @input="importReleaseEdited = true" /><small>{{ importReading ? '正在识别批次日期…' : '默认批次日期前一天中午12:00:00，可手动修改；晚于发版时间保存的修复待验证问题，本次不重新打开。' }}</small></label>
-      <p class="import-note">导入会保留协同人、问题类型、分析、方案和备注；本次成功核对的表中消失的问题将自动标为已修复。</p>
+      <p class="import-note">无差异问题自动标为已修复；未出现在本次比对范围的表自动标为不参与比对。已修复或不参与比对的问题重新出现差异时标为新建并清空人工处理字段。</p>
       <p v-if="importError" class="message error" role="alert">{{ importError }}</p><p v-if="importResult" class="message success" role="status">{{ importResult.batchNo }}：新增 {{ importResult.createdRows }}，更新 {{ importResult.updatedRows }}，自动修复 {{ importResult.autoRepairedRows }}。</p>
-      <footer><button class="button" :disabled="importing" @click="closeImport">关闭</button><button class="button primary" :disabled="!importFile || importing || importReading || !normalizeReleaseAt(importReleaseAt)" data-testid="submit-import" @click="submitImport"><Upload :size="15" />{{ importing ? '导入中…' : '开始导入' }}</button></footer>
+      <footer><button class="button" :disabled="importing" @click="closeImport">关闭</button><button class="button primary" :disabled="!canSubmitImport" data-testid="submit-import" @click="submitImport"><Upload :size="15" />{{ importing ? '导入中…' : '开始导入' }}</button></footer>
     </section></div>
 
     <div v-if="editRow" class="modal-mask" @click.self="closeEdit"><section class="dialog edit-dialog" role="dialog" aria-modal="true" aria-labelledby="database-edit-title" data-testid="edit-modal"><header><div><h3 id="database-edit-title">编辑数据库问题</h3><p>{{ editRow.issueId }} · {{ editRow.batchNo }}</p></div><button class="icon-button" :disabled="saving" aria-label="关闭编辑" @click="closeEdit"><X :size="17" /></button></header>
       <div class="edit-fields"><label><span>问题状态</span><select v-model="draft.issueStatus" data-testid="edit-status" @change="statusChanged"><option v-if="!manualStatuses.includes(draft.issueStatus)" :value="draft.issueStatus">当前：{{ draft.issueStatus }}</option><option v-for="value in editableStatuses" :key="value">{{ value }}</option></select></label>
-      <label><span class="field-label">问题类型 <em class="required-mark">*</em></span><select v-model="draft.issueType" :disabled="draft.issueStatus === '延后修复'" data-testid="edit-type"><option value="">请选择问题类型</option><option v-for="value in editableTypes" :key="value">{{ value }}</option></select></label>
+      <label><span class="field-label">问题类型 <em class="required-mark">*</em></span><select v-model="draft.issueType" data-testid="edit-type" @change="editError = ''"><option value="">请选择问题类型</option><option v-for="value in editableTypes" :key="value">{{ value }}</option></select></label>
       <label class="wide"><span>初步问题分析 <small>{{ draft.initialAnalysis.length }}/500</small></span><textarea v-model="draft.initialAnalysis" maxlength="500" rows="4" data-testid="edit-analysis" /></label>
       <label class="wide"><span>最终处理方案 <small>{{ draft.finalSolution.length }}/500</small></span><textarea v-model="draft.finalSolution" maxlength="500" rows="4" data-testid="edit-solution" /></label>
       <label class="wide"><span>备注 <small>{{ draft.remark.length }}/500</small></span><textarea v-model="draft.remark" maxlength="500" rows="3" data-testid="edit-remark" /></label>
@@ -71,20 +132,22 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ArrowDownWideNarrow, ArrowUpNarrowWide, ChevronDown, ChevronLeft, ChevronRight, Copy, Download, History, Menu, Pencil, RefreshCw, Save, Search, Upload, X } from 'lucide-vue-next'
 import ReplayTrackingValue from './ReplayTrackingValue.vue'
-import { listDatabaseIssues, getDatabaseIssueOptions, getDatabaseIssueFilterOptions, importDatabaseIssues, updateDatabaseIssue, getDatabaseIssueTracking, approveDatabaseIssue, exportDatabaseIssues } from '../../api/replayDatabaseIssues.js'
+import ReplayDatabaseIssueReportDialog from './ReplayDatabaseIssueReportDialog.vue'
+import { listDatabaseIssues, getDatabaseIssueOptions, getDatabaseIssueFilterOptions, importDatabaseIssues, getDatabaseIssueImportContext, updateDatabaseIssue, getDatabaseIssueTracking, approveDatabaseIssue, exportDatabaseIssues, updateDatabaseIssuePlanDate, getDatabaseIssuePlanDateChanges } from '../../api/replayDatabaseIssues.js'
+import { loadVersions } from '../../api/replayDatabaseComparison.js'
 import { searchReplayIssueUsers } from '../../api/replayIssues.js'
 import { copyText } from '../../utils/clipboard.js'
 import { defaultReleaseAt, normalizeReleaseAt, readImportBatch } from '../../utils/replayReleaseTime.js'
 defineEmits(['toggleNavigation'])
 const columns = [
-  ['tableName','表英文名/中文名','180px'],['domain','领域','90px'],['owner','开发负责人','180px'],['technologyOwnerDisplay','科技负责人','180px'],['issueLevel','问题级别','90px'],['fieldName','字段英文名','117px'],['differenceCount','差异笔数','100px'],['defectRepairDate','缺陷修复日期','125px'],['issueId','issue_id','230px'],['operation','操作','176px'],['issueStatus','问题状态','99px'],['reviewStatus','审核状态','160px'],['issueType','问题类型','99px'],['cooperationPerson','需协同人','135px'],['initialAnalysis','初步问题分析','240px'],['finalSolution','最终处理方案','260px'],['remark','备注','210px'],['batchNo','出现批次','220px'],
+  ['tableName','表英文名/中文名','180px'],['domain','领域','90px'],['owner','开发负责人','180px'],['technologyOwnerDisplay','科技负责人','180px'],['issueLevel','问题级别','90px'],['total528','528总量','100px'],['totalCcbs','ccbs总量','100px'],['only528Count','仅528存在数量','125px'],['onlyCcbsCount','仅ccbs存在数量','135px'],['fieldName','字段英文名','117px'],['differenceCount','差异笔数','100px'],['plannedCompletionDate','计划验证日期','160px'],['defectRepairDate','缺陷修复日期','125px'],['issueId','issue_id','230px'],['operation','操作','176px'],['issueStatus','问题状态','99px'],['reviewStatus','审核状态','160px'],['issueType','问题类型','99px'],['cooperationPerson','需协同人','135px'],['initialAnalysis','初步问题分析','240px'],['finalSolution','最终处理方案','260px'],['remark','备注','210px'],['batchNo','出现批次','220px'],
 ].map(([key,label,width]) => ({key,label,width}))
 const tableWidth = `${columns.reduce((sum, column) => sum + parseInt(column.width, 10), 0)}px`
 const sourceLabels = {...Object.fromEntries(columns.map(c => [c.key,c.label])),tableName:'表英文名',tableComment:'表中文名',firstOccurredDate:'首次出现日期',lastOccurredDate:'最近出现日期',reviewStatus:'审核状态',reviewReason:'审核原因',reviewerUsername:'审核人账号',reviewerName:'审核人'}
-const headerFilterConfig = { issueId:'issueIds', tableName:'tableNames', domain:'domains', owner:'owners', cooperationPerson:'cooperationPersons', issueLevel:'issueLevels', fieldName:'fieldNames', defectRepairDate:'defectRepairDates', batchNo:'batchNos', issueStatus:'issueStatuses', reviewStatus:'reviewStatuses', issueType:'issueTypes' }
+const headerFilterConfig = { issueId:'issueIds', tableName:'tableNames', domain:'domains', owner:'owners', cooperationPerson:'cooperationPersons', issueLevel:'issueLevels', fieldName:'fieldNames', plannedCompletionDate:'plannedCompletionDates', defectRepairDate:'defectRepairDates', batchNo:'batchNos', issueStatus:'issueStatuses', reviewStatus:'reviewStatuses', issueType:'issueTypes' }
 const headerFilters = reactive({})
 function filterParams(excludeKey) {
   return Object.fromEntries(Object.entries(headerFilterConfig).filter(([key]) => key !== excludeKey && headerFilters[key]?.length).map(([key, param]) => [param, [...headerFilters[key]]]))
@@ -94,10 +157,11 @@ const differenceCountSortLabel = computed(() => differenceCountOrder.value === '
   ? '当前差异笔数升序，点击切换为降序'
   : differenceCountOrder.value === 'DESC' ? '当前差异笔数降序，点击恢复默认排序' : '按差异笔数升序排序')
 const orderedCriteria = () => ({...filterParams(),...(differenceCountOrder.value ? {differenceCountOrder:differenceCountOrder.value} : {})})
-const options = reactive({domains:[],owners:[],batches:[],issueLevels:['仅ccbs','仅528','字段级'],issueTypes:[],issueStatuses:[]})
+const options = reactive({domains:[],owners:[],batches:[],issueLevels:['字段级','表级'],issueTypes:[],issueStatuses:[]})
+const issueTypesReady=ref(false)
 const rows=ref([]), total=ref(0),offset=ref(0),limit=ref(50),loading=ref(false),error=ref(''),exporting=ref(false)
 const pageNumber=computed(()=>Math.floor(offset.value/limit.value)+1),pageCount=computed(()=>Math.max(1,Math.ceil(total.value/limit.value)))
-let alive=true,listSequence=0,trackingSequence=0,collaboratorSequence=0,collaboratorTimer
+let alive=true,listSequence=0,optionsSequence=0,trackingSequence=0,collaboratorSequence=0,collaboratorTimer
 const display=value=>value===undefined||value===null||value===''?'-':String(value)
 const occurrenceBatchValue=row=>row.occurrenceBatches?.length ? row.occurrenceBatches.join('、') : row.batchNo
 const appearanceBatches=row=>display(occurrenceBatchValue(row))
@@ -117,14 +181,132 @@ async function copyValue(value,label){
   clearTimeout(copyTimer)
   copyTimer=setTimeout(()=>{copyMessage.value='';copyTimer=null},1600)
 }
+const planDateHistories = reactive({}), planDateHistoryLoading = reactive({}), planDateHistoryErrors = reactive({})
+const editingPlanDateId = ref(null), planDateDraft = ref(''), planDateOriginal = ref(''), planDateSavingId = ref(null), planDateError = ref('')
+const hasDefectRepairDate = row => Boolean(String(row?.defectRepairDate || '').trim())
+const canEditPlanDate = row => !hasDefectRepairDate(row) && row?.canEditPlanDate === true
+const canBypassPlanDateLimit = row => row?.canBypassPlanDateLimit === true
+function planDateChangeCount(row) {
+  return Number(row?.plannedCompletionDateChangeCount) || 0
+}
+
+async function loadPlanDateChanges(row) {
+  if (!row || planDateChangeCount(row) <= 0 || Object.prototype.hasOwnProperty.call(planDateHistories, row.id) || planDateHistoryLoading[row.id]) return
+  planDateHistoryLoading[row.id] = true
+  planDateHistoryErrors[row.id] = ''
+  try {
+    const result = await getDatabaseIssuePlanDateChanges(row.id)
+    row.plannedCompletionDateChangeCount = result?.changeCount ?? result?.change_count ?? planDateChangeCount(row)
+    planDateHistories[row.id] = result?.items || []
+  } catch (cause) {
+    planDateHistoryErrors[row.id] = cause?.message || '计划验证日期修改记录加载失败'
+  } finally {
+    planDateHistoryLoading[row.id] = false
+  }
+}
+
+function planDateOperator(entry) {
+  const realName = String(entry?.operatorRealName || '').trim()
+  const username = String(entry?.operatorUsername || '').trim()
+  if (realName && username) return `${realName}（${username}）`
+  return realName || username || '系统'
+}
+
+async function startPlanDateEdit(row) {
+  if (!canEditPlanDate(row) || planDateSavingId.value != null) return
+  editingPlanDateId.value = row.id
+  planDateOriginal.value = String(row.plannedCompletionDate || '').trim()
+  planDateDraft.value = planDateOriginal.value
+  planDateError.value = ''
+  await nextTick()
+  document.querySelector(`[data-testid="plan-date-input-${row.id}"]`)?.focus()
+}
+
+function cancelPlanDateEdit() {
+  editingPlanDateId.value = null
+  planDateDraft.value = ''
+  planDateOriginal.value = ''
+  planDateError.value = ''
+}
+
+function validPlanDate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+  const [year, month, day] = value.split('-').map(Number)
+  const date = new Date(Date.UTC(year, month - 1, day))
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+}
+
+function parseDateOnly(value) {
+  const normalized = String(value || '').trim()
+  if (normalized.length < 10) return null
+  const datePart = normalized.slice(0, 10)
+  if (!validPlanDate(datePart)) return null
+  if (normalized.length > 10 && ![' ', 'T'].includes(normalized[10])) return null
+  const [year, month, day] = datePart.split('-').map(Number)
+  return new Date(Date.UTC(year, month - 1, day))
+}
+
+function dateText(date) {
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`
+}
+
+async function savePlanDate(row) {
+  if (editingPlanDateId.value !== row.id || planDateSavingId.value === row.id) return
+  if (hasDefectRepairDate(row)) {
+    cancelPlanDateEdit()
+    return
+  }
+  const draft = planDateDraft.value.trim()
+  const normalized = draft || null
+  const original = planDateOriginal.value || null
+  if (normalized === original) {
+    cancelPlanDateEdit()
+    return
+  }
+  if (normalized && !validPlanDate(normalized)) {
+    planDateError.value = '填写日期格式不合法，请按 2026-08-26 格式填写'
+    return
+  }
+  if (normalized && !canBypassPlanDateLimit(row)) {
+    const firstOccurrence = parseDateOnly(row.firstOccurredDate)
+    if (!firstOccurrence) {
+      planDateError.value = '首次出现日期无效，无法填写计划验证日期'
+      return
+    }
+    const latest = new Date(firstOccurrence.getTime())
+    latest.setUTCDate(latest.getUTCDate() + 7)
+    if (parseDateOnly(normalized) > latest) {
+      planDateError.value = `计划验证日期不能晚于首次出现日期后 7 个自然日（最晚 ${dateText(latest)}）`
+      return
+    }
+  }
+  planDateSavingId.value = row.id
+  planDateError.value = ''
+  try {
+    const updated = await updateDatabaseIssuePlanDate(row.id, normalized, row.version)
+    row.version = updated.version
+    row.plannedCompletionDate = updated?.plannedCompletionDate ?? normalized ?? ''
+    row.plannedCompletionDateChangeCount = updated?.plannedCompletionDateChangeCount ?? planDateChangeCount(row)
+    delete planDateHistories[row.id]
+    delete planDateHistoryErrors[row.id]
+    cancelPlanDateEdit()
+  } catch (cause) {
+    planDateError.value = cause?.message || '计划验证日期保存失败'
+  } finally {
+    planDateSavingId.value = null
+  }
+}
+
 const params=()=>({...orderedCriteria(),offset:offset.value,limit:limit.value})
 async function loadRows(){const sequence=++listSequence;loading.value=true;error.value='';try{const result=await listDatabaseIssues(params());if(!alive||sequence!==listSequence)return;rows.value=result.items||[];total.value=result.total||0;if(offset.value>=total.value&&offset.value>0){offset.value=Math.max(0,(Math.ceil(total.value/limit.value)-1)*limit.value);await loadRows()}}catch(e){if(alive&&sequence===listSequence){rows.value=[];total.value=0;error.value=e.message||'加载失败'}}finally{if(alive&&sequence===listSequence)loading.value=false}}
-async function loadOptions(){try{const result=await getDatabaseIssueOptions();if(alive)Object.assign(options,result)}catch(e){if(alive)error.value=e.message||'筛选选项加载失败'}}
+async function loadOptions(){const sequence=++optionsSequence;issueTypesReady.value=false;try{const result=await getDatabaseIssueOptions();if(alive&&sequence===optionsSequence){Object.assign(options,result);issueTypesReady.value=true}}catch(e){if(alive&&sequence===optionsSequence)error.value=e.message||'筛选选项加载失败'}}
 async function refresh(){await Promise.all([loadRows(),loadOptions()])}
 function queryRows(){offset.value=0;return loadRows()}
 function reset(){for(const key in headerFilters)delete headerFilters[key];differenceCountOrder.value='';closeHeaderFilter();return queryRows()}
 function toggleDifferenceCountSort(){differenceCountOrder.value=differenceCountOrder.value===''?'ASC':differenceCountOrder.value==='ASC'?'DESC':'';closeHeaderFilter();return queryRows()}
 function changePage(direction){offset.value=Math.max(0,offset.value+direction*limit.value);return loadRows()}
+const reportOpen=ref(false)
+function openReport(){closeHeaderFilter();reportOpen.value=true}
 async function exportRows(){exporting.value=true;error.value='';try{await exportDatabaseIssues(orderedCriteria())}catch(e){error.value=e.message||'导出失败'}finally{exporting.value=false}}
 const headerFilterOpen = ref(false), activeHeaderColumn = ref(null), headerFilterSearch = ref('')
 const headerFilterOptions = ref([]), headerFilterDraft = ref([]), headerFilterLoading = ref(false), headerFilterError = ref('')
@@ -237,16 +419,111 @@ function stopHeaderFilterResize() {
   window.removeEventListener('pointercancel',stopHeaderFilterResize)
 }
 const canReview=row=>row.canReview === true
-const canEdit=row=>row.canEdit === true
+const canEdit=row=>issueTypesReady.value&&row.canEdit === true
 function reviewStatusLabel(row){if(row.reviewStatusDisplay)return row.reviewStatusDisplay;if(row.reviewStatus==='已审核')return row.reviewReason?.trim()?'已审核（已填写原因）':'已审核（未填写原因）';return display(row.reviewStatus)}
 const hasReviewStatus=row=>row.issueStatus==='无需处理'&&['待审核','已审核（未填写原因）','已审核（已填写原因）'].includes(reviewStatusLabel(row))
 function reviewActionTitle(row){if(canReview(row))return reviewStatusLabel(row)==='待审核'?'点击审核':'点击填写或更新审核原因';const owner=row.technologyOwnerDisplay||row.technologyOwnerName;return owner?`没有权限，请联系科技负责人${owner}进行审核`:'未配置科技负责人，请先在数据库表人员清单中配置'}
-const importOpen=ref(false),importing=ref(false),importFile=ref(null),importBatch=ref(''),importError=ref(''),importResult=ref(null)
+const importOpen=ref(false),importing=ref(false),importFile=ref(null),importBatch=ref(''),importError=ref(''),importResult=ref(null),importToken=ref('')
 const importReleaseAt=ref(''),importReleaseEdited=ref(false),importReading=ref(false)
-let importReadVersion=0
-watch(importBatch,batch=>{if(!importReleaseEdited.value)importReleaseAt.value=defaultReleaseAt(batch)})
-function openImport(){importReadVersion++;importReading.value=false;importFile.value=null;importBatch.value='';importReleaseAt.value='';importReleaseEdited.value=false;importError.value='';importResult.value=null;importOpen.value=true}
-function closeImport(){if(!importing.value){importReadVersion++;importOpen.value=false}}
+const importVersions=ref([]),importVersionPage=ref(0),importVersionTotal=ref(0),importVersionsLoaded=ref(false)
+const importVersionsLoading=ref(false),importVersionsError=ref(''),importRegistrationVersionNo=ref('')
+const importBoundVersion=ref(null),importContextLoading=ref(false),importContextError=ref(''),importContextBatch=ref('')
+let importReadVersion=0,importVersionsRequest=0,importContextRequest=0
+const importVersionOptions=computed(()=>{
+  const bound=importBoundVersion.value
+  return bound && !importVersions.value.some(version=>version.versionNo===bound.versionNo)
+    ? [bound,...importVersions.value] : importVersions.value
+})
+const importSelectedVersion=computed(()=>importVersionOptions.value.find(version=>version.versionNo===importRegistrationVersionNo.value))
+const canSubmitImport=computed(()=>!!importFile.value && !importing.value && !importReading.value
+  && !!normalizeReleaseAt(importReleaseAt.value) && !!importSelectedVersion.value && importVersionsLoaded.value
+  && !importVersionsLoading.value && !importVersionsError.value && !importContextLoading.value && !importContextError.value
+  && !!importBatch.value.trim() && importContextBatch.value===importBatch.value.trim())
+watch(importBatch,batch=>{
+  if(!importReleaseEdited.value)importReleaseAt.value=defaultReleaseAt(batch)
+  if(importOpen.value)loadImportContext()
+})
+function openImport(){
+  importReadVersion++
+  importContextRequest++
+  importReading.value=false
+  importFile.value=null
+  importBatch.value=''
+  importReleaseAt.value=''
+  importReleaseEdited.value=false
+  importError.value=''
+  importResult.value=null
+  importToken.value=''
+  importVersions.value=[]
+  importVersionPage.value=0
+  importVersionTotal.value=0
+  importVersionsLoaded.value=false
+  importRegistrationVersionNo.value=''
+  importBoundVersion.value=null
+  importContextLoading.value=false
+  importContextError.value=''
+  importContextBatch.value=''
+  importOpen.value=true
+  loadImportVersions(true)
+}
+function closeImport(){
+  if(importing.value)return
+  importReadVersion++
+  importVersionsRequest++
+  importContextRequest++
+  importOpen.value=false
+}
+async function loadImportVersions(reset){
+  const request=++importVersionsRequest
+  const page=reset ? 0 : importVersionPage.value+1
+  importVersionsLoading.value=true
+  importVersionsError.value=''
+  try{
+    const result=await loadVersions(page,20)
+    if(!alive || !importOpen.value || request!==importVersionsRequest)return
+    const items=reset ? [] : importVersions.value
+    importVersions.value=[...new Map([...items,...(result?.items || [])].map(version=>[version.versionNo,version])).values()]
+    importVersionPage.value=result?.page ?? page
+    importVersionTotal.value=result?.total ?? importVersions.value.length
+    importVersionsLoaded.value=true
+    if(!importBoundVersion.value && !importVersions.value.some(version=>version.versionNo===importRegistrationVersionNo.value)){
+      importRegistrationVersionNo.value=importVersions.value.find(version=>version.latest)?.versionNo || importVersions.value[0]?.versionNo || ''
+    }
+  }catch(cause){
+    if(alive && importOpen.value && request===importVersionsRequest)importVersionsError.value=cause?.message || '登记历史版本读取失败'
+  }finally{
+    if(request===importVersionsRequest)importVersionsLoading.value=false
+  }
+}
+async function loadImportContext(){
+  const request=++importContextRequest
+  const batch=importBatch.value.trim()
+  if(importBoundVersion.value){
+    importRegistrationVersionNo.value=importVersions.value.find(version=>version.latest)?.versionNo || importVersions.value[0]?.versionNo || ''
+  }
+  importBoundVersion.value=null
+  importContextBatch.value=''
+  importContextError.value=''
+  importContextLoading.value=false
+  if(!importOpen.value || !batch)return
+  importContextLoading.value=true
+  try{
+    const result=await getDatabaseIssueImportContext(batch)
+    if(!alive || !importOpen.value || request!==importContextRequest || batch!==importBatch.value.trim())return
+    importBoundVersion.value=result?.registrationVersion || null
+    if(importBoundVersion.value){
+      // 首屏以外的已绑定版本先加入选项，再更新选择。
+      await nextTick()
+      if(!alive || !importOpen.value || request!==importContextRequest)return
+      importRegistrationVersionNo.value=importBoundVersion.value.versionNo
+    }
+    importContextBatch.value=batch
+  }catch(cause){
+    if(alive && importOpen.value && request===importContextRequest)importContextError.value=cause?.message || '批次关联版本读取失败'
+  }finally{
+    if(request===importContextRequest)importContextLoading.value=false
+  }
+}
 async function selectFile(event){
   const version=++importReadVersion
   importFile.value=event.target.files?.[0]||null;importResult.value=null;importError.value='';importBatch.value='';importReleaseAt.value='';importReleaseEdited.value=false
@@ -254,18 +531,43 @@ async function selectFile(event){
   try{const batch=await readImportBatch(importFile.value,'DB');if(version===importReadVersion&&importOpen.value&&!importBatch.value)importBatch.value=batch}
   finally{if(version===importReadVersion)importReading.value=false}
 }
-async function submitImport(){if(!importFile.value||importing.value||importReading.value)return;const releaseAt=normalizeReleaseAt(importReleaseAt.value);if(!releaseAt){importError.value='请填写完整的发版时间（年月日时分秒）';return}importing.value=true;importError.value='';importResult.value=null;try{importResult.value=await importDatabaseIssues(importFile.value,importBatch.value,releaseAt);offset.value=0;await refresh()}catch(e){importError.value=e.message||'导入失败'}finally{importing.value=false}}
+async function submitImport(){
+  if(!canSubmitImport.value)return
+  importing.value=true
+  importError.value=''
+  importResult.value=null
+  try{
+    importResult.value=await importDatabaseIssues(importFile.value,importBatch.value,normalizeReleaseAt(importReleaseAt.value),importToken.value,importRegistrationVersionNo.value)
+    await loadImportContext()
+    offset.value=0
+    await refresh()
+  }catch(cause){
+    importError.value=cause?.message || '导入失败'
+  }finally{
+    importing.value=false
+  }
+}
 const editRow=ref(null),saving=ref(false),editError=ref(''),draft=reactive({version:0,issueStatus:'',issueType:'',cooperationPersonUsername:'',initialAnalysis:'',finalSolution:'',remark:''})
-const manualStatuses=['打开','无需处理','延后修复','修复待验证'],noActionTypes=['合理差异','规则性差异问题','外围问题']
+const manualStatuses=['打开','无需处理','延后修复','修复待验证'],noActionTypes=['不参与比对','规则性差异']
 const editableStatuses=computed(()=>editRow.value?.issueStatus==='重新打开'?manualStatuses.filter(s=>s!=='打开'):manualStatuses)
-const editableTypes=computed(()=>draft.issueStatus==='无需处理'?noActionTypes:draft.issueStatus==='延后修复'?['迁移问题']:options.issueTypes)
+const editableTypes=computed(()=>draft.issueStatus==='无需处理'?noActionTypes:options.issueTypes.filter(value=>!noActionTypes.includes(value)))
+const typeSelectionMessage=computed(()=>draft.issueStatus==='无需处理'?'无需处理的问题类型请选择：不参与比对、规则性差异':'请选择问题类型')
 const collaboratorText=ref(''),selectedCollaboratorText=ref(''),collaborators=ref([]),collaboratorLoading=ref(false)
-function openEdit(row){editRow.value=row;for(const key of Object.keys(draft))draft[key]=row[key]??(key==='version'?0:'');collaboratorText.value=row.cooperationPerson||'';selectedCollaboratorText.value=collaboratorText.value;collaborators.value=[];editError.value=''}
+function openEdit(row){
+  if(!canEdit(row))return
+  editRow.value=row
+  for(const key of Object.keys(draft))draft[key]=row[key]??(key==='version'?0:'')
+  collaboratorText.value=row.cooperationPerson||'';selectedCollaboratorText.value=collaboratorText.value;collaborators.value=[];editError.value=''
+  if(draft.issueType&&!editableTypes.value.includes(draft.issueType)){
+    editError.value=`原问题类型“${draft.issueType}”已不适用，${typeSelectionMessage.value}`
+    draft.issueType=''
+  }
+}
 function closeEdit(){if(saving.value)return;editRow.value=null;collaboratorSequence++;clearTimeout(collaboratorTimer);collaborators.value=[];collaboratorLoading.value=false}
-function statusChanged(){if(draft.issueStatus==='无需处理')draft.issueType='合理差异';if(draft.issueStatus==='延后修复')draft.issueType='迁移问题'}
+function statusChanged(){editError.value='';if(!editableTypes.value.includes(draft.issueType))draft.issueType=''}
 function searchCollaborator(){const sequence=++collaboratorSequence;clearTimeout(collaboratorTimer);draft.cooperationPersonUsername='';selectedCollaboratorText.value='';collaborators.value=[];collaboratorLoading.value=false;const keyword=collaboratorText.value.trim();if(!keyword)return;collaboratorLoading.value=true;collaboratorTimer=setTimeout(async()=>{try{const result=await searchReplayIssueUsers(keyword,20);if(alive&&editRow.value&&sequence===collaboratorSequence)collaborators.value=result||[]}catch(e){if(sequence===collaboratorSequence)editError.value=e.message||'搜索失败'}finally{if(sequence===collaboratorSequence)collaboratorLoading.value=false}},250)}
 function selectCollaborator(user){collaboratorSequence++;draft.cooperationPersonUsername=user.username;collaboratorText.value=`${user.realName||user.displayName||user.username}(${user.username})`;selectedCollaboratorText.value=collaboratorText.value;collaborators.value=[];collaboratorLoading.value=false}
-async function saveEdit(){if(saving.value||!editRow.value)return;editError.value='';if(!draft.issueType){editError.value='请选择问题类型';return}if(collaboratorText.value.trim()&&(!draft.cooperationPersonUsername||collaboratorText.value!==selectedCollaboratorText.value)){editError.value='请从搜索结果中选择需协同人';return}saving.value=true;try{await updateDatabaseIssue(editRow.value.id,{...draft});editRow.value=null;await loadRows()}catch(e){editError.value=e.message||'保存失败'}finally{saving.value=false}}
+async function saveEdit(){if(saving.value||!editRow.value)return;editError.value='';if(!editableTypes.value.includes(draft.issueType)){editError.value=typeSelectionMessage.value;return}if(collaboratorText.value.trim()&&(!draft.cooperationPersonUsername||collaboratorText.value!==selectedCollaboratorText.value)){editError.value='请从搜索结果中选择需协同人';return}saving.value=true;try{await updateDatabaseIssue(editRow.value.id,{...draft});editRow.value=null;await loadRows()}catch(e){editError.value=e.message||'保存失败'}finally{saving.value=false}}
 const reviewRow=ref(null),reviewReason=ref(''),reviewError=ref(''),reviewing=ref(false)
 const reviewModalTitle=computed(()=>reviewStatusLabel(reviewRow.value||{})==='待审核'?'审核无需处理问题':reviewRow.value?.reviewReason?.trim()?'更新审核原因':'补充审核原因')
 function openReview(row){if(!canReview(row)||!hasReviewStatus(row))return;reviewRow.value=row;reviewReason.value=row.reviewReason||'';reviewError.value=''}
@@ -352,4 +654,22 @@ label{display:grid;gap:6px;color:var(--text-secondary,#374151);min-width:0}input
 @media(max-width:960px){.database-toolbar{align-items:flex-start;flex-wrap:wrap;padding:12px}.pagination{padding:10px 12px}.mobile-navigation{display:inline-flex}.toolbar-actions{margin-left:auto}.tracking-drawer{width:min(780px,100vw)}}
 @media(max-width:768px){.database-issues-page{--database-content-gutter:12px}.edit-fields{grid-template-columns:1fr}.edit-fields .wide{grid-column:auto}.pagination{justify-content:space-between;gap:8px}}
 @media(max-width:600px){.modal-mask{padding:10px}.dialog{max-height:calc(100dvh - 20px);padding:14px}.edit-fields{grid-template-columns:1fr}.database-title h2{font-size:17px}.event-heading{flex-wrap:wrap}.tracking-drawer{padding:12px}.changes-table>div{grid-template-columns:85px minmax(0,1fr) minmax(0,1fr)}}
+.replay-plan-date-cell { min-width: 0; display: flex; align-items: center; font-variant-numeric: tabular-nums; }
+.replay-plan-date-cell { gap: 5px; overflow: visible; }
+.replay-plan-date-emphasis { color: #cf1124; }
+.replay-plan-date-emphasis.is-repair-date-locked { color: var(--text-muted, #8c94a6); cursor: not-allowed; }
+.replay-plan-date-edit { width: 100%; min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 5px; padding: 2px 3px; border: 0; border-radius: 3px; color: inherit; background: transparent; font: inherit; cursor: text; }
+.replay-plan-date-edit span { overflow: hidden; text-overflow: ellipsis; }
+.replay-plan-date-edit svg { flex: 0 0 auto; color: var(--text-muted, #6b7280); opacity: 0; transition: opacity .14s ease; }
+.replay-plan-date-edit:hover, .replay-plan-date-edit:focus-visible { background: var(--bg-domain-hover, #f5f7fa); outline: 1px solid var(--border, #d7dee8); }
+.replay-plan-date-edit:hover svg, .replay-plan-date-edit:focus-visible svg { opacity: 1; }
+.replay-plan-date-cell input { height: 26px; padding: 3px 5px; font-variant-numeric: tabular-nums; }
+.replay-plan-date-history { margin-left: auto; }
+
+.database-table td.plan-date-table-cell { position: relative; overflow: visible; }
+.replay-issue-domain-history { position: relative; display: inline-flex; align-items: center; gap: 3px; cursor: help; font-size: 11px; color: var(--text-muted, #6b7280); }
+.replay-issue-domain-tooltip { display: none; position: absolute; top: 100%; right: 0; z-index: 20; width: 310px; max-height: 260px; overflow: auto; padding: 10px; border: 1px solid var(--border, #d7dee8); border-radius: 4px; background: var(--bg-card, #fff); color: var(--text-primary, #1f2937); box-shadow: 0 8px 22px rgba(0,0,0,.18); white-space: normal; }
+.replay-issue-domain-tooltip > span { display: block; padding: 5px 0; }
+.replay-issue-domain-tooltip strong, .replay-issue-domain-tooltip em { display: block; font-size: 11px; line-height: 1.6; }
+.replay-issue-domain-history:hover .replay-issue-domain-tooltip, .replay-issue-domain-history:focus .replay-issue-domain-tooltip { display: block; }
 </style>

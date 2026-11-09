@@ -5,20 +5,195 @@ import * as api from '../../api/replayDatabaseIssues.js'
 import { searchReplayIssueUsers } from '../../api/replayIssues.js'
 import { copyText } from '../../utils/clipboard.js'
 import { readImportBatch } from '../../utils/replayReleaseTime.js'
-vi.mock('../../api/replayDatabaseIssues.js', () => ({ listDatabaseIssues:vi.fn(),getDatabaseIssueOptions:vi.fn(),getDatabaseIssueFilterOptions:vi.fn(),importDatabaseIssues:vi.fn(),updateDatabaseIssue:vi.fn(),getDatabaseIssueTracking:vi.fn(),approveDatabaseIssue:vi.fn(),exportDatabaseIssues:vi.fn() }))
+import { loadVersions } from '../../api/replayDatabaseComparison.js'
+vi.mock('../../api/replayDatabaseIssues.js', () => ({ listDatabaseIssues:vi.fn(),getDatabaseIssueOptions:vi.fn(),getDatabaseIssueFilterOptions:vi.fn(),importDatabaseIssues:vi.fn(),getDatabaseIssueImportContext:vi.fn(),updateDatabaseIssue:vi.fn(),getDatabaseIssueTracking:vi.fn(),approveDatabaseIssue:vi.fn(),exportDatabaseIssues:vi.fn(),getDatabaseIssueReportOptions:vi.fn(),exportDatabaseIssueReport:vi.fn(),updateDatabaseIssuePlanDate:vi.fn(),getDatabaseIssuePlanDateChanges:vi.fn() }))
+vi.mock('../../api/replayDatabaseComparison.js', () => ({loadVersions:vi.fn()}))
 vi.mock('../../api/replayIssues.js', () => ({searchReplayIssueUsers:vi.fn()}))
 vi.mock('../../utils/clipboard.js', () => ({copyText:vi.fn()}))
 vi.mock('../../utils/replayReleaseTime.js', async importOriginal => ({
   ...await importOriginal(), readImportBatch: vi.fn().mockResolvedValue(''),
 }))
 const row={id:1,version:0,issueId:'koba_off_sheet_acct-dtl_sn',tableName:'koba_off_sheet_acct',tableComment:'表外账户',domain:'贷款组',owner:'张三(c-zhangs3)',technologyOwnerDisplay:'科技甲(100001)',issueLevel:'字段级',fieldName:'dtl_sn',differenceCount:2,batchNo:'DB20261012-01',issueStatus:'新建',issueType:'',cooperationPersonUsername:'',initialAnalysis:'',finalSolution:'',remark:'',canEdit:true,canReview:false}
+const currentIssueTypes=['不参与比对','修改比对规则','修改迁移规则','修改代码','规则性差异','前后交易差异','其他问题']
+const latestRegistrationVersion={versionNo:'20261105-100000',generatedName:'张三',generatedAt:'2026-11-05T10:00:00',tableCount:12,fieldCount:345,latest:true}
+const oldRegistrationVersion={versionNo:'20261001-090000',generatedName:'李四',generatedAt:'2026-10-01T09:00:00',tableCount:8,fieldCount:123,latest:false}
+async function selectImportFile(wrapper, batch='DB20261015-01') {
+  const file=new File(['fixture'],'old.xlsx')
+  const input=wrapper.get('[data-testid="import-file"]')
+  Object.defineProperty(input.element,'files',{value:[file],configurable:true})
+  await input.trigger('change');await flushPromises()
+  await wrapper.get('[data-testid="import-batch"]').setValue(batch);await flushPromises()
+  return file
+}
 describe('ReplayDatabaseIssuePage',()=>{
+  beforeEach(()=>{
+    loadVersions.mockReset().mockResolvedValue({items:[latestRegistrationVersion],page:0,size:20,total:1})
+    api.getDatabaseIssueImportContext.mockReset().mockImplementation(async batchNo=>({batchNo,registrationVersion:null}))
+    readImportBatch.mockReset().mockResolvedValue('')
+  })
   beforeEach(()=>copyText.mockReset().mockResolvedValue(true))
-  beforeEach(()=>{vi.clearAllMocks();api.listDatabaseIssues.mockResolvedValue({items:[row],total:1,limit:50,offset:0});api.getDatabaseIssueOptions.mockResolvedValue({domains:['贷款组'],owners:['张三(c-zhangs3)'],batches:['DB20261012-01'],issueLevels:['仅ccbs','仅528','字段级'],issueTypes:['代码问题','需规问题','其他问题'],issueStatuses:['新建','打开','修复待验证','重新打开','已修复'],reviewableDomains:[]});api.getDatabaseIssueTracking.mockResolvedValue([{batchNo:row.batchNo,originalData:{issueId:row.issueId,differenceCount:2},events:[{id:1,operationType:'导入新增',operationAt:'2026-10-12 10:00:00',operatorName:'系统',operatorUsername:'SYSTEM',changes:[{field:'问题状态',before:'',after:'新建'}]}]}]);api.getDatabaseIssueFilterOptions.mockImplementation(async ({field})=>({items:(field==='issueLevel'?['仅ccbs','仅528','字段级']:field==='issueType'?['需规问题','代码问题']:['贷款组','存款组']).map(value=>({value,count:2})),candidateCount:3,matchedIssueCount:6,truncated:false}));searchReplayIssueUsers.mockResolvedValue([])})
+  beforeEach(()=>{vi.clearAllMocks();api.getDatabaseIssueReportOptions.mockReset().mockResolvedValue({batches:['DB20261028-01','DB20261001-01']});api.exportDatabaseIssueReport.mockReset().mockResolvedValue({fileName:'回放数据库问题汇总报表.xlsx'});api.listDatabaseIssues.mockResolvedValue({items:[row],total:1,limit:50,offset:0});api.getDatabaseIssueOptions.mockResolvedValue({domains:['贷款组'],owners:['张三(c-zhangs3)'],batches:['DB20261012-01'],issueLevels:['仅ccbs','仅528','字段级'],issueTypes:currentIssueTypes,issueStatuses:['新建','打开','修复待验证','重新打开','已修复'],reviewableDomains:[]});api.getDatabaseIssueTracking.mockResolvedValue([{batchNo:row.batchNo,originalData:{issueId:row.issueId,differenceCount:2},events:[{id:1,operationType:'导入新增',operationAt:'2026-10-12 10:00:00',operatorName:'系统',operatorUsername:'SYSTEM',changes:[{field:'问题状态',before:'',after:'新建'}]}]}]);api.getDatabaseIssueFilterOptions.mockImplementation(async ({field})=>({items:(field==='issueLevel'?['仅ccbs','仅528','字段级']:field==='issueType'?['需规问题','代码问题']:['贷款组','存款组']).map(value=>({value,count:2})),candidateCount:3,matchedIssueCount:6,truncated:false}));searchReplayIssueUsers.mockResolvedValue([])})
+  it('exports the latest complete report independently of list filters and pagination, keeping detail export',async()=>{
+    api.listDatabaseIssues.mockResolvedValue({items:[row],total:120})
+    const w=mount(ReplayDatabaseIssuePage,{attachTo:document.body});await flushPromises()
+    try {
+      await w.get('[data-testid="header-filter-domain"]').trigger('click');await flushPromises()
+      await w.get('.replay-header-filter-options input').setValue(true)
+      await w.get('[data-testid="apply-header-filter"]').trigger('click');await flushPromises()
+      await w.get('[aria-label="下一页"]').trigger('click');await flushPromises()
+      await w.get('[data-testid="export-report"]').trigger('click');await flushPromises()
+      expect(w.get('[data-testid="database-report-dialog"]').text()).toContain('完整领域汇总')
+      expect(w.get('[data-testid="report-batch-select"]').element.value).toBe('')
+      await w.get('[data-testid="submit-report-export"]').trigger('click');await flushPromises()
+      expect(api.exportDatabaseIssueReport).toHaveBeenCalledExactlyOnceWith({})
+      expect(w.find('[data-testid="database-report-dialog"]').exists()).toBe(false)
+      expect(w.get('[data-testid="export-issues"]').text()).toBe('导出 Excel')
+      expect(api.exportDatabaseIssues).not.toHaveBeenCalled()
+    } finally { w.unmount() }
+  })
+  it('offers historical imports from the report catalog rather than the current issue options',async()=>{
+    const w=mount(ReplayDatabaseIssuePage,{attachTo:document.body});await flushPromises()
+    try {
+      await w.get('[data-testid="export-report"]').trigger('click');await flushPromises()
+      const picker=w.get('[data-testid="report-batch-select"]')
+      expect(picker.findAll('option').map(option=>option.element.value)).toEqual(['','DB20261028-01','DB20261001-01'])
+      await picker.setValue('DB20261001-01')
+      await w.get('[data-testid="submit-report-export"]').trigger('click');await flushPromises()
+      expect(api.exportDatabaseIssueReport).toHaveBeenCalledExactlyOnceWith({batchNo:'DB20261001-01'})
+      expect(w.find('[data-testid="database-report-dialog"]').exists()).toBe(false)
+    } finally { w.unmount() }
+  })
+  it('blocks report download while loading the catalog and offers an explicit retry on failure',async()=>{
+    let failCatalog
+    api.getDatabaseIssueReportOptions.mockReturnValueOnce(new Promise((resolve,reject)=>{failCatalog=reject}))
+    const w=mount(ReplayDatabaseIssuePage,{attachTo:document.body});await flushPromises()
+    try {
+      await w.get('[data-testid="export-report"]').trigger('click');await flushPromises()
+      expect(w.get('[data-testid="report-options-loading"]').text()).toContain('正在读取')
+      expect(w.get('[data-testid="submit-report-export"]').element.disabled).toBe(true)
+      failCatalog(new Error('批次目录暂时不可用'));await flushPromises()
+      expect(w.get('[data-testid="report-options-error"]').text()).toContain('批次目录暂时不可用')
+      expect(w.get('[data-testid="submit-report-export"]').element.disabled).toBe(true)
+      expect(api.exportDatabaseIssueReport).not.toHaveBeenCalled()
+      await w.get('[data-testid="report-options-retry"]').trigger('click');await flushPromises()
+      expect(w.get('[data-testid="report-batch-select"]').findAll('option')).toHaveLength(3)
+      expect(w.get('[data-testid="submit-report-export"]').element.disabled).toBe(false)
+    } finally { w.unmount() }
+  })
+  it('keeps a selected batch after export failure and prevents duplicate submissions while downloading',async()=>{
+    let failDownload
+    api.exportDatabaseIssueReport.mockReturnValueOnce(new Promise((resolve,reject)=>{failDownload=reject}))
+    const w=mount(ReplayDatabaseIssuePage,{attachTo:document.body});await flushPromises()
+    try {
+      await w.get('[data-testid="export-report"]').trigger('click');await flushPromises()
+      await w.get('[data-testid="report-batch-select"]').setValue('DB20261001-01')
+      await w.get('[data-testid="submit-report-export"]').trigger('click');await flushPromises()
+      expect(w.get('[data-testid="submit-report-export"]').element.disabled).toBe(true)
+      expect(w.get('[data-testid="report-batch-select"]').element.disabled).toBe(true)
+      expect(w.get('[aria-label="关闭导出报表"]').element.disabled).toBe(true)
+      await w.get('[data-testid="database-report-dialog"] form').trigger('submit')
+      expect(api.exportDatabaseIssueReport).toHaveBeenCalledTimes(1)
+      failDownload(new Error('报表生成失败，请重试'));await flushPromises()
+      expect(w.get('[data-testid="report-export-error"]').text()).toContain('报表生成失败，请重试')
+      expect(w.get('[data-testid="report-batch-select"]').element.value).toBe('DB20261001-01')
+      expect(w.get('[data-testid="submit-report-export"]').element.disabled).toBe(false)
+      await w.get('[data-testid="submit-report-export"]').trigger('click');await flushPromises()
+      expect(api.exportDatabaseIssueReport).toHaveBeenLastCalledWith({batchNo:'DB20261001-01'})
+      expect(w.find('[data-testid="database-report-dialog"]').exists()).toBe(false)
+    } finally { w.unmount() }
+  })
+  it('allows the empty catalog to export a zero report using the latest-batch default',async()=>{
+    api.getDatabaseIssueReportOptions.mockResolvedValue({batches:[]})
+    const w=mount(ReplayDatabaseIssuePage,{attachTo:document.body});await flushPromises()
+    try {
+      await w.get('[data-testid="export-report"]').trigger('click');await flushPromises()
+      expect(w.get('[data-testid="report-batch-select"]').findAll('option')).toHaveLength(1)
+      expect(w.get('[data-testid="submit-report-export"]').element.disabled).toBe(false)
+      await w.get('[data-testid="submit-report-export"]').trigger('click');await flushPromises()
+      expect(api.exportDatabaseIssueReport).toHaveBeenCalledExactlyOnceWith({})
+    } finally { w.unmount() }
+  })
+  it('closes the report with Escape and does not leak a late catalog failure into the next dialog',async()=>{
+    let failCatalog
+    api.getDatabaseIssueReportOptions.mockReturnValueOnce(new Promise((resolve,reject)=>{failCatalog=reject}))
+    const w=mount(ReplayDatabaseIssuePage,{attachTo:document.body});await flushPromises()
+    try {
+      const trigger=w.get('[data-testid="export-report"]')
+      trigger.element.focus()
+      await trigger.trigger('click');await flushPromises()
+      await w.get('[data-testid="database-report-dialog"]').trigger('keydown',{key:'Escape'})
+      expect(w.find('[data-testid="database-report-dialog"]').exists()).toBe(false)
+      expect(document.activeElement).toBe(trigger.element)
+      failCatalog(new Error('已关闭窗口的旧请求'));await flushPromises()
+      await trigger.trigger('click');await flushPromises()
+      expect(w.find('[data-testid="report-options-error"]').exists()).toBe(false)
+      expect(w.get('[data-testid="report-batch-select"]').findAll('option')).toHaveLength(3)
+    } finally { w.unmount() }
+  })
+  it('ignores a late export completion after the page is unmounted',async()=>{
+    let finishDownload
+    api.exportDatabaseIssueReport.mockReturnValueOnce(new Promise(resolve=>{finishDownload=resolve}))
+    const w=mount(ReplayDatabaseIssuePage,{attachTo:document.body});await flushPromises()
+    await w.get('[data-testid="export-report"]').trigger('click');await flushPromises()
+    const dialog=w.getComponent({name:'ReplayDatabaseIssueReportDialog'})
+    await w.get('[data-testid="submit-report-export"]').trigger('click');await flushPromises()
+    expect(api.exportDatabaseIssueReport).toHaveBeenCalledExactlyOnceWith({})
+    w.unmount();finishDownload({fileName:'report.xlsx'});await flushPromises()
+    expect(dialog.emitted('close')).toBeUndefined()
+  })
+  it('edits plan date and refreshes the count, version and history',async()=>{
+    api.listDatabaseIssues.mockResolvedValue({items:[{...row,firstOccurredDate:'2026-10-12',canEditPlanDate:true,plannedCompletionDate:'',plannedCompletionDateChangeCount:0}],total:1})
+    api.updateDatabaseIssuePlanDate.mockResolvedValue({version:1,plannedCompletionDate:'2026-10-19',plannedCompletionDateChangeCount:1})
+    api.getDatabaseIssuePlanDateChanges.mockResolvedValue({changeCount:1,items:[{plannedCompletionDate:'2026-10-19',operatorUsername:'editor',operatorRealName:'编辑人',changedAt:'2026-10-12 10:00:00'}]})
+    const w=mount(ReplayDatabaseIssuePage);await flushPromises()
+    await w.get('[data-testid="plan-date-edit-1"]').trigger('click')
+    await w.get('[data-testid="plan-date-input-1"]').setValue('2026-10-19')
+    await w.get('[data-testid="plan-date-input-1"]').trigger('keydown.enter');await flushPromises()
+    expect(api.updateDatabaseIssuePlanDate).toHaveBeenCalledWith(1,'2026-10-19',0)
+    expect(w.get('[data-testid="plan-date-value-1"]').text()).toBe('2026-10-19')
+    await w.get('[data-testid="plan-date-change-count-1"]').trigger('mouseenter');await flushPromises()
+    expect(w.get('[data-testid="plan-date-change-history-1"]').text()).toContain('编辑人（editor）')
+    await w.get('[data-testid="plan-date-edit-1"]').trigger('click')
+    await w.get('[data-testid="plan-date-input-1"]').setValue('2026-10-18')
+    await w.get('[data-testid="plan-date-input-1"]').trigger('keydown.enter');await flushPromises()
+    expect(api.updateDatabaseIssuePlanDate).toHaveBeenLastCalledWith(1,'2026-10-18',1);w.unmount()
+  })
+  it('rejects invalid and later dates, allows cancel and does not save unchanged values',async()=>{
+    api.listDatabaseIssues.mockResolvedValue({items:[{...row,firstOccurredDate:'2026-10-12',canEditPlanDate:true,plannedCompletionDate:'2026-10-18'}],total:1})
+    const w=mount(ReplayDatabaseIssuePage);await flushPromises()
+    await w.get('[data-testid="plan-date-edit-1"]').trigger('click')
+    await w.get('[data-testid="plan-date-input-1"]').trigger('blur');await flushPromises()
+    expect(api.updateDatabaseIssuePlanDate).not.toHaveBeenCalled()
+    await w.get('[data-testid="plan-date-edit-1"]').trigger('click')
+    await w.get('[data-testid="plan-date-input-1"]').setValue('2026-02-30');await w.get('[data-testid="plan-date-input-1"]').trigger('keydown.enter')
+    expect(w.get('[data-testid="plan-date-error"]').text()).toContain('日期格式不合法')
+    await w.get('[data-testid="plan-date-input-1"]').setValue('2026-10-20');await w.get('[data-testid="plan-date-input-1"]').trigger('keydown.enter')
+    expect(w.get('[data-testid="plan-date-error"]').text()).toContain('最晚 2026-10-19')
+    expect(api.updateDatabaseIssuePlanDate).not.toHaveBeenCalled()
+    await w.get('[data-testid="plan-date-input-1"]').trigger('keydown.esc')
+    expect(w.find('[data-testid="plan-date-input-1"]').exists()).toBe(false);w.unmount()
+  })
+  it('locks repaired rows and respects backend edit permission',async()=>{
+    api.listDatabaseIssues.mockResolvedValue({items:[{...row,canEditPlanDate:true,defectRepairDate:'2026-10-12',plannedCompletionDate:'2026-10-19'},{...row,id:2,canEditPlanDate:false}],total:2})
+    const w=mount(ReplayDatabaseIssuePage);await flushPromises()
+    expect(w.find('[data-testid="plan-date-edit-1"]').exists()).toBe(false)
+    expect(w.find('[data-testid="plan-date-edit-2"]').exists()).toBe(false)
+    expect(w.get('[data-testid="plan-date-display-1"]').attributes('title')).toContain('不可修改');w.unmount()
+  })
+  it('allows advanced date boundary bypass and records clearing as null',async()=>{
+    api.listDatabaseIssues.mockResolvedValue({items:[{...row,canEditPlanDate:true,canBypassPlanDateLimit:true,plannedCompletionDate:''}],total:1})
+    api.updateDatabaseIssuePlanDate.mockResolvedValueOnce({version:1,plannedCompletionDate:'2027-01-01',plannedCompletionDateChangeCount:1}).mockResolvedValueOnce({version:2,plannedCompletionDate:'',plannedCompletionDateChangeCount:2})
+    const w=mount(ReplayDatabaseIssuePage);await flushPromises()
+    await w.get('[data-testid="plan-date-edit-1"]').trigger('click');await w.get('[data-testid="plan-date-input-1"]').setValue('2027-01-01');await w.get('[data-testid="plan-date-input-1"]').trigger('keydown.enter');await flushPromises()
+    expect(api.updateDatabaseIssuePlanDate).toHaveBeenLastCalledWith(1,'2027-01-01',0)
+    await w.get('[data-testid="plan-date-edit-1"]').trigger('click');await w.get('[data-testid="plan-date-input-1"]').setValue('');await w.get('[data-testid="plan-date-input-1"]').trigger('keydown.enter');await flushPromises()
+    expect(api.updateDatabaseIssuePlanDate).toHaveBeenLastCalledWith(1,null,1)
+    expect(w.get('[data-testid="plan-date-change-count-1"]').text()).toContain('2');w.unmount()
+  })
   it('renders independent level and issue type columns with owner and batch',async()=>{const w=mount(ReplayDatabaseIssuePage);await flushPromises();expect(w.text()).toContain('回放数据库问题清单');expect(w.text()).toContain('表外账户');expect(w.text()).toContain('字段级');expect(w.text()).toContain('DB20261012-01');expect(w.findAll('th').map(h=>h.text())).toEqual(expect.arrayContaining(['issue_id','问题级别','问题类型','开发负责人','差异笔数','出现批次']))})
   it('combines English and Chinese table names and keeps repair date next to difference count',async()=>{
     const w=mount(ReplayDatabaseIssuePage);await flushPromises()
-    expect(w.findAll('th').map(h=>h.text())).toEqual(['表英文名/中文名','领域','开发负责人','科技负责人','问题级别','字段英文名','差异笔数','缺陷修复日期','issue_id','操作','问题状态','审核状态','问题类型','需协同人','初步问题分析','最终处理方案','备注','出现批次'])
+    expect(w.findAll('th').map(h=>h.text())).toEqual(['表英文名/中文名','领域','开发负责人','科技负责人','问题级别','528总量','ccbs总量','仅528存在数量','仅ccbs存在数量','字段英文名','差异笔数','计划验证日期','缺陷修复日期','issue_id','操作','问题状态','审核状态','问题类型','需协同人','初步问题分析','最终处理方案','备注','出现批次'])
     const cells=w.findAll('tbody tr')[0].findAll('td')
     const tableCell=cells[0]
     expect(cells[3].text()).toBe(row.technologyOwnerDisplay)
@@ -74,7 +249,7 @@ describe('ReplayDatabaseIssuePage',()=>{
     api.getDatabaseIssueOptions.mockResolvedValue({issueTypes:['合理差异'],reviewableDomains:['贷款组']})
     const w=mount(ReplayDatabaseIssuePage);await flushPromises()
     expect(w.findAll('th').map(h=>h.text())).toContain('审核状态')
-    for(const tr of w.findAll('tbody tr')) expect(tr.findAll('td')[9].findAll('button').map(button=>button.text())).toEqual(['编辑','问题跟踪'])
+    for(const tr of w.findAll('tbody tr')) expect(tr.find('.row-actions').findAll('button').map(button=>button.text())).toEqual(['编辑','问题跟踪'])
     expect(w.find('.review-dialog').exists()).toBe(false);w.unmount()
   })
   it('requires a reason when the table technology owner clicks the review status and handles denied saves',async()=>{
@@ -239,8 +414,111 @@ describe('ReplayDatabaseIssuePage',()=>{
     await w.get('[data-testid="apply-header-filter"]').trigger('click');await flushPromises()
     expect(api.listDatabaseIssues.mock.calls.at(-1)[0].tableNames).toHaveLength(500);w.unmount()
   })
-  it('saves valid human fields with optimistic version and retains level',async()=>{api.updateDatabaseIssue.mockResolvedValue({...row,issueStatus:'打开',issueType:'需规问题',version:1});const w=mount(ReplayDatabaseIssuePage);await flushPromises();await w.get('[data-testid="edit-1"]').trigger('click');await w.get('[data-testid="edit-status"]').setValue('打开');await w.get('[data-testid="edit-type"]').setValue('需规问题');await w.get('[data-testid="edit-analysis"]').setValue('人工分析');await w.get('[data-testid="save-edit"]').trigger('click');await flushPromises();expect(api.updateDatabaseIssue).toHaveBeenCalledWith(1,expect.objectContaining({version:0,issueStatus:'打开',issueType:'需规问题',initialAnalysis:'人工分析'}));expect(w.find('[data-testid="edit-modal"]').exists()).toBe(false)})
-  it('validates required problem type and keeps failed saves open',async()=>{const w=mount(ReplayDatabaseIssuePage);await flushPromises();await w.get('[data-testid="edit-1"]').trigger('click');await w.get('[data-testid="save-edit"]').trigger('click');expect(api.updateDatabaseIssue).not.toHaveBeenCalled();expect(w.get('[data-testid="edit-modal"]').text()).toContain('请选择问题类型');await w.get('[data-testid="edit-type"]').setValue('需规问题');api.updateDatabaseIssue.mockRejectedValue(new Error('记录已更新，请刷新后重新编辑'));await w.get('[data-testid="save-edit"]').trigger('click');await flushPromises();expect(w.get('[data-testid="edit-modal"]').text()).toContain('记录已更新')})
+  it('waits for the type catalog before editing and preserves a valid existing type',async()=>{
+    let finishOptions
+    api.getDatabaseIssueOptions.mockReturnValueOnce(new Promise(resolve=>{finishOptions=resolve}))
+    api.listDatabaseIssues.mockResolvedValue({items:[{...row,issueStatus:'打开',issueType:'修改代码'}],total:1})
+    const w=mount(ReplayDatabaseIssuePage);await flushPromises()
+    try {
+      expect(w.get('[data-testid="edit-1"]').element.disabled).toBe(true)
+      await w.get('[data-testid="edit-1"]').trigger('click')
+      expect(w.find('[data-testid="edit-modal"]').exists()).toBe(false)
+      finishOptions({issueTypes:currentIssueTypes});await flushPromises()
+      expect(w.get('[data-testid="edit-1"]').element.disabled).toBe(false)
+      await w.get('[data-testid="edit-1"]').trigger('click')
+      expect(w.get('[data-testid="edit-type"]').element.value).toBe('修改代码')
+      expect(w.find('[data-testid="edit-modal"] [role="alert"]').exists()).toBe(false)
+    } finally { w.unmount() }
+  })
+  it('keeps editing disabled after catalog failure and enables it after a successful refresh',async()=>{
+    api.getDatabaseIssueOptions.mockRejectedValueOnce(new Error('问题类型读取失败，请刷新重试'))
+    api.listDatabaseIssues.mockResolvedValue({items:[{...row,issueStatus:'无需处理',issueType:'不参与比对'}],total:1})
+    const w=mount(ReplayDatabaseIssuePage);await flushPromises()
+    try {
+      expect(w.get('[data-testid="edit-1"]').element.disabled).toBe(true)
+      expect(w.get('[role="alert"]').text()).toContain('问题类型读取失败')
+      api.getDatabaseIssueOptions.mockResolvedValue({issueTypes:currentIssueTypes})
+      await w.get('[aria-label="刷新清单"]').trigger('click');await flushPromises()
+      expect(w.get('[data-testid="edit-1"]').element.disabled).toBe(false)
+      await w.get('[data-testid="edit-1"]').trigger('click')
+      expect(w.get('[data-testid="edit-type"]').element.value).toBe('不参与比对')
+    } finally { w.unmount() }
+  })
+  it.each(['不参与比对','规则性差异'])('only offers the two no-action types and saves an explicit choice of %s',async(issueType)=>{
+    api.getDatabaseIssueOptions.mockResolvedValue({issueTypes:currentIssueTypes})
+    api.updateDatabaseIssue.mockResolvedValue({...row,issueStatus:'无需处理',issueType,version:1})
+    const w=mount(ReplayDatabaseIssuePage);await flushPromises()
+    try {
+      await w.get('[data-testid="edit-1"]').trigger('click')
+      await w.get('[data-testid="edit-status"]').setValue('无需处理')
+      const picker=w.get('[data-testid="edit-type"]')
+      expect(picker.findAll('option').map(o=>o.element.value)).toEqual(['','不参与比对','规则性差异'])
+      expect(picker.element.value).toBe('')
+      await w.get('[data-testid="save-edit"]').trigger('click');await flushPromises()
+      expect(api.updateDatabaseIssue).not.toHaveBeenCalled()
+      expect(w.get('[data-testid="edit-modal"] [role="alert"]').text()).toContain('不参与比对、规则性差异')
+      await picker.setValue(issueType)
+      await w.get('[data-testid="save-edit"]').trigger('click');await flushPromises()
+      expect(api.updateDatabaseIssue).toHaveBeenCalledExactlyOnceWith(1,expect.objectContaining({issueStatus:'无需处理',issueType}))
+      expect(w.find('[data-testid="edit-modal"]').exists()).toBe(false)
+    } finally { w.unmount() }
+  })
+  it.each(['合理差异','规则性差异问题','外围问题'])('requires reselecting legacy no-action type %s without losing human fields',async(issueType)=>{
+    const legacy={...row,issueStatus:'无需处理',issueType,initialAnalysis:'保留初步分析',finalSolution:'保留最终方案',remark:'保留备注'}
+    api.getDatabaseIssueOptions.mockResolvedValue({issueTypes:currentIssueTypes})
+    api.listDatabaseIssues.mockResolvedValue({items:[legacy],total:1})
+    api.updateDatabaseIssue.mockResolvedValue({...legacy,issueType:'规则性差异',version:1})
+    const w=mount(ReplayDatabaseIssuePage);await flushPromises()
+    try {
+      await w.get('[data-testid="edit-1"]').trigger('click')
+      expect(w.get('[data-testid="edit-type"]').element.value).toBe('')
+      expect(w.get('[data-testid="edit-modal"] [role="alert"]').text()).toContain(issueType)
+      expect(w.get('[data-testid="edit-modal"] [role="alert"]').text()).toContain('不参与比对、规则性差异')
+      await w.get('[data-testid="save-edit"]').trigger('click')
+      expect(api.updateDatabaseIssue).not.toHaveBeenCalled()
+      expect(w.get('[data-testid="edit-analysis"]').element.value).toBe('保留初步分析')
+      await w.get('[data-testid="edit-type"]').setValue('规则性差异')
+      expect(w.find('[data-testid="edit-modal"] [role="alert"]').exists()).toBe(false)
+      await w.get('[data-testid="save-edit"]').trigger('click');await flushPromises()
+      expect(api.updateDatabaseIssue).toHaveBeenCalledExactlyOnceWith(1,expect.objectContaining({issueStatus:'无需处理',issueType:'规则性差异',initialAnalysis:'保留初步分析',finalSolution:'保留最终方案',remark:'保留备注'}))
+    } finally { w.unmount() }
+  })
+  it.each(['不参与比对','规则性差异'])('retains an existing valid no-action choice of %s on edit',async(issueType)=>{
+    api.getDatabaseIssueOptions.mockResolvedValue({issueTypes:currentIssueTypes})
+    api.listDatabaseIssues.mockResolvedValue({items:[{...row,issueStatus:'无需处理',issueType}],total:1})
+    api.updateDatabaseIssue.mockResolvedValue({...row,issueStatus:'无需处理',issueType,version:1})
+    const w=mount(ReplayDatabaseIssuePage);await flushPromises()
+    try {
+      await w.get('[data-testid="edit-1"]').trigger('click')
+      expect(w.get('[data-testid="edit-type"]').element.value).toBe(issueType)
+      await w.get('[data-testid="save-edit"]').trigger('click');await flushPromises()
+      expect(api.updateDatabaseIssue).toHaveBeenCalledExactlyOnceWith(1,expect.objectContaining({issueType}))
+    } finally { w.unmount() }
+  })
+  it('clears incompatible choices when switching status and uses current actionable types for deferred fixes',async()=>{
+    api.getDatabaseIssueOptions.mockResolvedValue({issueTypes:currentIssueTypes})
+    api.listDatabaseIssues.mockResolvedValue({items:[{...row,issueStatus:'打开',issueType:'修改代码'}],total:1})
+    api.updateDatabaseIssue.mockResolvedValue({...row,issueStatus:'延后修复',issueType:'修改比对规则',version:1})
+    const w=mount(ReplayDatabaseIssuePage);await flushPromises()
+    try {
+      await w.get('[data-testid="edit-1"]').trigger('click')
+      const picker=w.get('[data-testid="edit-type"]'),status=w.get('[data-testid="edit-status"]')
+      await status.setValue('无需处理')
+      expect(picker.element.value).toBe('')
+      await picker.setValue('规则性差异')
+      await status.setValue('打开')
+      expect(picker.element.value).toBe('')
+      expect(picker.findAll('option').map(o=>o.element.value)).toEqual(['','修改比对规则','修改迁移规则','修改代码','前后交易差异','其他问题'])
+      await picker.setValue('修改比对规则')
+      await status.setValue('延后修复')
+      expect(picker.element.disabled).toBe(false)
+      expect(picker.element.value).toBe('修改比对规则')
+      await w.get('[data-testid="save-edit"]').trigger('click');await flushPromises()
+      expect(api.updateDatabaseIssue).toHaveBeenCalledExactlyOnceWith(1,expect.objectContaining({issueStatus:'延后修复',issueType:'修改比对规则'}))
+    } finally { w.unmount() }
+  })
+  it('saves valid human fields with optimistic version and retains level',async()=>{api.updateDatabaseIssue.mockResolvedValue({...row,issueStatus:'打开',issueType:'修改比对规则',version:1});const w=mount(ReplayDatabaseIssuePage);await flushPromises();await w.get('[data-testid="edit-1"]').trigger('click');await w.get('[data-testid="edit-status"]').setValue('打开');await w.get('[data-testid="edit-type"]').setValue('修改比对规则');await w.get('[data-testid="edit-analysis"]').setValue('人工分析');await w.get('[data-testid="save-edit"]').trigger('click');await flushPromises();expect(api.updateDatabaseIssue).toHaveBeenCalledWith(1,expect.objectContaining({version:0,issueStatus:'打开',issueType:'修改比对规则',initialAnalysis:'人工分析'}));expect(w.find('[data-testid="edit-modal"]').exists()).toBe(false)})
+  it('validates required problem type and keeps failed saves open',async()=>{const w=mount(ReplayDatabaseIssuePage);await flushPromises();await w.get('[data-testid="edit-1"]').trigger('click');await w.get('[data-testid="save-edit"]').trigger('click');expect(api.updateDatabaseIssue).not.toHaveBeenCalled();expect(w.get('[data-testid="edit-modal"]').text()).toContain('请选择问题类型');await w.get('[data-testid="edit-type"]').setValue('修改比对规则');api.updateDatabaseIssue.mockRejectedValue(new Error('记录已更新，请刷新后重新编辑'));await w.get('[data-testid="save-edit"]').trigger('click');await flushPromises();expect(w.get('[data-testid="edit-modal"]').text()).toContain('记录已更新')})
   it('groups tracking by batch with source values and chronological events',async()=>{const w=mount(ReplayDatabaseIssuePage);await flushPromises();await w.get('[data-testid="tracking-1"]').trigger('click');await flushPromises();expect(w.get('[data-testid="tracking-drawer"]').text()).toContain('DB20261012-01');expect(w.get('[data-testid="tracking-drawer"]').text()).toContain('导入新增');await w.get('[data-testid="original-data-toggle"]').trigger('click');expect(w.get('[data-testid="tracking-drawer"]').text()).toContain(row.issueId)})
   it('does not enable edits for fixed or approved unauthorized issues',async()=>{api.listDatabaseIssues.mockResolvedValue({items:[{...row,issueStatus:'已修复',canEdit:false},{...row,id:2,issueStatus:'无需处理',reviewStatus:'已审核',canEdit:false}],total:2});const w=mount(ReplayDatabaseIssuePage);await flushPromises();expect(w.get('[data-testid="edit-1"]').attributes('disabled')).toBeDefined();expect(w.get('[data-testid="edit-2"]').attributes('disabled')).toBeDefined()})
   it('uses the workbook batch default, but ignores stale file reads and preserves manual overrides', async () => {
@@ -278,11 +556,121 @@ describe('ReplayDatabaseIssuePage',()=>{
     await w.get('[data-testid="import-batch"]').setValue('DB20261015-02')
     expect(release.element.value).toBe('2026-10-14T11:30:01')
     await w.get('[data-testid="submit-import"]').trigger('click');await flushPromises()
-    expect(api.importDatabaseIssues).toHaveBeenCalledWith(file,'DB20261015-02','2026-10-14 11:30:01')
+    expect(api.importDatabaseIssues).toHaveBeenCalledWith(file,'DB20261015-02','2026-10-14 11:30:01','',latestRegistrationVersion.versionNo)
     w.unmount()
   })
-  it('imports an old report with an explicit batch and displays merge results',async()=>{api.importDatabaseIssues.mockResolvedValue({batchNo:'DB20261012-01',createdRows:3,updatedRows:1,autoRepairedRows:2});const w=mount(ReplayDatabaseIssuePage);await flushPromises();await w.get('[data-testid="open-import"]').trigger('click');const file=new File(['fixture'],'旧报表.xlsx',{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});Object.defineProperty(w.get('[data-testid="import-file"]').element,'files',{value:[file]});await w.get('[data-testid="import-file"]').trigger('change');await flushPromises();await w.get('[data-testid="import-batch"]').setValue('DB20261012-01');await w.get('[data-testid="submit-import"]').trigger('click');await flushPromises();expect(api.importDatabaseIssues).toHaveBeenCalledWith(file,'DB20261012-01','2026-10-11 12:00:00');expect(w.text()).toContain('新增 3，更新 1，自动修复 2');w.unmount()})
-  it('requires choosing a collaborator search result before saving its username',async()=>{const w=mount(ReplayDatabaseIssuePage);await flushPromises();await w.get('[data-testid="edit-1"]').trigger('click');await w.get('[data-testid="edit-type"]').setValue('需规问题');searchReplayIssueUsers.mockResolvedValue([{username:'c-wangsh8',realName:'王山河'}]);vi.useFakeTimers();try{await w.get('[data-testid="edit-collaborator"]').setValue('王山河');await w.get('[data-testid="save-edit"]').trigger('click');expect(api.updateDatabaseIssue).not.toHaveBeenCalled();expect(w.text()).toContain('请从搜索结果中选择需协同人');await vi.advanceTimersByTimeAsync(250);await flushPromises();await w.get('.user-options button').trigger('click');await w.get('[data-testid="save-edit"]').trigger('click');await flushPromises();expect(api.updateDatabaseIssue).toHaveBeenCalledWith(1,expect.objectContaining({cooperationPersonUsername:'c-wangsh8'}))}finally{vi.useRealTimers();w.unmount()}})
+  it('imports an old report with an explicit batch and displays merge results',async()=>{api.importDatabaseIssues.mockResolvedValue({batchNo:'DB20261012-01',createdRows:3,updatedRows:1,autoRepairedRows:2});const w=mount(ReplayDatabaseIssuePage);await flushPromises();await w.get('[data-testid="open-import"]').trigger('click');const file=new File(['fixture'],'旧报表.xlsx',{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});Object.defineProperty(w.get('[data-testid="import-file"]').element,'files',{value:[file]});await w.get('[data-testid="import-file"]').trigger('change');await flushPromises();await w.get('[data-testid="import-batch"]').setValue('DB20261012-01');await w.get('[data-testid="import-token"]').setValue('test-import-token');expect(w.find('[data-testid="import-mode"]').exists()).toBe(false);await w.get('[data-testid="submit-import"]').trigger('click');await flushPromises();expect(api.importDatabaseIssues).toHaveBeenCalledWith(file,'DB20261012-01','2026-10-11 12:00:00','test-import-token',latestRegistrationVersion.versionNo);expect(w.text()).toContain('新增 3，更新 1，自动修复 2');w.unmount()})
+  it('defaults to the latest registration version and submits a selected historical page',async()=>{
+    loadVersions.mockResolvedValueOnce({items:[latestRegistrationVersion],page:0,size:20,total:2})
+      .mockResolvedValueOnce({items:[oldRegistrationVersion],page:1,size:20,total:2})
+    const w=mount(ReplayDatabaseIssuePage);await flushPromises()
+    try {
+      await w.get('[data-testid="open-import"]').trigger('click');await flushPromises()
+      expect(w.get('[data-testid="import-registration-version"]').element.value).toBe(latestRegistrationVersion.versionNo)
+      expect(w.text()).toContain('345')
+      const file=await selectImportFile(w)
+      await w.get('[data-testid="import-version-more"]').trigger('click');await flushPromises()
+      expect(loadVersions).toHaveBeenLastCalledWith(1,20)
+      await w.get('[data-testid="import-registration-version"]').setValue(oldRegistrationVersion.versionNo)
+      await w.get('[data-testid="submit-import"]').trigger('click');await flushPromises()
+      expect(api.importDatabaseIssues).toHaveBeenCalledWith(file,'DB20261015-01','2026-10-14 12:00:00','',oldRegistrationVersion.versionNo)
+    } finally {w.unmount()}
+  })
+  it('locks an existing batch to its bound version even when it is outside the loaded history page',async()=>{
+    api.getDatabaseIssueImportContext.mockResolvedValue({batchNo:'DB20261015-01',registrationVersion:oldRegistrationVersion})
+    const w=mount(ReplayDatabaseIssuePage);await flushPromises()
+    try {
+      await w.get('[data-testid="open-import"]').trigger('click');await flushPromises()
+      const file=await selectImportFile(w)
+      const selector=w.get('[data-testid="import-registration-version"]')
+      expect(selector.element.value).toBe(oldRegistrationVersion.versionNo)
+      expect(selector.element.disabled).toBe(true)
+      expect(w.text()).toContain('本批次已关联')
+      await w.get('[data-testid="submit-import"]').trigger('click');await flushPromises()
+      expect(api.importDatabaseIssues).toHaveBeenCalledWith(file,'DB20261015-01','2026-10-14 12:00:00','',oldRegistrationVersion.versionNo)
+    } finally {w.unmount()}
+  })
+  it('requires an available version and retries a failed version catalog before importing',async()=>{
+    loadVersions.mockRejectedValueOnce(new Error('版本目录读取失败')).mockResolvedValueOnce({items:[],page:0,size:20,total:0})
+    const w=mount(ReplayDatabaseIssuePage);await flushPromises()
+    try {
+      await w.get('[data-testid="open-import"]').trigger('click');await flushPromises()
+      await selectImportFile(w)
+      expect(w.text()).toContain('版本目录读取失败')
+      expect(w.get('[data-testid="submit-import"]').element.disabled).toBe(true)
+      await w.get('[data-testid="import-versions-retry"]').trigger('click');await flushPromises()
+      expect(w.text()).toContain('请先生成登记历史版本')
+      expect(w.get('[data-testid="submit-import"]').element.disabled).toBe(true)
+      expect(api.importDatabaseIssues).not.toHaveBeenCalled()
+    } finally {w.unmount()}
+  })
+  it('locks the newly imported batch after its registration binding has been saved',async()=>{
+    api.getDatabaseIssueImportContext.mockResolvedValueOnce({batchNo:'DB20261015-01',registrationVersion:null})
+      .mockResolvedValueOnce({batchNo:'DB20261015-01',registrationVersion:latestRegistrationVersion})
+    api.importDatabaseIssues.mockResolvedValueOnce({batchNo:'DB20261015-01',createdRows:1,updatedRows:0,autoRepairedRows:0})
+    const w=mount(ReplayDatabaseIssuePage);await flushPromises()
+    try {
+      await w.get('[data-testid="open-import"]').trigger('click');await flushPromises()
+      await selectImportFile(w)
+      await w.get('[data-testid="submit-import"]').trigger('click');await flushPromises()
+      expect(w.get('[data-testid="import-registration-version"]').element.disabled).toBe(true)
+      expect(w.text()).toContain('本批次已关联')
+    } finally {w.unmount()}
+  })
+  it('blocks import until the batch binding lookup succeeds and offers a retry',async()=>{
+    api.getDatabaseIssueImportContext.mockRejectedValueOnce(new Error('批次关联读取失败'))
+      .mockResolvedValueOnce({batchNo:'DB20261015-01',registrationVersion:null})
+    const w=mount(ReplayDatabaseIssuePage);await flushPromises()
+    try {
+      await w.get('[data-testid="open-import"]').trigger('click');await flushPromises()
+      await selectImportFile(w)
+      expect(w.text()).toContain('批次关联读取失败')
+      expect(w.get('[data-testid="submit-import"]').element.disabled).toBe(true)
+      await w.get('[data-testid="import-context-retry"]').trigger('click');await flushPromises()
+      expect(w.get('[data-testid="submit-import"]').element.disabled).toBe(false)
+    } finally {w.unmount()}
+  })
+  it('ignores a late binding response after the user selects another batch',async()=>{
+    let finishOld
+    api.getDatabaseIssueImportContext.mockImplementation(batchNo=>batchNo==='DB20261015-01'
+      ? new Promise(resolve=>{finishOld=resolve}) : Promise.resolve({batchNo,registrationVersion:null}))
+    const w=mount(ReplayDatabaseIssuePage);await flushPromises()
+    try {
+      await w.get('[data-testid="open-import"]').trigger('click');await flushPromises()
+      await selectImportFile(w)
+      expect(w.get('[data-testid="submit-import"]').element.disabled).toBe(true)
+      await w.get('[data-testid="import-batch"]').setValue('DB20261016-01');await flushPromises()
+      finishOld({batchNo:'DB20261015-01',registrationVersion:oldRegistrationVersion});await flushPromises()
+      const selector=w.get('[data-testid="import-registration-version"]')
+      expect(selector.element.value).toBe(latestRegistrationVersion.versionNo)
+      expect(selector.element.disabled).toBe(false)
+      expect(w.get('[data-testid="submit-import"]').element.disabled).toBe(false)
+    } finally {w.unmount()}
+  })
+  it('ignores a late version page after closing and reopening the import dialog',async()=>{
+    let finishOld
+    loadVersions.mockReturnValueOnce(new Promise(resolve=>{finishOld=resolve}))
+    const w=mount(ReplayDatabaseIssuePage);await flushPromises()
+    try {
+      await w.get('[data-testid="open-import"]').trigger('click');await flushPromises()
+      await w.get('[aria-label="关闭导入"]').trigger('click')
+      await w.get('[data-testid="open-import"]').trigger('click');await flushPromises()
+      finishOld({items:[oldRegistrationVersion],page:0,size:20,total:1});await flushPromises()
+      expect(w.get('[data-testid="import-registration-version"]').element.value).toBe(latestRegistrationVersion.versionNo)
+    } finally {w.unmount()}
+  })
+  it('keeps the selected version and shows the backend version conflict when importing fails',async()=>{
+    api.importDatabaseIssues.mockRejectedValueOnce(new Error('本批次已关联其他登记历史版本'))
+    const w=mount(ReplayDatabaseIssuePage);await flushPromises()
+    try {
+      await w.get('[data-testid="open-import"]').trigger('click');await flushPromises()
+      await selectImportFile(w)
+      await w.get('[data-testid="submit-import"]').trigger('click');await flushPromises()
+      expect(w.text()).toContain('本批次已关联其他登记历史版本')
+      expect(w.get('[data-testid="import-registration-version"]').element.value).toBe(latestRegistrationVersion.versionNo)
+    } finally {w.unmount()}
+  })
+  it('requires choosing a collaborator search result before saving its username',async()=>{const w=mount(ReplayDatabaseIssuePage);await flushPromises();await w.get('[data-testid="edit-1"]').trigger('click');await w.get('[data-testid="edit-type"]').setValue('修改比对规则');searchReplayIssueUsers.mockResolvedValue([{username:'c-wangsh8',realName:'王山河'}]);vi.useFakeTimers();try{await w.get('[data-testid="edit-collaborator"]').setValue('王山河');await w.get('[data-testid="save-edit"]').trigger('click');expect(api.updateDatabaseIssue).not.toHaveBeenCalled();expect(w.text()).toContain('请从搜索结果中选择需协同人');await vi.advanceTimersByTimeAsync(250);await flushPromises();await w.get('.user-options button').trigger('click');await w.get('[data-testid="save-edit"]').trigger('click');await flushPromises();expect(api.updateDatabaseIssue).toHaveBeenCalledWith(1,expect.objectContaining({cooperationPersonUsername:'c-wangsh8'}))}finally{vi.useRealTimers();w.unmount()}})
   it('copies every populated field in full, including separate table names and all occurrence batches',async()=>{
     const filled={...row,tableName:'koba_transaction_account_balance_comparison_detail_history',tableComment:'交易账户余额核对明细历史信息表',differenceCount:123456,defectRepairDate:'2026-10-14',issueStatus:'无需处理',reviewStatus:'待审核',issueType:'合理差异',cooperationPerson:'李四(c-lisi4)',initialAnalysis:'第一行分析\n第二行完整分析',finalSolution:'完整处理方案',remark:'保留全部备注',occurrenceBatches:['DB20261012-01','DB20261013-01']}
     api.listDatabaseIssues.mockResolvedValue({items:[filled],total:1})

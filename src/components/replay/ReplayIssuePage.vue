@@ -18,6 +18,7 @@
         </div>
       </div>
       <div class="replay-toolbar-actions">
+        <button class="replay-button" type="button" data-testid="open-reopen-ledger" @click="openReopenLedger()">重开责任调整</button>
         <div class="replay-statistics-group-switch replay-toolbar-filter-group" role="group" aria-label="回放交易类型" data-testid="replay-type-switch-toolbar">
           <button
             v-for="option in replayTypeOptions"
@@ -260,8 +261,42 @@
         <colgroup><col v-for="column in columns" :key="column.key" :style="{ width: column.width }" /></colgroup>
         <thead>
           <tr>
-            <th v-for="column in columns" :key="column.key" scope="col" class="replay-column-header">
+            <th
+              v-for="column in columns"
+              :key="column.key"
+              scope="col"
+              class="replay-column-header"
+              :class="{ 'replay-task-column-header': taskColumnKeys.has(column.key), 'replay-task-columns-boundary': !taskColumnsExpanded && column.key === 'operation' }"
+            >
               <span>{{ column.label }}</span>
+              <button
+                v-if="column.key === 'issue_description'"
+                type="button"
+                class="replay-task-columns-toggle"
+                data-testid="task-columns-toggle"
+                :title="`${taskColumnsToggleLabel}：${taskColumnLabels}`"
+                :aria-label="taskColumnsToggleLabel"
+                :aria-expanded="taskColumnsExpanded"
+                @click.stop="taskColumnsExpanded = !taskColumnsExpanded"
+              >
+                <ChevronLeft v-if="taskColumnsExpanded" :size="13" aria-hidden="true" />
+                <span>{{ taskColumnsExpanded ? '收起' : '展开' }}{{ taskColumnKeys.size }}列</span>
+                <ChevronRight v-if="!taskColumnsExpanded" :size="13" aria-hidden="true" />
+              </button>
+              <button
+                v-if="column.key === 'sent_transaction_count'"
+                type="button"
+                class="replay-count-sort-button"
+                :class="{ 'is-active': sentTransactionCountOrder !== '' }"
+                :data-sort="sentTransactionCountSortState"
+                :title="sentTransactionCountSortLabel"
+                :aria-label="sentTransactionCountSortLabel"
+                data-testid="sent-transaction-count-sort"
+                @click.stop="toggleSentTransactionCountSort"
+              >
+                <ArrowUpNarrowWide v-if="sentTransactionCountOrder === 'ASC'" :size="17" aria-hidden="true" />
+                <ArrowDownWideNarrow v-else :size="17" aria-hidden="true" />
+              </button>
               <button
                 v-if="column.key === 'affected_transaction_count'"
                 type="button"
@@ -276,6 +311,20 @@
                 <ArrowUpNarrowWide v-if="affectedTransactionCountOrder === 'ASC'" :size="17" aria-hidden="true" />
                 <ArrowDownWideNarrow v-else :size="17" aria-hidden="true" />
               </button>
+              <button
+                v-if="column.key === 'global_serial_no'"
+                type="button"
+                class="replay-count-sort-button"
+                :class="{ 'is-active': globalSerialNoOrder !== '' }"
+                :data-sort="globalSerialNoSortState"
+                :title="globalSerialNoSortLabel"
+                :aria-label="globalSerialNoSortLabel"
+                data-testid="global-serial-no-sort"
+                @click.stop="toggleGlobalSerialNoSort"
+              >
+                <ArrowUpNarrowWide v-if="globalSerialNoOrder === 'ASC'" :size="17" aria-hidden="true" />
+                <ArrowDownWideNarrow v-else :size="17" aria-hidden="true" />
+              </button>
               <button v-if="headerFilterConfig[column.key]" type="button" class="replay-header-filter-button" :class="{ active: headerFilters[column.key]?.length }" :title="`筛选${column.label}`" @click.stop="openHeaderFilter(column, $event)" aria-label="打开筛选"><i aria-hidden="true"></i></button>
               <HelpCircle v-if="column.key === 'final_solution'" :size="14" title="填写最终采用的修复方案和处理结果" aria-label="最终处理方案说明" />
             </th>
@@ -286,7 +335,7 @@
             <td
               v-for="column in columns"
               :key="column.key"
-              :class="{ 'replay-copyable-cell': copyableColumnKeys.has(column.key), 'replay-person-cell': column.key === 'matched_developer' || column.key === 'matched_bank_owner', 'replay-issue-domain-table-cell': column.key === 'issue_domain', 'replay-plan-date-table-cell': column.key === 'planned_completion_date' }"
+              :class="{ 'replay-copyable-cell': copyableColumnKeys.has(column.key), 'replay-person-cell': column.key === 'matched_developer' || column.key === 'matched_bank_owner', 'replay-issue-domain-table-cell': column.key === 'issue_domain', 'replay-plan-date-table-cell': column.key === 'planned_completion_date', 'replay-task-columns-boundary': !taskColumnsExpanded && column.key === 'operation' }"
               :title="cellTitle(column, row)"
               @click="copyableColumnKeys.has(column.key) && copyCell(column, row)"
             >
@@ -294,6 +343,7 @@
                 <button class="replay-button replay-button-compact" type="button" :data-testid="`edit-${row.id}`" :disabled="!canEditIssue(row)" :title="editIssueTitle(row)" @click="openEdit(row)"><Pencil :size="13" aria-hidden="true" />编辑</button>
                 <button class="replay-button replay-button-compact" type="button" :data-testid="`tracking-${row.id}`" @click="openTracking(row)"><HistoryIcon :size="13" aria-hidden="true" />问题跟踪</button>
               </div>
+              <button v-else-if="column.key === 'lifetime_reopen_count'" type="button" class="replay-button replay-button-compact" :data-testid="`reopen-count-${row.id}`" title="按 issue_key 统计终身重开次数，点击查看台账" @click="openReopenLedger(row.issue_key)">{{ reopenCounts[row.issue_key] ?? '—' }}</button>
               <span v-else-if="column.key === 'weekly_task'" v-show="isWeeklyTask(row)" class="replay-weekly-task-badge" data-testid="weekly-task-badge"><Flag :size="12" aria-hidden="true" />优先任务</span>
               <button v-else-if="column.key === 'review_status' && isReviewStatus(row.review_status) && canReviewIssue(row)" type="button" class="replay-review-badge" :class="reviewStatusClass(row)" :data-testid="`review-${row.id}`" :title="reviewActionTitle(row)" @click="approveReview(row)">{{ reviewStatusLabel(row) }}</button>
               <span v-else-if="column.key === 'review_status' && isReviewStatus(row.review_status)" class="replay-review-badge" :class="reviewStatusClass(row)" :data-testid="`review-${row.id}`" :title="reviewActionTitle(row)">{{ reviewStatusLabel(row) }}</span>
@@ -487,6 +537,7 @@
           <input v-model="importToken" data-testid="import-token" type="password" autocomplete="off" :disabled="importing" placeholder="X-DII-Trigger-Token" />
         </label>
         <p v-if="importMessage" class="replay-import-message" :class="{ 'is-error': importError }">{{ importMessage }}</p>
+        <button v-if="importComplete && importRoundId" class="replay-button" type="button" data-testid="open-import-reopen-records" :disabled="importing" @click="openImportReopenRecords">查看本次重开记录</button>
         <footer>
           <button class="replay-button" type="button" :disabled="importing" @click="closeImport">取消</button>
           <button class="replay-button replay-button-primary" type="button" data-testid="submit-import" :disabled="!importFile || importing || importComplete || importReading || !normalizeReleaseAt(importReleaseAt)" @click="submitImport">
@@ -502,7 +553,7 @@
         <header>
           <div>
             <h3 id="replay-daily-report-title">生成日报</h3>
-            <p>日报首次实时从数据库生成，生成后永久保存并可直接下载。</p>
+            <p>日报首次实时从数据库生成，对比当前批次与上一批次；新数据完整时使用字段差异新算法，历史数据沿用原算法，成功率和比对通过率均输出数值。没有上一批次时，以本批次为统计起点。生成后永久保存并可直接下载。</p>
           </div>
           <button class="replay-icon-button" type="button" data-testid="daily-report-close" title="关闭日报窗口" aria-label="关闭日报窗口" :disabled="dailyReportLoading" @click="closeDailyReport"><X :size="16" aria-hidden="true" /></button>
         </header>
@@ -516,7 +567,7 @@
             <span>选择批次</span>
             <select v-model="dailyReportSelectedBatch" data-testid="daily-report-batch">
               <option v-for="entry in dailyReportBatches" :key="entry.batchNo" :value="entry.batchNo" :disabled="!entry.canGenerate">
-                {{ entry.batchNo }}{{ !entry.canGenerate ? '（没有上批次数据）' : (entry.generated ? '（已生成）' : '') }}
+                {{ entry.batchNo }}{{ entry.generated ? '（已生成）' : (!entry.canGenerate ? '（批次数据不可用）' : (!entry.previousBatchNo ? '（统计起点）' : '')) }}
               </option>
             </select>
           </label>
@@ -555,7 +606,7 @@
         <header>
           <div>
             <h3 id="replay-weekly-report-title">生成周报</h3>
-            <p>选择两个存在日报数据的同类批次，周报生成后永久保存并可直接下载。</p>
+            <p>选择两个存在日报数据的同类批次；数量取各自批次，互不累加。字段差异数据完整时，按同类全部批次的最新审核、修复结论回算；历史数据沿用原算法，成功率和比对通过率均输出数值。仅无法确认的明细数量留空并说明。生成后永久保存并可直接下载，更新处理结论后可重新生成周报。</p>
           </div>
           <button class="replay-icon-button" type="button" data-testid="weekly-report-close" title="关闭周报窗口" aria-label="关闭周报窗口" :disabled="weeklyReportLoading" @click="closeWeeklyReport"><X :size="16" aria-hidden="true" /></button>
         </header>
@@ -904,14 +955,16 @@
       @minimize="minimizeStatisticsWindow('completion')"
       @close="closeStatisticsWindow('completion')"
     />
+    <ReplayReopenLedgerModal v-if="reopenLedgerOpen" :replay-type="reopenLedgerReplayType" :issue-key="reopenLedgerIssueKey" :source-round-id="reopenLedgerSourceRoundId" @close="reopenLedgerOpen = false" @changed="loadReopenCounts(items)" />
   </section>
 </template>
 
 <script setup>
 import { defaultReleaseAt, normalizeReleaseAt, readImportBatch } from '../../utils/replayReleaseTime.js'
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ArrowDownWideNarrow, ArrowUpNarrowWide, BarChart3, CalendarRange, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, Download, FileSpreadsheet, Flag, HelpCircle, History as HistoryIcon, Mail, Menu, Minus, Pencil, RefreshCw, Save, Search, Upload, Users, X } from 'lucide-vue-next'
 import { approveReplayIssue, exportReplayIssues, getReplayImportRounds, getReplayIssueDomainPermissions, getReplayIssueDomainTransfers, getReplayIssueGroupSummaries, getReplayIssueHeaderFilterOptionCounts, getReplayIssueMailStatus, getReplayIssueOptions, getReplayIssuePersonRankings, getReplayIssuePersonSchedule, getReplayIssueReviewPermissions, getReplayIssuePlanDatePermissions, getReplayIssuePlanDateChanges, getReplayIssueRoundTracking, getReplayIssueStats, getReplayWeeklyTask, replaceReplayWeeklyTask, getReplayDailyReportBatches, downloadReplayDailyReport, regenerateReplayDailyReport, getReplayDailyReportMailConfig, previewReplayReportMailBody, sendReplayDailyReportMail, getReplayWeeklyReportOptions, downloadReplayWeeklyReport, regenerateReplayWeeklyReport, getReplayWeeklyReportMailConfig, sendReplayWeeklyReportMail, importReplayIssues, listReplayIssues, searchReplayIssueUsers, sendReplayIssueMail, updateReplayIssue, updateReplayIssueDomain, updateReplayIssuePlannedCompletionDate } from '../../api/replayIssues.js'
+import { getReopenIssueCounts } from '../../api/replayReopens.js'
 import ReplayPlannedCompletionModal from './ReplayPlannedCompletionModal.vue'
 import ReplayReportMailAttachments from './ReplayReportMailAttachments.vue'
 import ReplayTrackingValue from './ReplayTrackingValue.vue'
@@ -919,7 +972,34 @@ import { replayModalMotionVariables, waitForReplayModalMotion } from './replayMo
 
 defineEmits(['toggleNavigation'])
 
-const columns = [
+const ReplayReopenLedgerModal = defineAsyncComponent(() => import('./ReplayReopenLedgerModal.vue'))
+const reopenLedgerOpen = ref(false), reopenLedgerIssueKey = ref(''), reopenCounts = ref({})
+const reopenLedgerSourceRoundId = ref(null), reopenLedgerReplayType = ref('ALL')
+let reopenCountsSerial = 0
+function openReopenLedger(issueKey = '', sourceRoundId = null, replayType = statisticsReplayType.value) {
+  reopenLedgerIssueKey.value = issueKey
+  reopenLedgerSourceRoundId.value = sourceRoundId
+  reopenLedgerReplayType.value = replayType
+  reopenLedgerOpen.value = true
+}
+function openImportReopenRecords() {
+  closeImport()
+  openReopenLedger('', importRoundId.value, importResultReplayType.value)
+}
+async function loadReopenCounts(rows) {
+  const serial = ++reopenCountsSerial
+  reopenCounts.value = {}
+  const keys = [...new Set(rows.map(row => row.issue_key).filter(Boolean))]
+  if (!keys.length) return
+  try {
+    const counts = await getReopenIssueCounts(keys)
+    if (serial === reopenCountsSerial) reopenCounts.value = counts || {}
+  } catch (_) {
+    // The ledger may be disabled before migration; the issue list remains usable.
+  }
+}
+
+const allColumns = [
   ['issue_id', 'issue_id', '100px'], ['is_sandbox', '是否沙箱', '100px'],
   ['transaction_code', '交易码', '100px'], ['transaction_name', '交易名称', '180px'], ['issue_level', '问题级别', '100px'],
   ['field_name', '字段名', '120px'], ['issue_description', '问题描述', '220px'],
@@ -927,12 +1007,23 @@ const columns = [
   ['planned_completion_date', '计划验证日期', '160px'], ['defect_repair_date', '缺陷修复日期', '120px'],
   ['matched_developer', '开发负责人', '10em'], ['matched_bank_owner', '科技负责人', '10em'], ['operation', '操作', '176px'], ['issue_status', '问题状态', '99px'], ['review_status', '审核状态', '126px'], ['issue_type', '问题类型', '99px'], ['cooperation_person_username', '需协同人', '135px'],
   ['initial_analysis', '初步问题分析', '220px'], ['final_solution', '最终处理方案', '220px'], ['remark', '备注', '160px'],
-  ['affected_transaction_count', '出现笔数', '112px'],
+  ['sent_transaction_count', '发送交易量', '180px'], ['affected_transaction_count', '出现笔数', '112px'], ['lifetime_reopen_count', '终身重开次数', '120px'],
   ['issue_key', 'issue_key', '180px'],
   ['first_occurrence_date', '首次出现日期', '180px'],
   ['serial_no', '流水号', '160px'], ['global_serial_no', '全局流水号', '180px'],
   ['occurrence_rounds', '出现批次', '220px'],
 ].map(([key, label, width]) => ({ key, label, width }))
+
+const taskColumnsExpanded = ref(true)
+const taskColumnKeys = new Set([
+  'weekly_task', 'domain', 'issue_domain', 'planned_completion_date',
+  'defect_repair_date', 'matched_developer', 'matched_bank_owner',
+])
+const taskColumnLabels = allColumns.filter(column => taskColumnKeys.has(column.key)).map(column => column.label).join('、')
+const columns = computed(() => taskColumnsExpanded.value
+  ? allColumns
+  : allColumns.filter(column => !taskColumnKeys.has(column.key)))
+const taskColumnsToggleLabel = computed(() => `${taskColumnsExpanded.value ? '收起' : '展开'}任务标记至科技负责人列`)
 
 const headerFilterConfig = {
   domain: ['groupName', 'groupNames'], issue_domain: ['issueDomain', 'issueDomains'],
@@ -971,13 +1062,20 @@ const headerFilterMatchedIssueCount = ref(0)
 const headerFilterTruncated = ref(false)
 const headerFilterDraft = ref([])
 
-const copyableColumnKeys = new Set(['transaction_name', 'field_name', 'issue_description', 'initial_analysis', 'final_solution', 'remark', 'serial_no', 'global_serial_no', 'issue_key'])
+const copyableColumnKeys = new Set(['transaction_name', 'field_name', 'issue_description', 'initial_analysis', 'final_solution', 'remark', 'sent_transaction_count', 'serial_no', 'global_serial_no', 'issue_key'])
 const manualStatuses = ['打开', '无需处理', '延后修复', '修复待验证']
 const issueTypes = ['迁移问题', '防腐问题', '代码问题', '新核心下线', '参数问题', '平台问题', '合理差异', '规则性差异问题', '外围问题', '需规问题', '其他问题']
 const noActionIssueTypes = ['合理差异', '规则性差异问题', '外围问题']
 const manualDisplayKeys = new Set(['issue_status', 'issue_type', 'cooperation_person_username'])
 const detailDisplayKeys = new Set(['initial_analysis', 'final_solution', 'remark'])
 const filters = reactive({ groupName: '', issueId: '', issueLevel: '', issueType: '', issueStatus: '', reviewStatus: '', sandbox: '', developer: '', bankOwner: '', cooperationPerson: '', serialNo: '', globalSerialNo: '', defectRepairDate: '', coverageRound: '', keyword: '', weeklyTask: false, unverifiedOnly: true, relatedToMe: true })
+const globalSerialNoOrder = ref('')
+const globalSerialNoSortState = computed(() => globalSerialNoOrder.value ? globalSerialNoOrder.value.toLowerCase() : 'default')
+const globalSerialNoSortLabel = computed(() => {
+  if (globalSerialNoOrder.value === 'ASC') return '当前全局流水号升序，点击切换为降序'
+  if (globalSerialNoOrder.value === 'DESC') return '当前全局流水号降序，点击恢复默认排序'
+  return '按全局流水号升序排序'
+})
 const affectedTransactionCountOrder = ref('')
 const affectedTransactionCountSortState = computed(() =>
   affectedTransactionCountOrder.value ? affectedTransactionCountOrder.value.toLowerCase() : 'default')
@@ -985,6 +1083,14 @@ const affectedTransactionCountSortLabel = computed(() => {
   if (affectedTransactionCountOrder.value === 'ASC') return '当前问题数升序，点击切换为降序'
   if (affectedTransactionCountOrder.value === 'DESC') return '当前问题数降序，点击恢复默认排序'
   return '按问题数升序排序'
+})
+const sentTransactionCountOrder = ref('')
+const sentTransactionCountSortState = computed(() =>
+  sentTransactionCountOrder.value ? sentTransactionCountOrder.value.toLowerCase() : 'default')
+const sentTransactionCountSortLabel = computed(() => {
+  if (sentTransactionCountOrder.value === 'ASC') return '当前发送交易量升序，点击切换为降序'
+  if (sentTransactionCountOrder.value === 'DESC') return '当前发送交易量降序，点击恢复默认排序'
+  return '按发送交易量升序排序'
 })
 const allStatuses = ['新建', '打开', '无需处理', '延后修复', '修复待验证', '重新打开', '已修复']
 const reviewStatusOptions = ['待审核', '已审核（未填写原因）', '已审核（已填写原因）']
@@ -1144,6 +1250,8 @@ const importing = ref(false)
 const exporting = ref(false)
 const importComplete = ref(false)
 const importMessage = ref('')
+const importRoundId = ref(null)
+const importResultReplayType = ref('QUERY')
 const importError = ref(false)
 const weeklyTaskOpen = ref(false)
 const weeklyTaskSaving = ref(false)
@@ -1532,6 +1640,8 @@ async function setStatisticsReplayType(replayType) {
   clearHeaderFilters()
   closeHeaderFilter()
   affectedTransactionCountOrder.value = ''
+  globalSerialNoOrder.value = ''
+  sentTransactionCountOrder.value = ''
   page.value = 0
   replayTypeLoading.value = true
   error.value = ''
@@ -1758,6 +1868,8 @@ function filterParams() {
     ...(filters.unverifiedOnly ? { unverifiedOnly: true } : {}),
     ...(filters.relatedToMe ? { relatedToMe: true } : {}),
     affectedTransactionCountOrder: affectedTransactionCountOrder.value || undefined,
+    globalSerialNoOrder: globalSerialNoOrder.value || undefined,
+    sentTransactionCountOrder: sentTransactionCountOrder.value || undefined,
     keyword: filters.keyword || undefined,
   }
   Object.entries(headerFilterConfig).forEach(([key, [, requestKey]]) => {
@@ -2415,10 +2527,13 @@ async function loadList({ preserveOnError = false } = {}) {
   try {
     const result = await listReplayIssues(requestParams())
     items.value = result.items || []
+    loadReopenCounts(items.value)
     total.value = result.total || 0
   } catch (cause) {
     if (!preserveOnError) {
       items.value = []
+      reopenCountsSerial++
+      reopenCounts.value = {}
       total.value = 0
     }
     error.value = `加载失败：${cause?.message || cause}`
@@ -2461,9 +2576,31 @@ function toggleTaskFilters() {
 }
 
 async function toggleAffectedTransactionCountSort() {
+  globalSerialNoOrder.value = ''
+  sentTransactionCountOrder.value = ''
   affectedTransactionCountOrder.value = affectedTransactionCountOrder.value === ''
     ? 'ASC'
     : affectedTransactionCountOrder.value === 'ASC' ? 'DESC' : ''
+  page.value = 0
+  await loadList()
+}
+
+async function toggleGlobalSerialNoSort() {
+  globalSerialNoOrder.value = globalSerialNoOrder.value === ''
+    ? 'ASC'
+    : globalSerialNoOrder.value === 'ASC' ? 'DESC' : ''
+  affectedTransactionCountOrder.value = ''
+  sentTransactionCountOrder.value = ''
+  page.value = 0
+  await loadList()
+}
+
+async function toggleSentTransactionCountSort() {
+  globalSerialNoOrder.value = ''
+  affectedTransactionCountOrder.value = ''
+  sentTransactionCountOrder.value = sentTransactionCountOrder.value === ''
+    ? 'ASC'
+    : sentTransactionCountOrder.value === 'ASC' ? 'DESC' : ''
   page.value = 0
   await loadList()
 }
@@ -2484,6 +2621,8 @@ async function exportExcel() {
 function resetFilters() {
   resetFilterValues()
   affectedTransactionCountOrder.value = ''
+  globalSerialNoOrder.value = ''
+  sentTransactionCountOrder.value = ''
   return query()
 }
 
@@ -2560,6 +2699,7 @@ function openImport() {
   importReplayType.value = 'QUERY'
   importComplete.value = false
   importMessage.value = ''
+  importRoundId.value = null
   importError.value = false
 }
 
@@ -2574,6 +2714,7 @@ async function selectImportFile(event) {
   importReleaseEdited.value = false
   importComplete.value = false
   importMessage.value = ''
+  importRoundId.value = null
   importError.value = false
   importReading.value = true
   try {
@@ -2594,7 +2735,10 @@ async function submitImport() {
   try {
     const result = await importReplayIssues(importFile.value, importToken.value, importReplayType.value, releaseAt)
     importComplete.value = true
-    importMessage.value = `导入完成：${result.inputRows ?? result.totalRows ?? 0} 条；新增 ${result.createdRows ?? 0} 条；更新 ${result.updatedRows ?? 0} 条；忽略 ${result.ignoredRows ?? 0} 条${result.coverageRound ? `；覆盖批次 ${result.coverageRound}` : ''}`
+    const roundId = Number(result.importRoundId)
+    importRoundId.value = Number.isSafeInteger(roundId) && roundId > 0 ? roundId : null
+    importResultReplayType.value = importReplayType.value
+    importMessage.value = `导入完成：${result.inputRows ?? result.totalRows ?? 0} 条；新增 ${result.createdRows ?? 0} 条；更新 ${result.updatedRows ?? 0} 条；忽略 ${result.ignoredRows ?? 0} 条；本次新增重开 ${result.reopenedRows ?? 0} 次；继承重开状态 ${result.inheritedReopenedRows ?? 0} 条（不计次）${result.coverageRound ? `；覆盖批次 ${result.coverageRound}` : ''}`
     page.value = 0
     await Promise.all([loadList(), loadMetadata()])
   } catch (cause) {
@@ -3030,6 +3174,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  reopenCountsSerial++
   if (copyMessageTimer) clearTimeout(copyMessageTimer)
   stopHeaderFilterResize()
 })
@@ -3281,6 +3426,11 @@ onBeforeUnmount(() => {
 .replay-table th > svg { margin-left: 4px; opacity: .82; }
 .replay-table thead th { position: sticky; top: 0; z-index: 3; background: var(--replay-teal); color: #fff; background-clip: padding-box; }
 .replay-column-header { position: relative; }
+.replay-table thead th.replay-task-column-header { border-bottom: 2px solid #ef4444; }
+.replay-table .replay-task-columns-boundary { border-left: 2px solid #ef4444; }
+.replay-task-columns-toggle { display: inline-flex; align-items: center; justify-content: center; gap: 2px; height: 22px; margin-left: 6px; padding: 0 5px; border: 1px solid #fca5a5; border-radius: 3px; color: #fff; background: rgba(239, 68, 68, .14); font: inherit; font-size: 11px; font-weight: 600; white-space: nowrap; vertical-align: middle; cursor: pointer; }
+.replay-task-columns-toggle:hover, .replay-task-columns-toggle:focus-visible { background: rgba(239, 68, 68, .3); }
+.replay-task-columns-toggle:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 .replay-count-sort-button { display: inline-grid; place-items: center; width: 20px; height: 20px; margin-left: 5px; padding: 0; border: 0; border-radius: 3px; color: #b7c9cc; background: transparent; cursor: pointer; vertical-align: middle; }
 .replay-count-sort-button:hover, .replay-count-sort-button:focus-visible { color: #fff; background: rgba(255, 255, 255, .1); }
 .replay-count-sort-button.is-active { color: #ffd166; }

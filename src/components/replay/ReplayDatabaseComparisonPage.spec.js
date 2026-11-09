@@ -54,6 +54,13 @@ describe('ReplayDatabaseComparisonPage', () => {
     })
   }
 
+  it('shows all technology owners from the personnel list without appending employee numbers',async()=>{
+    const owners='杨慧(yangh15)、于耀望(yuyc2)、刁海强(diaohq)'
+    useRealMode([{id:1,tableName:'ktxl_bsjs',domainName:'公共组',groupOwnerName:owners,groupOwnerEmpNo:'11077712、11078361、11079999',fields:[]}])
+    const wrapper=mount(ReplayDatabaseComparisonPage);await flushPromises()
+    const cell=wrapper.get('[data-testid="copy-group-owner-ktxl_bsjs"]').element.parentElement
+    expect(cell.textContent).toContain(owners);expect(cell.textContent).not.toContain('11077712');expect(cell.getAttribute('title')).toBe(owners)
+  })
   beforeEach(() => {
     Object.values(comparisonApi).forEach(value => value?.mockReset?.())
     exportInitialImportErrors.mockReset()

@@ -11,13 +11,13 @@ function queryString(params) {
 }
 
 export function listReplayIssues(params = {}) {
-  const { affectedTransactionCountOrder, ...query } = {
+  const { affectedTransactionCountOrder, globalSerialNoOrder, sentTransactionCountOrder, ...query } = {
     ...params,
     limit: Math.min(Math.max(params.limit ?? 50, 1), 200),
   }
   return request(PREFIX, {
     method: 'POST',
-    body: JSON.stringify({ query, affectedTransactionCountOrder }),
+    body: JSON.stringify({ query, affectedTransactionCountOrder, globalSerialNoOrder, sentTransactionCountOrder }),
   })
 }
 

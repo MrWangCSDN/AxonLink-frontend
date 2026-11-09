@@ -910,6 +910,75 @@ describe('ReplayDatabaseComparisonEditor', () => {
   const unique = { indexName: 'acct_uq', indexType: 'UNIQUE_INDEX', columnNames: ['code', 'tenant'] }
   const keyRegistration = { ...registrations[0], fields: [{ name: 'id' }] }
 
+  it.each([
+    { indexName: 'acct_pkey', indexType: 'PRIMARY_KEY', savedColumns: ['id', 'tenant'], currentColumns: ['tenant', 'id'] },
+    { indexName: 'acct_uq', indexType: 'UNIQUE_INDEX', savedColumns: ['code', 'tenant'], currentColumns: ['tenant', 'code'] },
+  ])('allows explicitly reselecting a same-name $indexType after its column order changes', async ({ indexName, indexType, savedColumns, currentColumns }) => {
+    const currentKey = { indexName, indexType, columnNames: currentColumns }
+    const registration = {
+      ...keyRegistration,
+      comparisonKey: { indexName, indexType, columnNames: savedColumns },
+      fields: [...savedColumns.map(name => ({ name })), { name: 'memo' }],
+      sampleLimit: 1000,
+    }
+    const wrapper = mount(ReplayDatabaseComparisonEditor, { props: {
+      initialRegistration: registration,
+      loadColumns: () => [...keyColumns, { columnName: 'memo', primaryKey: false, ordinalPosition: 4 }],
+      loadKeys: () => [currentKey],
+      canConfigureSampleLimit: true,
+    } })
+    try {
+      await flushPromises()
+      const select = wrapper.get('[data-testid="comparison-key-select"]')
+      const invalidOption = select.findAll('option').find(option => option.element.disabled)
+      expect(wrapper.get('[data-testid="submit-registration"]').element.disabled).toBe(true)
+      expect(invalidOption.text()).toContain('已失效')
+      expect(invalidOption.element.value).not.toBe(indexName)
+      expect(select.element.value).toBe(invalidOption.element.value)
+
+      await select.setValue(indexName)
+
+      expect(wrapper.find('[data-testid="comparison-key-error"]').exists()).toBe(false)
+      expect(wrapper.get('[data-testid="submit-registration"]').element.disabled).toBe(false)
+      expect(selectedNames(wrapper)).toEqual([...savedColumns, 'memo'])
+      await wrapper.get('[data-testid="submit-registration"]').trigger('click')
+      await flushPromises()
+      expect(wrapper.emitted('save')).toHaveLength(1)
+      expect(wrapper.emitted('save')[0][0]).toMatchObject({
+        comparisonKeyName: indexName, fieldNames: [...savedColumns, 'memo'], sampleLimit: 1000,
+      })
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('allows reselecting the same index after save-time metadata refresh detects an order change', async () => {
+    const loadKeys = vi.fn().mockResolvedValueOnce([unique])
+      .mockResolvedValue([{ ...unique, columnNames: ['tenant', 'code'] }])
+    const wrapper = mount(ReplayDatabaseComparisonEditor, { props: {
+      initialRegistration: { ...keyRegistration, comparisonKey: unique },
+      loadColumns: () => keyColumns, loadKeys,
+    } })
+    try {
+      await flushPromises()
+      await wrapper.get('[data-testid="submit-registration"]').trigger('click')
+      await flushPromises()
+      expect(wrapper.emitted('save')).toBeUndefined()
+      expect(wrapper.get('[data-testid="comparison-key-error"]').exists()).toBe(true)
+      const select = wrapper.get('[data-testid="comparison-key-select"]')
+      expect(select.element.value).not.toBe('acct_uq')
+
+      await select.setValue('acct_uq')
+      await wrapper.get('[data-testid="submit-registration"]').trigger('click')
+      await flushPromises()
+
+      expect(wrapper.emitted('save')).toHaveLength(1)
+      expect(wrapper.emitted('save')[0][0].comparisonKeyName).toBe('acct_uq')
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
   it('defaults to the physical primary key and switches whole nullable unique indexes without changing primary metadata', async () => {
     const loadKeys = vi.fn().mockResolvedValue([unique, primary])
     const wrapper = mount(ReplayDatabaseComparisonEditor, { props: {
@@ -973,7 +1042,7 @@ describe('ReplayDatabaseComparisonEditor', () => {
     wrapper.unmount()
   })
 
-  it('keeps every selected unique-index column locked even when its mother-table column is missing', async () => {
+  it('allows removing a missing saved unique-index column while protecting its remaining columns', async () => {
     const registration = {
       ...keyRegistration,
       comparisonKey: unique,
@@ -989,16 +1058,72 @@ describe('ReplayDatabaseComparisonEditor', () => {
 
     const rows = wrapper.findAll('[data-testid="selected-field-row"]')
     expect(selectedNames(wrapper)).toEqual(['code', 'tenant', 'memo'])
-    expect(rows[0].get('input').element.disabled).toBe(true)
+    expect(rows[0].get('input').element.disabled).toBe(false)
     expect(rows[1].get('input').element.disabled).toBe(true)
     expect(rows[2].get('input').element.disabled).toBe(false)
     await wrapper.get('[data-testid="selected-select-all"]').trigger('click')
-    expect(rows[0].get('input').element.checked).toBe(false)
+    expect(rows[0].get('input').element.checked).toBe(true)
     expect(rows[1].get('input').element.checked).toBe(false)
     expect(rows[2].get('input').element.checked).toBe(true)
     await wrapper.get('[data-testid="move-fields-left"]').trigger('click')
-    expect(selectedNames(wrapper)).toEqual(['code', 'tenant'])
+    expect(selectedNames(wrapper)).toEqual(['tenant'])
     wrapper.unmount()
+  })
+
+  it.each([
+    ['row', ['id', 'memo']],
+    ['checkbox', ['id', 'memo']],
+    ['select-all', ['id']],
+    ['invert-selection', ['id']],
+  ])('removes a deleted historical primary-key column via %s and saves only after selecting the current index', async (method, remainingFields) => {
+    const registration = {
+      ...keyRegistration,
+      comparisonKey: { ...primary, columnNames: ['id', 'old_pk'] },
+      fields: [{ name: 'id', primaryKey: true }, { name: 'old_pk', primaryKey: true }, { name: 'memo' }],
+    }
+    const currentPrimary = { ...primary, columnNames: ['id', 'tenant'] }
+    const wrapper = mount(ReplayDatabaseComparisonEditor, { props: {
+      initialRegistration: registration,
+      loadColumns: () => [...keyColumns.map(column => column.columnName === 'tenant'
+        ? { ...column, primaryKey: true, primaryKeyOrder: 2 } : column),
+      { columnName: 'memo', primaryKey: false, ordinalPosition: 4 }],
+      loadKeys: () => [currentPrimary],
+    } })
+    try {
+      await flushPromises()
+      const missingRow = wrapper.get('[data-missing-field="old_pk"]')
+      expect(missingRow.get('input').element.disabled).toBe(false)
+      expect(missingRow.find('.primary-key-marker').exists()).toBe(false)
+      expect(wrapper.get('[data-testid="comparison-key-error"]').exists()).toBe(true)
+      if (method === 'row') await missingRow.trigger('click')
+      else if (method === 'checkbox') await missingRow.get('input').setValue(true)
+      else if (method === 'select-all') await wrapper.get('[data-testid="selected-select-all"]').trigger('click')
+      else await wrapper.get('[data-testid="selected-invert-selection"]').trigger('click')
+      expect(missingRow.get('input').element.checked).toBe(true)
+      await wrapper.get('[data-testid="move-fields-left"]').trigger('click')
+
+      expect(selectedNames(wrapper)).toEqual(remainingFields)
+      expect(wrapper.find('[data-missing-field="old_pk"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="missing-fields-warning"]').exists()).toBe(false)
+      expect(wrapper.get('[data-testid="submit-registration"]').element.disabled).toBe(true)
+      expect(wrapper.emitted('save')).toBeUndefined()
+
+      await wrapper.get('[data-testid="comparison-key-select"]').setValue('acct_pkey')
+      const keyRows = wrapper.findAll('[data-testid="selected-field-row"]')
+        .filter(row => ['id', 'tenant'].some(name => row.get('strong').text().endsWith(`. ${name}`)))
+      expect(keyRows).toHaveLength(2)
+      expect(keyRows.every(row => row.get('input').element.disabled)).toBe(true)
+      expect(wrapper.find('[data-testid="comparison-key-error"]').exists()).toBe(false)
+      expect(wrapper.get('[data-testid="submit-registration"]').element.disabled).toBe(false)
+      await wrapper.get('[data-testid="submit-registration"]').trigger('click')
+      await flushPromises()
+      expect(wrapper.emitted('save')).toHaveLength(1)
+      expect(wrapper.emitted('save')[0][0]).toMatchObject({
+        comparisonKeyName: 'acct_pkey', fieldNames: [...remainingFields, 'tenant'],
+      })
+    } finally {
+      wrapper.unmount()
+    }
   })
 
   it('uses the first unique index by stable name when there is no primary key or saved choice', async () => {
@@ -1023,7 +1148,9 @@ describe('ReplayDatabaseComparisonEditor', () => {
     await flushPromises()
     expect(wrapper.emitted('save')).toBeUndefined()
     expect(wrapper.get('[data-testid="comparison-key-error"]').text()).toContain('已删除或发生变化')
-    expect(wrapper.get('[data-testid="comparison-key-select"]').element.value).toBe('acct_uq')
+    const invalidSelection = wrapper.get('[data-testid="comparison-key-select"]').element.selectedOptions[0]
+    expect(invalidSelection.disabled).toBe(true)
+    expect(invalidSelection.text).toContain('acct_uq')
     expect(wrapper.get('[data-testid="submit-registration"]').element.disabled).toBe(true)
     await wrapper.get('[data-testid="comparison-key-select"]').setValue('acct_pkey')
     expect(wrapper.find('[data-testid="comparison-key-error"]').exists()).toBe(false)

@@ -2,6 +2,8 @@ import { readImportBatch } from '../../utils/replayReleaseTime.js'
 import { config, flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import ReplayIssuePage from './ReplayIssuePage.vue'
+import { getReopenIssueCounts, getReopenPermissions } from '../../api/replayReopens.js'
+vi.mock('../../api/replayReopens.js', () => ({ getReopenIssueCounts: vi.fn(), getReopenPermissions: vi.fn() }))
 import {
   exportReplayIssues,
   getReplayIssueOptions,
@@ -99,7 +101,7 @@ const fixtureRow = {
   transaction_owner: '张济华', matched_developer: '张三(c-zhangs3)、李四(c-lisi)', matched_bank_owner: '刘六(c-liul6)', matched_bank_owner_emp_nos: '200001', issue_status: '延后修复', issue_type: '代码问题', initial_analysis: '核对返回值',
   final_solution: '修正映射', cooperation_person_username: 'sunhy1', cooperation_person_real_name: '孙海英',
   serial_no: '001012213710102', planned_completion_date: '', planned_completion_date_change_count: 0, defect_repair_date: '', remark: '历史备注', import_date: '2026-08-04',
-  affected_transaction_count: '58', issue_id: '000845', issue_key: 'TRAN|6208|响应码',
+  sent_transaction_count: '120', affected_transaction_count: '58', issue_id: '000845', issue_key: 'TRAN|6208|响应码',
   historical_occurrence_count: '4', first_occurrence_date: '2026-07-28 00:00:00.0',
   last_occurrence_date: '2026-07-31 00:00:00.0', imported_at: '2026-08-04T10:00:00',
   coverage_round: '20260808-001', occurrence_rounds: '20260808-001、20260807-001', weekly_task: true,
@@ -108,7 +110,7 @@ const fixtureRow = {
 const visibleColumnLabels = [
   'issue_id', '是否沙箱', '交易码', '交易名称', '问题级别', '字段名', '问题描述',
   '任务标记', '领域', '问题所属领域', '计划验证日期', '缺陷修复日期', '开发负责人', '科技负责人', '操作', '问题状态', '审核状态', '问题类型', '需协同人', '初步问题分析', '最终处理方案', '备注',
-  '出现笔数', 'issue_key', '首次出现日期', '流水号', '全局流水号', '出现批次',
+  '发送交易量', '出现笔数', '终身重开次数', 'issue_key', '首次出现日期', '流水号', '全局流水号', '出现批次',
 ]
 
 function countedOptions(values, truncated = false, matchedIssueCount = values.length) {
@@ -238,6 +240,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })))
   arrangeApi()
+  getReopenIssueCounts.mockResolvedValue({ [fixtureRow.issue_key]: 3 })
+  getReopenPermissions.mockResolvedValue({ enabled: false })
 })
 
 afterEach(() => {
@@ -247,6 +251,89 @@ afterEach(() => {
 })
 
 describe('ReplayIssuePage', () => {
+  it('toggles all seven task and owner columns together from an always visible header', async () => {
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+    const labels = () => wrapper.findAll('.replay-table thead th').map(header => header.get('span').text())
+    const toggle = () => wrapper.get('[data-testid="task-columns-toggle"]')
+    const collapsedLabels = visibleColumnLabels.filter(label => ![
+      '任务标记', '领域', '问题所属领域', '计划验证日期', '缺陷修复日期', '开发负责人', '科技负责人',
+    ].includes(label))
+    expect(labels()).toEqual(visibleColumnLabels)
+    expect(toggle().attributes('aria-expanded')).toBe('true')
+    expect(toggle().element.closest('th').querySelector('span').textContent).toBe('问题描述')
+    expect(toggle().text()).toBe('收起7列')
+    expect(toggle().attributes('title')).toContain('任务标记、领域、问题所属领域、计划验证日期、缺陷修复日期、开发负责人、科技负责人')
+    const requestsBeforeToggle = listReplayIssues.mock.calls.length
+
+    await toggle().trigger('click')
+    expect(labels()).toEqual(collapsedLabels)
+    expect(wrapper.findAll('.replay-table col')).toHaveLength(collapsedLabels.length)
+    expect(wrapper.findAll('[data-testid="replay-row"] td')).toHaveLength(collapsedLabels.length)
+    expect(toggle().attributes('aria-label')).toBe('展开任务标记至科技负责人列')
+    expect(toggle().attributes('aria-expanded')).toBe('false')
+    expect(toggle().text()).toBe('展开7列')
+
+    await toggle().trigger('click')
+    expect(labels()).toEqual(visibleColumnLabels)
+    expect(wrapper.findAll('[data-testid="replay-row"] td')).toHaveLength(visibleColumnLabels.length)
+    expect(toggle().attributes('aria-label')).toBe('收起任务标记至科技负责人列')
+    expect(listReplayIssues).toHaveBeenCalledTimes(requestsBeforeToggle)
+    wrapper.unmount()
+  })
+
+  it.each([true, false])('keeps expanded=%s through pagination, page size, header queries and filter reset', async expanded => {
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+    getReplayIssueHeaderFilterOptionCounts.mockResolvedValue(countedOptions(['贷款组']))
+    const domainHeader = wrapper.findAll('.replay-table thead th').find(header => header.text() === '领域')
+    await domainHeader.get('.replay-header-filter-button').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="header-filter-panel"] input[type="checkbox"]').setValue(true)
+    await wrapper.get('[data-testid="header-filter-panel"] .replay-button-primary').trigger('click')
+    await flushPromises()
+    if (!expanded) await wrapper.get('[data-testid="task-columns-toggle"]').trigger('click')
+    const assertLayout = () => {
+      expect(wrapper.get('[data-testid="task-columns-toggle"]').attributes('aria-expanded')).toBe(String(expanded))
+      expect(wrapper.findAll('.replay-table thead th')).toHaveLength(expanded ? 30 : 23)
+    }
+
+    await wrapper.get('[data-testid="next-page"]').trigger('click')
+    await flushPromises()
+    assertLayout()
+    expect(listReplayIssues).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 50, groupNames: ['贷款组'] }))
+    await wrapper.get('[data-testid="page-size"]').setValue('100')
+    await flushPromises()
+    assertLayout()
+    getReplayIssueHeaderFilterOptionCounts.mockResolvedValue(countedOptions(['000845']))
+    await wrapper.get('.replay-table thead th .replay-header-filter-button').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="header-filter-panel"] input[type="checkbox"]').setValue(true)
+    await wrapper.get('[data-testid="header-filter-panel"] .replay-button-primary').trigger('click')
+    await flushPromises()
+    assertLayout()
+    expect(listReplayIssues).toHaveBeenLastCalledWith(expect.objectContaining({ issueIds: ['000845'], groupNames: ['贷款组'] }))
+    await wrapper.get('[data-testid="reset-filters"]').trigger('click')
+    await flushPromises()
+    assertLayout()
+    expect(listReplayIssues.mock.calls.at(-1)[0].groupNames).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('uses the visible column count for empty results after collapsing', async () => {
+    arrangeApi({ total: 0, items: [] })
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+    await wrapper.get('[data-testid="task-columns-toggle"]').trigger('click')
+    expect(wrapper.get('.replay-table .replay-state').attributes('colspan')).toBe('23')
+    await wrapper.get('[data-testid="reset-filters"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('.replay-table .replay-state').attributes('colspan')).toBe('23')
+    await wrapper.get('[data-testid="task-columns-toggle"]').trigger('click')
+    expect(wrapper.get('.replay-table .replay-state').attributes('colspan')).toBe('30')
+    wrapper.unmount()
+  })
+
   it('visually separates the two toolbar filter groups', async () => {
     const wrapper = mount(ReplayIssuePage)
     await flushPromises()
@@ -515,7 +602,7 @@ describe('ReplayIssuePage', () => {
     const wrapper = mount(ReplayIssuePage)
     await flushPromises()
 
-    expect(wrapper.findAll('thead th').map((header) => header.text())).toEqual(visibleColumnLabels)
+    expect(wrapper.findAll('thead th').map((header) => header.get('span').text())).toEqual(visibleColumnLabels)
     expect(wrapper.get('[data-testid="plan-date-value-1"]').text()).toBe('2026-08-26')
     expect(wrapper.get('[data-testid="plan-date-edit-1"]').exists()).toBe(true)
     expect(wrapper.get('[data-testid="plan-date-value-2"]').text()).toBe('2026-09-10')
@@ -678,8 +765,8 @@ describe('ReplayIssuePage', () => {
     await flushPromises()
 
     const headers = wrapper.findAll('thead th')
-    expect(headers.map(header => header.text())).toEqual(visibleColumnLabels)
-    expect(headers.map(header => header.text())).not.toContain('上次出现日期')
+    expect(headers.map(header => header.get('span').text())).toEqual(visibleColumnLabels)
+    expect(headers.map(header => header.get('span').text())).not.toContain('上次出现日期')
     const cells = wrapper.findAll('tbody tr[data-testid="replay-row"] td')
     expect(cells.at(visibleColumnLabels.indexOf('计划验证日期')).find('.replay-plan-date-emphasis').exists()).toBe(true)
     for (const label of ['初步问题分析', '最终处理方案', '备注']) {
@@ -865,6 +952,60 @@ describe('ReplayIssuePage', () => {
     expect(wrapper.get('[data-testid="header-filter-matched-count"]').text()).toBe('计数（37）')
   })
 
+  it('cycles global serial sorting, preserves it across paging, and keeps the two column sorts exclusive', async () => {
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+    await wrapper.get('[data-testid="task-columns-toggle"]').trigger('click')
+    const serialSort = () => wrapper.get('[data-testid="global-serial-no-sort"]')
+    const countSort = () => wrapper.get('[data-testid="affected-transaction-count-sort"]')
+    expect(serialSort().attributes('data-sort')).toBe('default')
+    await wrapper.get('[data-testid="next-page"]').trigger('click')
+    await flushPromises()
+    await serialSort().trigger('click')
+    await flushPromises()
+    expect(serialSort().attributes('data-sort')).toBe('asc')
+    expect(serialSort().attributes('aria-label')).toBe('当前全局流水号升序，点击切换为降序')
+    expect(listReplayIssues).toHaveBeenLastCalledWith(expect.objectContaining({ globalSerialNoOrder: 'ASC', offset: 0 }))
+    await wrapper.get('[data-testid="next-page"]').trigger('click')
+    await flushPromises()
+    expect(listReplayIssues).toHaveBeenLastCalledWith(expect.objectContaining({ globalSerialNoOrder: 'ASC', offset: 50 }))
+    await wrapper.get('[data-testid="page-size"]').setValue('100')
+    await flushPromises()
+    expect(listReplayIssues).toHaveBeenLastCalledWith(expect.objectContaining({ globalSerialNoOrder: 'ASC', limit: 100 }))
+    await serialSort().trigger('click')
+    await flushPromises()
+    expect(serialSort().attributes('data-sort')).toBe('desc')
+    expect(serialSort().find('.lucide-arrow-down-wide-narrow').exists()).toBe(true)
+    expect(listReplayIssues).toHaveBeenLastCalledWith(expect.objectContaining({ globalSerialNoOrder: 'DESC', offset: 0 }))
+    await wrapper.get('[data-testid="export-excel"]').trigger('click')
+    await flushPromises()
+    expect(exportReplayIssues).toHaveBeenLastCalledWith(expect.objectContaining({ globalSerialNoOrder: 'DESC' }))
+    await serialSort().trigger('click')
+    await flushPromises()
+    expect(serialSort().attributes('data-sort')).toBe('default')
+    expect(listReplayIssues.mock.calls.at(-1)[0].globalSerialNoOrder).toBeUndefined()
+    await serialSort().trigger('click')
+    await flushPromises()
+    await countSort().trigger('click')
+    await flushPromises()
+    expect(serialSort().attributes('data-sort')).toBe('default')
+    expect(listReplayIssues).toHaveBeenLastCalledWith(expect.objectContaining({ globalSerialNoOrder: undefined, affectedTransactionCountOrder: 'ASC' }))
+    await serialSort().trigger('click')
+    await flushPromises()
+    expect(countSort().attributes('data-sort')).toBe('default')
+    expect(listReplayIssues).toHaveBeenLastCalledWith(expect.objectContaining({ globalSerialNoOrder: 'ASC', affectedTransactionCountOrder: undefined }))
+    await wrapper.get('[data-testid="reset-filters"]').trigger('click')
+    await flushPromises()
+    expect(serialSort().attributes('data-sort')).toBe('default')
+    expect(wrapper.get('[data-testid="task-columns-toggle"]').attributes('aria-expanded')).toBe('false')
+    await serialSort().trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="replay-type-dz-toolbar"]').trigger('click')
+    await flushPromises()
+    expect(serialSort().attributes('data-sort')).toBe('default')
+    wrapper.unmount()
+  })
+
   it('cycles affected transaction count sorting while preserving header filters', async () => {
     getReplayIssueHeaderFilterOptionCounts.mockResolvedValue(countedOptions(['公共组']))
     const wrapper = mount(ReplayIssuePage)
@@ -909,6 +1050,151 @@ describe('ReplayIssuePage', () => {
     expect(listReplayIssues).toHaveBeenLastCalledWith(expect.objectContaining({
       groupNames: ['公共组'], affectedTransactionCountOrder: undefined, offset: 0,
     }))
+  })
+
+  it('cycles sent volume sorting and retains header filters through paging, page size and export', async () => {
+    getReplayIssueHeaderFilterOptionCounts.mockResolvedValue(countedOptions(['公共组']))
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    const domainHeader = wrapper.findAll('thead th').at(visibleColumnLabels.indexOf('领域'))
+    await domainHeader.get('.replay-header-filter-button').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="header-filter-panel"] input[type="checkbox"]').setValue(true)
+    await wrapper.get('[data-testid="header-filter-panel"] .replay-button-primary').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="next-page"]').trigger('click')
+    await flushPromises()
+
+    const sortButton = wrapper.get('[data-testid="sent-transaction-count-sort"]')
+    expect(sortButton.attributes('data-sort')).toBe('default')
+    expect(sortButton.classes()).not.toContain('is-active')
+    expect(sortButton.attributes('aria-label')).toBe('按发送交易量升序排序')
+
+    await sortButton.trigger('click')
+    await flushPromises()
+    expect(sortButton.attributes('data-sort')).toBe('asc')
+    expect(sortButton.classes()).toContain('is-active')
+    expect(sortButton.find('.lucide-arrow-up-narrow-wide').exists()).toBe(true)
+    expect(sortButton.attributes('aria-label')).toBe('当前发送交易量升序，点击切换为降序')
+    expect(listReplayIssues).toHaveBeenLastCalledWith(expect.objectContaining({
+      groupNames: ['公共组'], sentTransactionCountOrder: 'ASC', offset: 0,
+    }))
+
+    await wrapper.get('[data-testid="next-page"]').trigger('click')
+    await flushPromises()
+    expect(listReplayIssues).toHaveBeenLastCalledWith(expect.objectContaining({
+      groupNames: ['公共组'], sentTransactionCountOrder: 'ASC', limit: 50, offset: 50,
+    }))
+    await wrapper.get('[data-testid="page-size"]').setValue('100')
+    await flushPromises()
+    expect(listReplayIssues).toHaveBeenLastCalledWith(expect.objectContaining({
+      groupNames: ['公共组'], sentTransactionCountOrder: 'ASC', limit: 100, offset: 0,
+    }))
+    await wrapper.get('[data-testid="next-page"]').trigger('click')
+    await flushPromises()
+    await sortButton.trigger('click')
+    await flushPromises()
+    expect(sortButton.attributes('data-sort')).toBe('desc')
+    expect(sortButton.find('.lucide-arrow-down-wide-narrow').exists()).toBe(true)
+    expect(sortButton.attributes('aria-label')).toBe('当前发送交易量降序，点击恢复默认排序')
+    expect(listReplayIssues).toHaveBeenLastCalledWith(expect.objectContaining({
+      groupNames: ['公共组'], sentTransactionCountOrder: 'DESC', limit: 100, offset: 0,
+    }))
+    await wrapper.get('[data-testid="export-excel"]').trigger('click')
+    await flushPromises()
+    expect(exportReplayIssues).toHaveBeenLastCalledWith(expect.objectContaining({
+      groupNames: ['公共组'], sentTransactionCountOrder: 'DESC',
+    }))
+
+    await sortButton.trigger('click')
+    await flushPromises()
+    expect(sortButton.attributes('data-sort')).toBe('default')
+    expect(sortButton.classes()).not.toContain('is-active')
+    expect(sortButton.attributes('aria-label')).toBe('按发送交易量升序排序')
+    expect(listReplayIssues).toHaveBeenLastCalledWith(expect.objectContaining({
+      groupNames: ['公共组'], sentTransactionCountOrder: undefined, offset: 0,
+    }))
+    wrapper.unmount()
+  })
+
+  it.each([
+    ['sent-transaction-count', 'affected-transaction-count', 'affectedTransactionCountOrder'],
+    ['sent-transaction-count', 'global-serial-no', 'globalSerialNoOrder'],
+    ['affected-transaction-count', 'sent-transaction-count', 'sentTransactionCountOrder'],
+    ['global-serial-no', 'sent-transaction-count', 'sentTransactionCountOrder'],
+  ])('switches from %s to %s with exactly one active sort', async (from, to, activeParameter) => {
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+    const sortButton = key => wrapper.get(`[data-testid="${key}-sort"]`)
+    await sortButton(from).trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="next-page"]').trigger('click')
+    await flushPromises()
+    await sortButton(to).trigger('click')
+    await flushPromises()
+
+    expect(sortButton(to).attributes('data-sort')).toBe('asc')
+    expect(sortButton(from).attributes('data-sort')).toBe('default')
+    expect(listReplayIssues).toHaveBeenLastCalledWith(expect.objectContaining({
+      sentTransactionCountOrder: undefined,
+      affectedTransactionCountOrder: undefined,
+      globalSerialNoOrder: undefined,
+      [activeParameter]: 'ASC', offset: 0,
+    }))
+    wrapper.unmount()
+  })
+
+  it.each([
+    ['reset-filters', 'ALL'],
+    ['replay-type-query-toolbar', 'QUERY'],
+    ['replay-type-dz-toolbar', 'DZ'],
+    ['replay-type-all-toolbar', 'ALL'],
+  ])('clears sent volume sorting and returns to the first page on %s', async (action, replayType) => {
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+    const sortButton = wrapper.get('[data-testid="sent-transaction-count-sort"]')
+    await sortButton.trigger('click')
+    await flushPromises()
+    await sortButton.trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="next-page"]').trigger('click')
+    await flushPromises()
+    await wrapper.get(`[data-testid="${action}"]`).trigger('click')
+    await flushPromises()
+
+    expect(sortButton.attributes('data-sort')).toBe('default')
+    expect(listReplayIssues).toHaveBeenLastCalledWith(expect.objectContaining({
+      replayType, sentTransactionCountOrder: undefined, affectedTransactionCountOrder: undefined,
+      globalSerialNoOrder: undefined, offset: 0,
+    }))
+    await wrapper.get('[data-testid="export-excel"]').trigger('click')
+    await flushPromises()
+    expect(exportReplayIssues.mock.calls.at(-1)[0].sentTransactionCountOrder).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('renders sent volume values and row order exactly as the server returns after sorting', async () => {
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+    listReplayIssues.mockResolvedValueOnce({
+      total: 3,
+      items: [
+        { ...fixtureRow, id: 2, sent_transaction_count: '9007199254740993' },
+        { ...fixtureRow, id: 3, sent_transaction_count: '9007199254740992' },
+        { ...fixtureRow, id: 4, sent_transaction_count: null },
+      ],
+    })
+
+    await wrapper.get('[data-testid="sent-transaction-count-sort"]').trigger('click')
+    await flushPromises()
+
+    const rows = wrapper.findAll('[data-testid="replay-row"]')
+    expect(rows.map(row => row.findAll('td').at(visibleColumnLabels.indexOf('发送交易量')).text()))
+      .toEqual(['9007199254740993', '9007199254740992', '-'])
+    expect(rows.map(row => row.get('button[data-testid^="edit-"]').attributes('data-testid')))
+      .toEqual(['edit-2', 'edit-3', 'edit-4'])
+    wrapper.unmount()
   })
 
   it('resizes the long-text filter panel by pointer drag and preserves size until unmount', async () => {
@@ -1480,8 +1766,44 @@ describe('ReplayIssuePage', () => {
     expect(wrapper.text()).toContain('实时从数据库生成')
     expect(wrapper.text()).not.toContain('导入时的快照')
     expect(wrapper.get('[data-testid="daily-report-batch"]').element.value).toBe('RPT20260902-01')
-    expect(wrapper.get('[data-testid="daily-report-batch"]').text()).toContain('RPT20260901-01（没有上批次数据）')
+    expect(wrapper.get('[data-testid="daily-report-batch"]').text()).toContain('RPT20260901-01（批次数据不可用）')
+    expect(wrapper.get('[data-testid="daily-report-batch"] option[value="RPT20260901-01"]').element.disabled).toBe(true)
+    expect(wrapper.get('[data-testid="daily-report-batch"] option[value="RPT20260902-01"]').text()).toBe('RPT20260902-01')
     expect(wrapper.get('[data-testid="generate-daily-report"]').text()).toContain('生成 Excel')
+  })
+
+  it('selects and generates a first daily batch as the reporting baseline without requiring earlier reports', async () => {
+    const firstBatch = {
+      batchNo: 'RPT20260901-01', family: 'RPT', previousBatchNo: null, canGenerate: true, generated: false,
+    }
+    getReplayDailyReportBatches
+      .mockResolvedValueOnce([firstBatch])
+      .mockResolvedValueOnce([{ ...firstBatch, generated: true }])
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+    await wrapper.get('[data-testid="open-daily-report"]').trigger('click')
+    await flushPromises()
+
+    const picker = wrapper.get('[data-testid="daily-report-batch"]')
+    expect(picker.element.value).toBe('RPT20260901-01')
+    expect(picker.get('option').element.disabled).toBe(false)
+    expect(picker.get('option').text()).toBe('RPT20260901-01（统计起点）')
+    const dailyExplanation = wrapper.get('[data-testid="daily-report-modal"] header p').text()
+    expect(dailyExplanation).toContain('对比当前批次与上一批次')
+    expect(dailyExplanation).toContain('数据完整时使用字段差异新算法')
+    expect(dailyExplanation).toContain('历史数据沿用原算法')
+    expect(dailyExplanation).toContain('成功率和比对通过率均输出数值')
+    expect(dailyExplanation).toContain('没有上一批次时，以本批次为统计起点')
+    expect(dailyExplanation).not.toContain('上一批次历史不完整时，从本批次开始统计')
+    expect(wrapper.get('[data-testid="generate-daily-report"]').element.disabled).toBe(false)
+
+    await wrapper.get('[data-testid="generate-daily-report"]').trigger('click')
+    await flushPromises()
+
+    expect(downloadReplayDailyReport).toHaveBeenCalledExactlyOnceWith('RPT20260901-01')
+    expect(wrapper.get('[data-testid="daily-report-batch"] option').text()).toBe('RPT20260901-01（已生成）')
+    expect(wrapper.get('[data-testid="generate-daily-report"]').text()).toContain('下载 Excel')
+    expect(wrapper.get('[data-testid="daily-report-modal"]').text()).toContain('已生成，可直接下载')
   })
 
   it('only closes the daily report dialog from the top-right close button', async () => {
@@ -1537,7 +1859,7 @@ describe('ReplayIssuePage', () => {
     expect(wrapper.get('[data-testid="daily-report-mail-status"]').text()).toContain('未发送')
   })
 
-  it('uses imported daily data copy and regenerates the selected weekly snapshot', async () => {
+  it('explains separate batch quantities and numeric legacy-compatible rates when regenerating the selected weekly report', async () => {
     getReplayWeeklyReportOptions
       .mockResolvedValueOnce({
         dailyBatches: [
@@ -1555,7 +1877,15 @@ describe('ReplayIssuePage', () => {
     await wrapper.get('[data-testid="open-weekly-report"]').trigger('click')
     await flushPromises()
 
-    expect(wrapper.get('[data-testid="weekly-report-modal"]').text()).toContain('存在日报数据')
+    const weeklyExplanation = wrapper.get('[data-testid="weekly-report-modal"] header p').text()
+    expect(weeklyExplanation).toContain('存在日报数据')
+    expect(weeklyExplanation).toContain('数量取各自批次，互不累加')
+    expect(weeklyExplanation).toContain('字段差异数据完整时')
+    expect(weeklyExplanation).toContain('同类全部批次的最新审核、修复结论')
+    expect(weeklyExplanation).toContain('历史数据沿用原算法')
+    expect(weeklyExplanation).toContain('成功率和比对通过率均输出数值')
+    expect(weeklyExplanation).toContain('仅无法确认的明细数量留空并说明')
+    expect(weeklyExplanation).not.toContain('历史数量缺失时留空并说明')
     await wrapper.get('[data-testid="weekly-report-regenerate"]').trigger('click')
     await wrapper.get('[data-testid="weekly-report-regenerate-token"]').setValue('secret')
     await wrapper.get('[data-testid="weekly-report-regenerate-submit"]').trigger('click')
@@ -2510,6 +2840,31 @@ describe('ReplayIssuePage', () => {
     expect(getReplayIssueStats).toHaveBeenCalledTimes(2)
     expect(getReplayIssueOptions).toHaveBeenCalledTimes(2)
     expect(listReplayIssues).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 0 }))
+    expect(wrapper.find('[data-testid="open-import-reopen-records"]').exists()).toBe(false)
+  })
+
+  it('distinguishes new reopenings from inherited state and opens records for that import', async () => {
+    importReplayIssues.mockResolvedValueOnce({ totalRows: 16, createdRows: 0, updatedRows: 16, ignoredRows: 0, reopenedRows: 2, inheritedReopenedRows: 5, importRoundId: 1022 })
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+    await openImport(wrapper)
+    await wrapper.get('[data-testid="submit-import"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('本次新增重开 2 次')
+    expect(wrapper.text()).toContain('继承重开状态 5 条（不计次）')
+    await wrapper.get('[data-testid="import-type-dz"]').setValue(true)
+    await wrapper.get('[data-testid="open-import-reopen-records"]').trigger('click')
+    await vi.waitFor(() => expect(wrapper.findComponent({ name: 'ReplayReopenLedgerModal' }).exists()).toBe(true))
+    const ledger = wrapper.findComponent({ name: 'ReplayReopenLedgerModal' })
+    expect(ledger.props('sourceRoundId')).toBe(1022)
+    expect(ledger.props('replayType')).toBe('QUERY')
+    expect(wrapper.find('[data-testid="submit-import"]').exists()).toBe(false)
+    await ledger.vm.$emit('close')
+    await flushPromises()
+    await wrapper.get('[data-testid="open-reopen-ledger"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.findComponent({ name: 'ReplayReopenLedgerModal' }).props('sourceRoundId')).toBeNull()
+    wrapper.unmount()
   })
 
   it('defaults formal import to query, submits dz, and has no full refresh entry', async () => {
@@ -2526,6 +2881,28 @@ describe('ReplayIssuePage', () => {
 
     expect(importReplayIssues).toHaveBeenCalledWith(selectedFile, 'secret', 'DZ', '2026-10-14 12:00:01')
     expect(wrapper.find('[data-testid="full-refresh-modal"]').exists()).toBe(false)
+  })
+
+  it('waits for the post-import refresh before allowing the reopen records dialog to open', async () => {
+    importReplayIssues.mockResolvedValueOnce({ totalRows: 16, reopenedRows: 2, inheritedReopenedRows: 5, importRoundId: 1022 })
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+    let finishRefresh
+    getReplayIssueOptions.mockImplementationOnce(() => new Promise(resolve => { finishRefresh = resolve }))
+    await openImport(wrapper)
+    await wrapper.get('[data-testid="submit-import"]').trigger('click')
+    await flushPromises()
+    const records = wrapper.get('[data-testid="open-import-reopen-records"]')
+    expect(records.attributes('disabled')).toBeDefined()
+    await records.trigger('click')
+    expect(wrapper.findComponent({ name: 'ReplayReopenLedgerModal' }).exists()).toBe(false)
+    finishRefresh({})
+    await flushPromises()
+    expect(records.attributes('disabled')).toBeUndefined()
+    await records.trigger('click')
+    await vi.waitFor(() => expect(wrapper.findComponent({ name: 'ReplayReopenLedgerModal' }).exists()).toBe(true))
+    expect(wrapper.find('[data-testid="submit-import"]').exists()).toBe(false)
+    wrapper.unmount()
   })
 
   it('disables previous and next controls at server page boundaries', async () => {
@@ -2594,7 +2971,7 @@ describe('ReplayIssuePage', () => {
     const wrapper = mount(ReplayIssuePage)
     await flushPromises()
 
-    expect(wrapper.findAll('thead th').map((header) => header.text())).toEqual(visibleColumnLabels)
+    expect(wrapper.findAll('thead th').map((header) => header.get('span').text())).toEqual(visibleColumnLabels)
     const row = wrapper.get('[data-testid="replay-row"]')
     expect(row.find('.replay-manual-value').exists()).toBe(true)
     expect(row.find('.replay-manual-value').attributes('class')).toContain('replay-manual-value')
@@ -2602,6 +2979,84 @@ describe('ReplayIssuePage', () => {
     expect(row.find('[data-testid="tracking-1"]').exists()).toBe(true)
     expect(row.findAll('select')).toHaveLength(1)
     expect(row.get('[data-testid="issue-domain-select-1"]').exists()).toBe(true)
+  })
+
+  it('places sortable sent transaction volume immediately before occurrence count without a new filter', async () => {
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    const headers = wrapper.findAll('.replay-table thead th')
+    const labels = headers.map(header => header.get('span').text())
+    expect(labels).toContain('发送交易量')
+    const sentIndex = labels.indexOf('发送交易量')
+    expect(labels[sentIndex + 1]).toBe('出现笔数')
+    expect(headers[sentIndex].get('[data-testid="sent-transaction-count-sort"]').exists()).toBe(true)
+    expect(headers[sentIndex].find('.replay-header-filter-button').exists()).toBe(false)
+    expect(headers[sentIndex + 1].get('[data-testid="affected-transaction-count-sort"]').exists()).toBe(true)
+
+    await wrapper.get('[data-testid="task-columns-toggle"]').trigger('click')
+    const collapsedLabels = wrapper.findAll('.replay-table thead th').map(header => header.get('span').text())
+    expect(collapsedLabels.indexOf('发送交易量')).toBe(collapsedLabels.indexOf('出现笔数') - 1)
+    wrapper.unmount()
+  })
+
+  it.each([
+    ['0', '0'],
+    [null, '-'],
+    ['9223372036854775807', '9223372036854775807'],
+  ])('displays sent transaction volume %s as %s without losing integer precision', async (value, expected) => {
+    arrangeApi({ total: 1, items: [{ ...fixtureRow, sent_transaction_count: value }] })
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+
+    expect(wrapper.findAll('.replay-table thead th').map(header => header.get('span').text())).toContain('发送交易量')
+    const cell = wrapper.get('[data-testid="replay-row"]').findAll('td').at(visibleColumnLabels.indexOf('发送交易量'))
+    expect(cell.text()).toBe(expected)
+    expect(cell.attributes('title')).toBe(`点击复制：${expected}`)
+    wrapper.unmount()
+  })
+
+  it.each([
+    ['21', '21'],
+    [null, '-'],
+  ])('replaces sent transaction volume with %s after the next import refresh', async (value, expected) => {
+    arrangeApi({ total: 1, items: [{ ...fixtureRow, sent_transaction_count: '120' }] })
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+    expect(wrapper.findAll('.replay-table thead th').map(header => header.get('span').text())).toContain('发送交易量')
+    const sentCell = () => wrapper.get('[data-testid="replay-row"]').findAll('td').at(visibleColumnLabels.indexOf('发送交易量'))
+    expect(sentCell().text()).toBe('120')
+
+    await openImport(wrapper)
+    listReplayIssues.mockResolvedValueOnce({ total: 1, items: [{ ...fixtureRow, sent_transaction_count: value }] })
+    await wrapper.get('[data-testid="submit-import"]').trigger('click')
+    await flushPromises()
+
+    expect(sentCell().text()).toBe(expected)
+    expect(listReplayIssues).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 0 }))
+    wrapper.unmount()
+  })
+
+  it('keeps sent transaction volume read-only and excludes it from the edit payload', async () => {
+    updateReplayIssue.mockResolvedValueOnce({ ...fixtureRow })
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+    expect(wrapper.findAll('.replay-table thead th').map(header => header.get('span').text())).toContain('发送交易量')
+    const cell = wrapper.get('[data-testid="replay-row"]').findAll('td').at(visibleColumnLabels.indexOf('发送交易量'))
+    expect(cell.find('input, select, textarea').exists()).toBe(false)
+
+    await wrapper.get('[data-testid="edit-1"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="edit-modal"]').text()).not.toContain('发送交易量')
+    await wrapper.get('[data-testid="edit-remark"]').setValue('人工备注更新')
+    await wrapper.get('[data-testid="save-edit"]').trigger('click')
+    await flushPromises()
+
+    expect(updateReplayIssue).toHaveBeenCalledWith(1, {
+      issueStatus: '延后修复', issueType: '代码问题', initialAnalysis: '核对返回值',
+      finalSolution: '修正映射', cooperationPersonUsername: 'sunhy1', remark: '人工备注更新',
+    })
+    wrapper.unmount()
   })
 
   it('displays developer and technology owners in separate columns', async () => {
@@ -2711,7 +3166,7 @@ describe('ReplayIssuePage', () => {
     expect(wrapper.find('[data-testid="edit-modal"]').exists()).toBe(false)
   })
 
-  it('copies complete values only from the nine selected columns', async () => {
+  it('copies complete values only from the ten selected columns', async () => {
     const longDescription = '这是一个在表格中会被省略但复制时必须保留的完整问题描述'.repeat(8)
     arrangeApi({ items: [{ ...fixtureRow, issue_description: longDescription }] })
     const clipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
@@ -2729,7 +3184,7 @@ describe('ReplayIssuePage', () => {
         .filter(Boolean)
 
       expect(copyableLabels).toEqual([
-        '交易名称', '字段名', '问题描述', '初步问题分析', '最终处理方案', '备注', 'issue_key', '流水号', '全局流水号',
+        '交易名称', '字段名', '问题描述', '初步问题分析', '最终处理方案', '备注', '发送交易量', 'issue_key', '流水号', '全局流水号',
       ])
 
       await cells.at(visibleColumnLabels.indexOf('问题描述')).trigger('click')
@@ -2740,6 +3195,42 @@ describe('ReplayIssuePage', () => {
       await flushPromises()
       expect(writeText).toHaveBeenCalledTimes(1)
     } finally {
+      if (clipboardDescriptor) Object.defineProperty(navigator, 'clipboard', clipboardDescriptor)
+      else delete navigator.clipboard
+      if (secureContextDescriptor) Object.defineProperty(window, 'isSecureContext', secureContextDescriptor)
+      else delete window.isSecureContext
+    }
+  })
+
+  it('copies exact sent transaction decimals including zero and skips the null placeholder', async () => {
+    arrangeApi({ total: 3, items: [
+      { ...fixtureRow, id: 1, sent_transaction_count: '9223372036854775807' },
+      { ...fixtureRow, id: 2, sent_transaction_count: '0' },
+      { ...fixtureRow, id: 3, sent_transaction_count: null },
+    ] })
+    const clipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
+    const secureContextDescriptor = Object.getOwnPropertyDescriptor(window, 'isSecureContext')
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+    Object.defineProperty(window, 'isSecureContext', { configurable: true, value: true })
+    const wrapper = mount(ReplayIssuePage)
+
+    try {
+      await flushPromises()
+      expect(wrapper.findAll('.replay-table thead th').map(header => header.get('span').text())).toContain('发送交易量')
+      const cells = wrapper.findAll('[data-testid="replay-row"]').map(row => row.findAll('td').at(visibleColumnLabels.indexOf('发送交易量')))
+      await cells[0].trigger('click')
+      await flushPromises()
+      expect(writeText).toHaveBeenLastCalledWith('9223372036854775807')
+      await cells[1].trigger('click')
+      await flushPromises()
+      expect(writeText).toHaveBeenLastCalledWith('0')
+      await cells[2].trigger('click')
+      await flushPromises()
+      expect(writeText).toHaveBeenCalledTimes(2)
+      expect(wrapper.get('.replay-copy-toast').text()).toBe('暂无内容可复制')
+    } finally {
+      wrapper.unmount()
       if (clipboardDescriptor) Object.defineProperty(navigator, 'clipboard', clipboardDescriptor)
       else delete navigator.clipboard
       if (secureContextDescriptor) Object.defineProperty(window, 'isSecureContext', secureContextDescriptor)
@@ -3139,4 +3630,44 @@ describe('ReplayIssuePage', () => {
     expect(wrapper.find('[data-testid="edit-modal"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="replay-row"]').exists()).toBe(false)
   })
+})
+
+
+describe('reopen lifetime integration', () => {
+  it('loads bulk lifetime counts independently from current status and lazily opens disabled ledger', async () => {
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+    expect(getReopenIssueCounts).toHaveBeenCalledWith([fixtureRow.issue_key])
+    expect(wrapper.get('[data-testid="reopen-count-1"]').text()).toBe('3')
+    expect(getReopenPermissions).not.toHaveBeenCalled()
+    await wrapper.get('[data-testid="open-reopen-ledger"]').trigger('click')
+    await vi.waitFor(() => expect(getReopenPermissions).toHaveBeenCalledOnce())
+    await flushPromises()
+    expect(wrapper.text()).toContain('尚未启用')
+    wrapper.unmount()
+  })
+  it('preserves original issue rows when the unopened feature is disabled', async () => {
+    getReopenIssueCounts.mockRejectedValue(new Error('尚未启用'))
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+    expect(wrapper.findAll('[data-testid="replay-row"]')).toHaveLength(1)
+    expect(wrapper.get('[data-testid="reopen-count-1"]').text()).toBe('—')
+    expect(wrapper.text()).not.toContain('加载失败')
+    wrapper.unmount()
+  })
+  it('ignores old lifetime count responses after pagination', async () => {
+    let resolveOld
+    getReopenIssueCounts.mockReturnValueOnce(new Promise(resolve => { resolveOld = resolve }))
+    const wrapper = mount(ReplayIssuePage)
+    await flushPromises()
+    getReopenIssueCounts.mockResolvedValueOnce({ [fixtureRow.issue_key]: 9 })
+    await wrapper.get('[data-testid="next-page"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="reopen-count-1"]').text()).toBe('9')
+    resolveOld({ [fixtureRow.issue_key]: 2 })
+    await flushPromises()
+    expect(wrapper.get('[data-testid="reopen-count-1"]').text()).toBe('9')
+    wrapper.unmount()
+  })
+
 })

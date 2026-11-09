@@ -124,11 +124,11 @@ const isNotFound   = ref(false)
 const currentRealName = ref('')
 const currentUsername = ref('')
 
-// 右上角展示：realName 优先 → username → 缺省「管理员」
-const displayName = computed(() => currentRealName.value || currentUsername.value || '管理员')
+// 右上角展示：realName 优先 → username → 未获取账号时明确显示状态
+const displayName = computed(() => currentRealName.value || currentUsername.value || '未获取账号')
 const avatarText = computed(() => {
   const name = currentRealName.value || currentUsername.value
-  if (!name) return '管'
+  if (!name) return '?'
   // 中文姓名取首字（如「张伟」→「张」），英文/数字取首字符
   return name.charAt(0).toUpperCase()
 })
@@ -205,7 +205,7 @@ function goTodo(kind) {
 }
 
 onMounted(async () => {
-  // 接入登录用户名显示：成功就更新；失败（未启用/未登录/网络异常）保留缺省"管理员"
+  // 接入登录用户名显示：成功就更新；失败（未启用/未登录/网络异常）不显示虚构身份
   try {
     const user = await getCurrentUser()
     if (user?.username) {
@@ -219,7 +219,7 @@ onMounted(async () => {
       try { window.localStorage?.setItem('dii-user', user.username) } catch {}
     }
   } catch (_) {
-    // 静默：未登录会被 axios 拦截器跳 /login，鉴权未启用就保留缺省文案
+    // 静默：未登录会被 axios 拦截器跳 /login，账号不可用时显示未获取状态
   }
   // 启动计数轮询：每 30s 拉一次
   refreshTodoCount()

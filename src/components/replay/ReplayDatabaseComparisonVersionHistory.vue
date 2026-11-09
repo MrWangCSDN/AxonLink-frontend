@@ -144,7 +144,7 @@
                   >{{ queryConditionText(row) }}</td>
                   <td :data-testid="`history-sample-limit-${row.tableName}`">{{ row.sampleLimit ?? 100 }}</td>
                   <td>{{ personLabel(row.reviserName, row.reviserUsername, row.reviserEmpNo) }}</td>
-                  <td>{{ personLabel(row.groupOwnerName, row.groupOwnerUsername, row.groupOwnerEmpNo) }}</td>
+                  <td>{{ personLabel(row.groupOwnerName, row.groupOwnerUsername) }}</td>
                   <td>{{ row.registeredDate || '-' }}</td>
                 </tr>
                 <tr v-if="!loadingSnapshot && !snapshot.items.length">
@@ -240,6 +240,7 @@ const queryConditionText = row => {
 }
 const personLabel = (name, username, fallback) => {
   const account = username || fallback
+  if (name?.includes('(') && name.endsWith(')')) return name
   if (!name && !account) return '-'
   if (!name || !account || name === account) return name || account
   return `${name}(${account})`

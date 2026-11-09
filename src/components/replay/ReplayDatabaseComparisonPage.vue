@@ -600,9 +600,7 @@ const mapRegistration = registration => ({
   reviserEmpNo: registration.reviserEmpNo,
   groupOwnerUsername: registration.groupOwnerEmpNo || registration.groupOwnerUsername || '',
   groupOwnerName: registration.groupOwnerName || '',
-  groupOwner: registration.groupOwnerName
-    ? `${registration.groupOwnerName}(${registration.groupOwnerEmpNo || ''})`
-    : registration.groupOwner || '',
+  groupOwner: registration.groupOwnerName || registration.groupOwner || '',
   date: registration.registeredDate || registration.date || '',
   metadataValidation: registration.metadataValidation || null,
   whereCondition: registration.whereCondition || null,

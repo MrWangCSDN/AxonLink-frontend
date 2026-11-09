@@ -121,6 +121,26 @@ describe('reopen personnel and batch statistics', () => {
     w.unmount()
   })
 
+  it('keeps the all-batches choice checked when no batch restriction is selected', async () => {
+    const w = mount(Ledger)
+    await flushPromises()
+    const allBatches = w.get('[data-testid="all-batches-option"]')
+    expect(allBatches.element.checked).toBe(true)
+    await allBatches.setValue(false)
+    expect(allBatches.element.checked).toBe(true)
+    await apply(w)
+    expect(api.getReopenStatistics).toHaveBeenLastCalledWith({ replayType: 'ALL', batchNames: [], onlyMine: false })
+
+    await batch(w, 'RPT-1').setValue(true)
+    expect(allBatches.element.checked).toBe(false)
+    await allBatches.setValue(true)
+    expect(allBatches.element.checked).toBe(true)
+    expect(batch(w, 'RPT-1').element.checked).toBe(false)
+    await apply(w)
+    expect(api.getReopenStatistics).toHaveBeenLastCalledWith({ replayType: 'ALL', batchNames: [], onlyMine: false })
+    w.unmount()
+  })
+
   it('ignores late batch options from a previous transaction type', async () => {
     const late = deferred()
     api.getReopenFilters.mockReturnValueOnce(late.promise).mockResolvedValueOnce({ batchNames: ['DZ-2'], issueDomains: [] })

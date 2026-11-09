@@ -30,7 +30,7 @@
               </summary>
               <div class="reopen-batch-options" role="group" aria-label="选择发生批次">
                 <label class="reopen-checkbox">
-                  <input type="checkbox" data-testid="all-batches-option" :checked="!filters.batchNames.length" @change="filters.batchNames = []" />
+                  <input type="checkbox" data-testid="all-batches-option" :checked="!filters.batchNames.length" @change="selectAllBatches" />
                   全部发生批次
                 </label>
                 <p v-if="optionsLoading" role="status">正在读取发生批次…</p>
@@ -134,6 +134,11 @@ function applyFilters() {
   closeBatchPicker()
   applied.value = { ...filters, batchNames: [...filters.batchNames] }
   loadStatistics()
+}
+
+function selectAllBatches(event) {
+  filters.batchNames = []
+  event.target.checked = true
 }
 
 function allBatches() {

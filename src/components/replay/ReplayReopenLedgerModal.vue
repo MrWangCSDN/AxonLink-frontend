@@ -6,17 +6,19 @@
           <h2>重开责任调整台账</h2>
           <p>按发生批次查看人员重开责任分布，责任调整后按当前负责人统计。</p>
         </div>
-        <button type="button" aria-label="关闭重开台账" @click="$emit('close')">关闭</button>
+        <button type="button" aria-label="关闭重开台账" :disabled="countTransferBusy" @click="requestClose">关闭</button>
       </header>
       <p v-if="booting" role="status">正在读取台账权限…</p>
       <p v-else-if="permissions && !permissions.enabled" role="status">重开台账尚未启用，请完成数据迁移与权限配置后启用。</p>
       <p v-if="error" role="alert" class="reopen-error">{{ error }}</p>
+      <p v-if="permissionsError" role="alert" class="reopen-error">{{ permissionsError }}</p>
+      <p v-if="success" role="status" class="reopen-success">{{ success }}</p>
       <template v-if="permissions?.enabled">
         <h3>人员与批次统计</h3>
         <form class="reopen-filters" @submit.prevent="applyFilters">
           <label>
             交易类型
-            <select v-model="filters.replayType" data-testid="replay-type-filter" @change="changeReplayType">
+            <select v-model="filters.replayType" data-testid="replay-type-filter" :disabled="countTransferBusy" @change="changeReplayType">
               <option value="ALL">全部</option>
               <option value="QUERY">查询</option>
               <option value="DZ">动账</option>
@@ -30,12 +32,12 @@
               </summary>
               <div class="reopen-batch-options" role="group" aria-label="选择发生批次">
                 <label class="reopen-checkbox">
-                  <input type="checkbox" data-testid="all-batches-option" :checked="!filters.batchNames.length" @change="selectAllBatches" />
+                  <input type="checkbox" data-testid="all-batches-option" :checked="!filters.batchNames.length" :disabled="countTransferBusy" @change="selectAllBatches" />
                   全部发生批次
                 </label>
                 <p v-if="optionsLoading" role="status">正在读取发生批次…</p>
                 <label v-for="batch in batchOptions" :key="batch" class="reopen-checkbox">
-                  <input v-model="filters.batchNames" type="checkbox" :value="batch" :data-batch="batch" />
+                  <input v-model="filters.batchNames" type="checkbox" :value="batch" :data-batch="batch" :disabled="countTransferBusy" />
                   {{ batch }}
                 </label>
                 <p v-if="!optionsLoading && !batchOptions.length">当前交易类型暂无发生批次</p>
@@ -43,43 +45,53 @@
             </details>
           </div>
           <label class="reopen-checkbox">
-            <input v-model="filters.onlyMine" type="checkbox" data-testid="only-mine-filter" />
+            <input v-model="filters.onlyMine" type="checkbox" data-testid="only-mine-filter" :disabled="countTransferBusy" />
             仅看本人
           </label>
-          <button class="reopen-primary" type="submit" data-testid="apply-reopen-filters">应用筛选</button>
-          <button type="button" data-testid="all-reopen-batches" @click="allBatches">全部批次</button>
+          <button class="reopen-primary" type="submit" data-testid="apply-reopen-filters" :disabled="countTransferBusy">应用筛选</button>
+          <button type="button" data-testid="all-reopen-batches" :disabled="countTransferBusy" @click="allBatches">全部批次</button>
         </form>
         <p v-if="optionsError" role="alert" class="reopen-error">{{ optionsError }} <button type="button" @click="loadOptions">重新读取批次</button></p>
         <p data-testid="applied-reopen-scope">当前统计范围 {{ typeLabels[applied.replayType] }} · {{ applied.batchNames.length ? applied.batchNames.join('、') : '全部发生批次' }}{{ applied.onlyMine ? ' · 仅看本人' : '' }}</p>
         <p v-if="loading" role="status">正在读取人员与批次统计…</p>
-        <ReplayReopenStatistics v-if="statistics" :data="statistics" />
+        <div v-if="countTransfer" ref="transferPanel">
+          <ReplayReopenCountTransferForm :person="countTransfer.person" :scope="countTransfer.scope" :can-transfer-counts="permissions.canTransferCounts === true" @busy="countTransferBusy = $event" @close="countTransfer = null" @changed="countTransferred" />
+        </div>
+        <ReplayReopenStatistics v-if="statistics" :data="statistics" :can-transfer-counts="permissions.canTransferCounts === true && !countTransferBusy" @transfer="openCountTransfer" />
       </template>
     </section>
   </div>
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { getReopenPermissions, getReopenFilters, getReopenStatistics } from '../../api/replayReopens.js'
 import ReplayReopenStatistics from './ReplayReopenStatistics.vue'
+import ReplayReopenCountTransferForm from './ReplayReopenCountTransferForm.vue'
 
 const props = defineProps({ replayType: { type: String, default: 'ALL' } })
-defineEmits(['close'])
+const emit = defineEmits(['close'])
 const permissions = ref(null)
 const booting = ref(true)
 const error = ref('')
+const permissionsError = ref('')
+const success = ref('')
 const optionsError = ref('')
 const loading = ref(false)
 const optionsLoading = ref(false)
 const batchNames = ref([])
 const batchPicker = ref(null)
 const statistics = ref(null)
+const countTransfer = ref(null)
+const countTransferBusy = ref(false)
+const transferPanel = ref(null)
 const filters = reactive({ replayType: props.replayType, batchNames: [], onlyMine: false })
 const applied = ref({ ...filters, batchNames: [] })
 const typeLabels = { ALL: '全部交易类型', QUERY: '查询', DZ: '动账' }
 const batchOptions = computed(() => batchNames.value.filter(batchMatchesType))
 let listSerial = 0
 let optionsSerial = 0
+let permissionsSerial = 0
 let alive = true
 
 function batchMatchesType(batch) {
@@ -122,6 +134,9 @@ async function loadOptions() {
 }
 
 function changeReplayType() {
+  if (countTransferBusy.value) return
+  countTransfer.value = null
+  success.value = ''
   filters.batchNames = filters.batchNames.filter(batchMatchesType)
   loadOptions()
 }
@@ -131,6 +146,9 @@ function closeBatchPicker() {
 }
 
 function applyFilters() {
+  if (countTransferBusy.value) return
+  countTransfer.value = null
+  success.value = ''
   closeBatchPicker()
   applied.value = { ...filters, batchNames: [...filters.batchNames] }
   loadStatistics()
@@ -142,24 +160,55 @@ function selectAllBatches(event) {
 }
 
 function allBatches() {
+  if (countTransferBusy.value) return
   filters.batchNames = []
   applyFilters()
 }
 
-onMounted(async () => {
+function requestClose() {
+  if (!countTransferBusy.value) emit('close')
+}
+
+async function refreshPermissions() {
+  const serial = ++permissionsSerial
+  permissionsError.value = ''
   try {
     const result = await getReopenPermissions()
-    if (alive) permissions.value = result
+    if (alive && serial === permissionsSerial) permissions.value = result
   } catch (cause) {
-    if (alive) error.value = cause.message || '权限读取失败，请重试'
-  } finally {
-    if (alive) booting.value = false
+    if (alive && serial === permissionsSerial) {
+      permissionsError.value = cause.message || '权限读取失败，请重试'
+      if (permissions.value) permissions.value = { ...permissions.value, canTransferCounts: false }
+    }
   }
+}
+
+async function openCountTransfer(person) {
+  if (!permissions.value?.canTransferCounts || countTransferBusy.value || person.currentCount <= 0) return
+  countTransfer.value = {
+    person: { ...person },
+    scope: { ...applied.value, batchNames: [...applied.value.batchNames] },
+  }
+  success.value = ''
+  await nextTick()
+  transferPanel.value?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' })
+}
+
+async function countTransferred(result) {
+  countTransferBusy.value = false
+  countTransfer.value = null
+  success.value = `已转移 ${result.count} 次`
+  await Promise.all([refreshPermissions(), loadStatistics()])
+}
+
+onMounted(async () => {
+  await refreshPermissions()
+  if (alive) booting.value = false
   if (alive && permissions.value?.enabled) {
     loadOptions()
     loadStatistics()
   }
 })
-onBeforeUnmount(() => { alive = false; listSerial++; optionsSerial++ })
+onBeforeUnmount(() => { alive = false; listSerial++; optionsSerial++; permissionsSerial++ })
 </script>
 <style src="./replayReopen.css"></style>

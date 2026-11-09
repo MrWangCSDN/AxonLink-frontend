@@ -29,6 +29,7 @@
 import { computed, reactive, ref } from 'vue'
 import { createReopenAppeal } from '../../api/replayReopens.js'
 import ReplayReopenUserPicker from './ReplayReopenUserPicker.vue'
+import { newReopenRequestId } from './reopenRequestId.js'
 const props = defineProps({ selection: { type: Array, required: true } })
 const emit = defineEmits(['changed', 'close'])
 const draft = reactive({ owner: '', reason: '', evidence: '' }), busy = ref(false), error = ref('')
@@ -39,25 +40,13 @@ const compatible = computed(() => {
 })
 const valid = computed(() => compatible.value && draft.owner && draft.owner !== props.selection[0]?.event.currentOwnerUsername && draft.reason.trim() && draft.evidence.trim())
 let requestId = '', signature = ''
-function newRequestId() {
-  const cryptoApi = globalThis.crypto
-  if (typeof cryptoApi?.randomUUID === 'function') return cryptoApi.randomUUID()
-  if (typeof cryptoApi?.getRandomValues !== 'function') {
-    throw new Error('当前浏览器无法生成安全的请求编号，请更换浏览器后重试；草稿已保留。')
-  }
-  const bytes = cryptoApi.getRandomValues(new Uint8Array(16))
-  bytes[6] = (bytes[6] & 0x0f) | 0x40
-  bytes[8] = (bytes[8] & 0x3f) | 0x80
-  const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('')
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
-}
 async function submit() {
   if (busy.value || !valid.value) return
   const body = { eventIds: props.selection.map(item => item.event.id), expectedVersions: Object.fromEntries(props.selection.map(item => [item.event.id, item.event.version])), kind: kind.value, suggestedOwnerUsername: draft.owner, reason: draft.reason.trim(), evidence: draft.evidence.trim() }
   const nextSignature = JSON.stringify(body)
   busy.value = true; error.value = ''
   try {
-    if (signature !== nextSignature) { requestId = newRequestId(); signature = nextSignature }
+    if (signature !== nextSignature) { requestId = newReopenRequestId(); signature = nextSignature }
     await createReopenAppeal({ requestId, ...body })
     emit('changed')
   }

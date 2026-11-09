@@ -27,6 +27,7 @@ describe('reopen API contract', () => {
     ['getReopenEvent', [7], '/events/7', undefined],
     ['getReopenHistory', [7, { page: 3, pageSize: 20 }], '/events/7/history?page=3&pageSize=20', undefined],
     ['getReopenIssueCounts', [['A', 'B']], '/issue-counts', { issueKeys: ['A', 'B'] }],
+    ['transferReopenCounts', [{ requestId: 'c538a5a1-56a6-463d-858a-cbddc18866cc', replayType: 'QUERY', batchNames: ['RPT-1'], sourceOwnerUsername: null, targetOwnerUsername: 'bob', count: 2, reason: '核实归属' }], '/count-transfers', { requestId: 'c538a5a1-56a6-463d-858a-cbddc18866cc', replayType: 'QUERY', batchNames: ['RPT-1'], sourceOwnerUsername: null, targetOwnerUsername: 'bob', count: 2, reason: '核实归属' }],
     ['listReopenAppeals', [{ assignedToMe: true }], '/appeals?assignedToMe=true', undefined],
     ['getReopenAppeal', [3], '/appeals/3', undefined],
     ['createReopenAppeal', [{ requestId: 'uuid', eventIds: [7], expectedVersions: { 7: 2 }, kind: 'RECHECK', suggestedOwnerUsername: 'liu', reason: '原因', evidence: '日志' }], '/appeals', { requestId: 'uuid', eventIds: [7], expectedVersions: { 7: 2 }, kind: 'RECHECK', suggestedOwnerUsername: 'liu', reason: '原因', evidence: '日志' }],

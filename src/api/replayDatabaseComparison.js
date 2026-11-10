@@ -115,6 +115,18 @@ export function createRegistration(body) {
   return request(PREFIX, json('POST', body))
 }
 
+export function analyzeCustomSql(sql) {
+  return request(`${PREFIX}/custom-sql/analyze`, json('POST', { sql }))
+}
+
+export function createCustomSqlRegistration(body) {
+  return request(`${PREFIX}/custom-sql`, json('POST', body))
+}
+
+export function updateCustomSqlRegistration(id, body) {
+  return request(`${PREFIX}/custom-sql/${encodeURIComponent(id)}`, json('PUT', body))
+}
+
 export function updateRegistration(id, body) {
   return request(`${PREFIX}/${encodeURIComponent(id)}`, json('PUT', body))
 }

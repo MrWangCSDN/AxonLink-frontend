@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('./index.js', () => ({ request: vi.fn(), download: vi.fn() }))
 
 import { download, request } from './index.js'
+import * as comparisonApi from './replayDatabaseComparison.js'
 import {
   createRegistration,
   deleteRegistration,
@@ -37,6 +38,21 @@ describe('replayDatabaseComparison api', () => {
     request.mockReset()
     download.mockReset()
     global.fetch = vi.fn()
+  })
+
+  it('analyzes and saves custom SQL registrations through their dedicated routes', async () => {
+    expect(comparisonApi.analyzeCustomSql).toBeTypeOf('function')
+    const sql = 'select account_id, sum(amount) as total_amt from account group by account_id'
+    const body = { displayName: '账户金额汇总', sourceTableName: 'account', sql,
+      fieldNames: ['account_id', 'total_amt'], resultKeyColumns: ['account_id'], version: 3 }
+    await comparisonApi.analyzeCustomSql(sql)
+    await comparisonApi.createCustomSqlRegistration(body)
+    await comparisonApi.updateCustomSqlRegistration(7, body)
+    expect(request.mock.calls).toEqual([
+      ['/ai/parallel-replay/database-comparison-fields/custom-sql/analyze', { method: 'POST', body: JSON.stringify({ sql }) }],
+      ['/ai/parallel-replay/database-comparison-fields/custom-sql', { method: 'POST', body: JSON.stringify(body) }],
+      ['/ai/parallel-replay/database-comparison-fields/custom-sql/7', { method: 'PUT', body: JSON.stringify(body) }],
+    ])
   })
 
   it('uses the employee-only technology owner search without changing collaborator lookup', async () => {

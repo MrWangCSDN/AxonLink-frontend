@@ -34,7 +34,8 @@
               <span class="version-number">{{ version.versionNo }}</span>
               <span v-if="version.latest" class="latest-badge">最新</span>
               <small>{{ version.generatedName || '-' }} · {{ formatDateTime(version.generatedAt) }}</small>
-              <small>{{ version.tableCount }} 张表 · {{ version.fieldCount }} 个字段</small>
+              <small>{{ version.tableCount }} {{ version.customSqlCount ? '个比对项' : '张表' }} · {{ version.fieldCount }} 个字段</small>
+              <small v-if="version.customSqlCount">普通表登记 {{ version.tableCount - version.customSqlCount }} · SQL 登记 {{ version.customSqlCount }}</small>
             </button>
             <p v-if="!loadingVersions && !versions.length" class="empty-state">暂无历史版本</p>
           </div>
@@ -46,7 +47,7 @@
               <strong>{{ selectedVersionNo || '未选择版本' }}</strong>
               <span>不可编辑的生成快照</span>
             </div>
-            <span>共 {{ snapshot.total }} 张表</span>
+            <span>共 {{ snapshot.total }} {{ versions.find(version => version.versionNo === selectedVersionNo)?.customSqlCount ? '个比对项' : '张表' }}</span>
           </div>
 
           <div class="filter-section">
@@ -129,7 +130,7 @@
               </thead>
               <tbody>
                 <tr v-for="row in snapshot.items" :key="`${row.sourceRegistrationId}-${row.tableName}`">
-                  <td><strong>{{ row.tableName }}</strong><small>{{ row.tableComment || '-' }}</small></td>
+                  <td><strong>{{ row.customSql ? row.tableComment : row.tableName }}</strong><small v-if="row.customSql"><span class="sql-badge">SQL</span> {{ row.tableName }} · 来源 {{ row.customSql.sourceTableName }}</small><small v-else>{{ row.tableComment || '-' }}</small></td>
                   <td>{{ row.domainName || '-' }}</td>
                   <td :data-testid="`history-comparison-key-${row.tableName}`">{{ formatComparisonKey(row.comparisonKey) }}</td>
                   <td class="field-cell">
@@ -141,7 +142,7 @@
                     class="query-condition-cell"
                     :data-testid="`history-query-condition-${row.tableName}`"
                     :title="queryConditionText(row)"
-                  >{{ queryConditionText(row) }}</td>
+                  ><template v-if="row.customSql"><DiiSqlPre :text="row.customSql.sql" label="自定义 SQL" /><small v-if="row.compareLimit">外层比对条数 {{ row.compareLimit }}</small></template><template v-else>{{ queryConditionText(row) }}</template></td>
                   <td :data-testid="`history-sample-limit-${row.tableName}`">{{ row.sampleLimit ?? 100 }}</td>
                   <td>{{ personLabel(row.reviserName, row.reviserUsername, row.reviserEmpNo) }}</td>
                   <td>{{ personLabel(row.groupOwnerName, row.groupOwnerUsername) }}</td>
@@ -175,6 +176,7 @@
 
 <script setup>
 import { computed, reactive, ref, watch } from 'vue'
+import DiiSqlPre from '../daoindex/widgets/DiiSqlPre.vue'
 import {
   downloadVersionConfigScript,
   generateVersionConfigScript,
@@ -215,15 +217,19 @@ const formatDateTime = value => value ? value.replace('T', ' ') : '-'
 const formatField = field => field.columnComment
   ? `${field.columnName}(${field.columnComment})`
   : field.columnName
-const formatComparisonKey = key => key
-  ? `${key.indexType === 'PRIMARY_KEY' ? '主键' : '唯一索引'} · ${key.indexName} · ${key.columnNames.join('、')}`
-  : '历史默认主键'
+const formatComparisonKey = key => {
+  if (!key) return '历史默认主键'
+  if (key.indexType === 'RESULT_KEY') return `结果比对键 · ${key.columnNames.join('、')}`
+  return `${key.indexType === 'PRIMARY_KEY' ? '主键' : '唯一索引'} · ${key.indexName} · ${key.columnNames.join('、')}`
+}
 const selectedIndexFieldLabel = (row, field) => {
   if (!row.comparisonKey) return field.primaryKey ? '主键' : ''
   if (!row.comparisonKey.columnNames.some(name => name.toLocaleLowerCase() === field.columnName?.toLocaleLowerCase())) return ''
+  if (row.comparisonKey.indexType === 'RESULT_KEY') return '结果比对键'
   return row.comparisonKey.indexType === 'UNIQUE_INDEX' ? '唯一索引' : '主键'
 }
 const queryConditionText = row => {
+  if (row.customSql) return row.customSql.sql
   const parts = []
   const whereSql = String(row?.whereSql || '').trim().replace(/^where\s+/i, '')
   if (whereSql) parts.push(`WHERE ${whereSql}`)
@@ -391,6 +397,7 @@ watch(() => props.open, value => {
 </script>
 
 <style scoped>
+.sql-badge { display: inline-block; padding: 1px 5px; border-radius: 3px; background: var(--bg-domain-active); color: var(--text-active); font-size: 11px; }
 .history-backdrop { position: fixed; inset: 0; z-index: 1600; display: grid; place-items: center; padding: 24px; background: rgba(18, 29, 43, .48); }
 .history-dialog { width: min(1500px, 96vw); height: min(840px, 92vh); display: grid; grid-template-rows: auto minmax(0, 1fr); overflow: hidden; border-radius: 8px; background: #f4f7f9; box-shadow: 0 22px 60px rgba(15, 30, 45, .28); }
 .history-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid #dfe6ec; background: #fff; }

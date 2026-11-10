@@ -43,6 +43,25 @@ const groups = [{
 }]
 
 describe('ReplayDatabaseComparisonAuditDialog', () => {
+  it('shows and copies complete custom SQL and result-key changes using their audit labels', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+    const beforeSql = 'select currency, sum(amount) as total_amt\nfrom acct group by currency'
+    const afterSql = `${beforeSql} having sum(amount) > 0`
+    const wrapper = mount(ReplayDatabaseComparisonAuditDialog, { props: { tableName: 'sql_one', events: [{
+      id: 201, operation: 'UPDATE', operatedAt: '2026-11-10 21:00:00', operatorName: '张三',
+      details: [
+        { id: 1, changeType: 'MODIFY', fieldCode: 'customSql', fieldLabel: '自定义 SQL', beforeValue: beforeSql, afterValue: afterSql },
+        { id: 2, changeType: 'MODIFY', fieldCode: 'comparisonKey', fieldLabel: '结果比对键', beforeValue: 'currency', afterValue: 'currency、branch' },
+      ],
+    }] } })
+    await wrapper.get('[data-testid="toggle-audit-event-201"]').trigger('click')
+    expect(wrapper.get('[data-testid="audit-detail-201-1"]').text()).toContain(afterSql)
+    expect(wrapper.get('[data-testid="audit-detail-201-2"]').text()).toContain('结果比对键')
+    await wrapper.get('[data-testid="copy-audit-event-201"]').trigger('click')
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining(afterSql))
+    wrapper.unmount()
+  })
   it('searches globally and renders newest audit events first', async () => {
     const wrapper = mount(ReplayDatabaseComparisonAuditDialog, {
       props: { groups, page: 0, size: 20, total: 1, totalPages: 1, loading: false },

@@ -430,6 +430,7 @@ const generationError = ref('')
 const generationMessage = ref('')
 const generationGateErrors = ref([])
 const gateStatusLabel = {
+  DOMAIN_MAPPING_MISSING: '领域缺少映射',
   MISSING_FIELDS: '比对字段母库中不存在',
   ORDERING_PRIMARY_KEY_CHANGED: '排序主键已变更',
   TABLE_MISSING: '母库表已删除',

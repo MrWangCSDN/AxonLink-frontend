@@ -595,6 +595,56 @@ describe('ReplayDatabaseComparisonPage', () => {
     expect(wrapper.get('[data-testid="generation-dialog"]').exists()).toBe(true)
   })
 
+  it('shows missing domain mappings before generation and clears the gate errors on a successful retry', async () => {
+    useRealMode([registrationRow])
+    comparisonApi.loadLatestVersion.mockResolvedValue({
+      versionNo: '20260914-120000', tableCount: 1, fieldCount: 1,
+    })
+    const error = new Error('2 张表未通过版本生成门禁')
+    error.code = 'VERSION_GATE_BLOCKED'
+    error.data = { errors: [
+      { tableName: 'acct_master', tableComment: '账户主表', reviserName: '张三', groupOwnerName: '李经理', status: 'DOMAIN_MAPPING_MISSING', missingFieldNames: [], reason: '领域无法映射：未配置领域一' },
+      { tableName: 'loan_master', tableComment: '贷款主表', reviserName: '李四', groupOwnerName: '赵经理', status: 'DOMAIN_MAPPING_MISSING', missingFieldNames: [], reason: '领域无法映射：未配置领域二' },
+    ] }
+    let finishGeneration
+    comparisonApi.generateVersion
+      .mockRejectedValueOnce(error)
+      .mockImplementationOnce(() => new Promise(resolve => { finishGeneration = resolve }))
+
+    const wrapper = mount(ReplayDatabaseComparisonPage)
+    await flushPromises()
+    await wrapper.get('[data-testid="generate-version"]').trigger('click')
+    await wrapper.get('[data-testid="generation-token"]').setValue('secret')
+    await wrapper.get('[data-testid="confirm-generate-version"]').trigger('click')
+    await flushPromises()
+
+    const errors = wrapper.findAll('[data-testid="generation-gate-error-row"]')
+    expect(errors).toHaveLength(2)
+    expect(errors[0].text()).toContain('acct_master')
+    expect(errors[0].text()).toContain('领域无法映射：未配置领域一')
+    expect(errors[1].text()).toContain('loan_master')
+    expect(errors[1].text()).toContain('领域无法映射：未配置领域二')
+    expect(errors.map(row => row.get('.gate-status').text())).toEqual(['领域缺少映射', '领域缺少映射'])
+    expect(wrapper.get('[data-testid="generation-dialog"]').exists()).toBe(true)
+    expect(wrapper.get('h2').text()).toContain('20260914-120000')
+    expect(wrapper.text()).not.toContain('已生成版本')
+    expect(wrapper.get('[data-testid="table-name-acct"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="confirm-generate-version"]').element.disabled).toBe(false)
+
+    await wrapper.get('[data-testid="confirm-generate-version"]').trigger('click')
+    expect(wrapper.find('[data-testid="generation-gate-errors"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="generation-error"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="generation-dialog"]').exists()).toBe(true)
+
+    finishGeneration({ versionNo: '20260914-150101', tableCount: 1, fieldCount: 1 })
+    await flushPromises()
+
+    expect(wrapper.get('h2').text()).toContain('20260914-150101')
+    expect(wrapper.text()).toContain('已生成版本，共 1 张表、1 个字段')
+    expect(wrapper.find('[data-testid="generation-dialog"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('未配置领域')
+  })
+
   it('loads the first real list without waiting for primary-key synchronization and refreshes after changes', async () => {
     let finishSynchronization
     comparisonApi.synchronizePrimaryKeys.mockReturnValue(new Promise(resolve => { finishSynchronization = resolve }))

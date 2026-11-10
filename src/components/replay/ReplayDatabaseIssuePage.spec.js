@@ -517,6 +517,81 @@ describe('ReplayDatabaseIssuePage',()=>{
       expect(api.updateDatabaseIssue).toHaveBeenCalledExactlyOnceWith(1,expect.objectContaining({issueStatus:'延后修复',issueType:'修改比对规则'}))
     } finally { w.unmount() }
   })
+  it.each(['backdrop', 'Escape'])('keeps the database edit dialog and its draft after %s', async closeAttempt => {
+    const wrapper = mount(ReplayDatabaseIssuePage, { attachTo: document.body })
+    try {
+      await flushPromises()
+      await wrapper.get('[data-testid="edit-1"]').trigger('click')
+      await wrapper.get('[data-testid="edit-analysis"]').setValue('未保存的分析')
+      await wrapper.get('[data-testid="edit-remark"]').setValue('未保存的备注')
+
+      if (closeAttempt === 'backdrop') await wrapper.get('.modal-mask').trigger('click')
+      else window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      await flushPromises()
+
+      expect(wrapper.find('[data-testid="edit-modal"]').exists()).toBe(true)
+      expect(wrapper.get('[data-testid="edit-analysis"]').element.value).toBe('未保存的分析')
+      expect(wrapper.get('[data-testid="edit-remark"]').element.value).toBe('未保存的备注')
+      expect(api.updateDatabaseIssue).not.toHaveBeenCalled()
+    } finally { wrapper.unmount() }
+  })
+
+  it('offers the X button as the explicit edit-close action and saves from the footer', async () => {
+    const wrapper = mount(ReplayDatabaseIssuePage)
+    try {
+      await flushPromises()
+      await wrapper.get('[data-testid="edit-1"]').trigger('click')
+      expect(wrapper.get('[data-testid="edit-modal"]').findAll('footer button').map(button => button.text()))
+        .toEqual(['保存'])
+
+      await wrapper.get('[aria-label="关闭编辑"]').trigger('click')
+
+      expect(wrapper.find('[data-testid="edit-modal"]').exists()).toBe(false)
+      expect(api.updateDatabaseIssue).not.toHaveBeenCalled()
+    } finally { wrapper.unmount() }
+  })
+
+  it('protects the pending save and lets X close the retained draft after a save failure', async () => {
+    let rejectSave
+    api.updateDatabaseIssue.mockImplementationOnce(() => new Promise((resolve, reject) => { rejectSave = reject }))
+    const wrapper = mount(ReplayDatabaseIssuePage, { attachTo: document.body })
+    try {
+      await flushPromises()
+      await wrapper.get('[data-testid="edit-1"]').trigger('click')
+      await wrapper.get('[data-testid="edit-type"]').setValue('修改比对规则')
+      await wrapper.get('[data-testid="edit-analysis"]').setValue('提交中的分析')
+      await wrapper.get('[data-testid="save-edit"]').trigger('click')
+      expect(wrapper.get('[aria-label="关闭编辑"]').element.disabled).toBe(true)
+      await wrapper.get('[aria-label="关闭编辑"]').trigger('click')
+      await wrapper.get('.modal-mask').trigger('click')
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      await flushPromises()
+      expect(wrapper.find('[data-testid="edit-modal"]').exists()).toBe(true)
+      expect(api.updateDatabaseIssue).toHaveBeenCalledTimes(1)
+
+      rejectSave(new Error('保存失败，请重试'))
+      await flushPromises()
+      expect(wrapper.get('[data-testid="edit-analysis"]').element.value).toBe('提交中的分析')
+      expect(wrapper.get('[data-testid="edit-modal"] [role="alert"]').text()).toContain('保存失败')
+      expect(wrapper.get('[aria-label="关闭编辑"]').element.disabled).toBe(false)
+      await wrapper.get('[aria-label="关闭编辑"]').trigger('click')
+      expect(wrapper.find('[data-testid="edit-modal"]').exists()).toBe(false)
+    } finally { wrapper.unmount() }
+  })
+
+  it('continues closing the tracking drawer with Escape', async () => {
+    const wrapper = mount(ReplayDatabaseIssuePage, { attachTo: document.body })
+    try {
+      await flushPromises()
+      await wrapper.get('[data-testid="tracking-1"]').trigger('click')
+      await flushPromises()
+      expect(wrapper.find('[data-testid="tracking-drawer"]').exists()).toBe(true)
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      await flushPromises()
+      expect(wrapper.find('[data-testid="tracking-drawer"]').exists()).toBe(false)
+    } finally { wrapper.unmount() }
+  })
+
   it('saves valid human fields with optimistic version and retains level',async()=>{api.updateDatabaseIssue.mockResolvedValue({...row,issueStatus:'打开',issueType:'修改比对规则',version:1});const w=mount(ReplayDatabaseIssuePage);await flushPromises();await w.get('[data-testid="edit-1"]').trigger('click');await w.get('[data-testid="edit-status"]').setValue('打开');await w.get('[data-testid="edit-type"]').setValue('修改比对规则');await w.get('[data-testid="edit-analysis"]').setValue('人工分析');await w.get('[data-testid="save-edit"]').trigger('click');await flushPromises();expect(api.updateDatabaseIssue).toHaveBeenCalledWith(1,expect.objectContaining({version:0,issueStatus:'打开',issueType:'修改比对规则',initialAnalysis:'人工分析'}));expect(w.find('[data-testid="edit-modal"]').exists()).toBe(false)})
   it('validates required problem type and keeps failed saves open',async()=>{const w=mount(ReplayDatabaseIssuePage);await flushPromises();await w.get('[data-testid="edit-1"]').trigger('click');await w.get('[data-testid="save-edit"]').trigger('click');expect(api.updateDatabaseIssue).not.toHaveBeenCalled();expect(w.get('[data-testid="edit-modal"]').text()).toContain('请选择问题类型');await w.get('[data-testid="edit-type"]').setValue('修改比对规则');api.updateDatabaseIssue.mockRejectedValue(new Error('记录已更新，请刷新后重新编辑'));await w.get('[data-testid="save-edit"]').trigger('click');await flushPromises();expect(w.get('[data-testid="edit-modal"]').text()).toContain('记录已更新')})
   it('groups tracking by batch with source values and chronological events',async()=>{const w=mount(ReplayDatabaseIssuePage);await flushPromises();await w.get('[data-testid="tracking-1"]').trigger('click');await flushPromises();expect(w.get('[data-testid="tracking-drawer"]').text()).toContain('DB20261012-01');expect(w.get('[data-testid="tracking-drawer"]').text()).toContain('导入新增');await w.get('[data-testid="original-data-toggle"]').trigger('click');expect(w.get('[data-testid="tracking-drawer"]').text()).toContain(row.issueId)})

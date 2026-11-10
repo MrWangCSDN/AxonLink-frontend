@@ -113,14 +113,14 @@
       <footer><button class="button" :disabled="importing" @click="closeImport">关闭</button><button class="button primary" :disabled="!canSubmitImport" data-testid="submit-import" @click="submitImport"><Upload :size="15" />{{ importing ? '导入中…' : '开始导入' }}</button></footer>
     </section></div>
 
-    <div v-if="editRow" class="modal-mask" @click.self="closeEdit"><section class="dialog edit-dialog" role="dialog" aria-modal="true" aria-labelledby="database-edit-title" data-testid="edit-modal"><header><div><h3 id="database-edit-title">编辑数据库问题</h3><p>{{ editRow.issueId }} · {{ editRow.batchNo }}</p></div><button class="icon-button" :disabled="saving" aria-label="关闭编辑" @click="closeEdit"><X :size="17" /></button></header>
+    <div v-if="editRow" class="modal-mask"><section class="dialog edit-dialog" role="dialog" aria-modal="true" aria-labelledby="database-edit-title" data-testid="edit-modal"><header><div><h3 id="database-edit-title">编辑数据库问题</h3><p>{{ editRow.issueId }} · {{ editRow.batchNo }}</p></div><button class="icon-button" :disabled="saving" aria-label="关闭编辑" @click="closeEdit"><X :size="17" /></button></header>
       <div class="edit-fields"><label><span>问题状态</span><select v-model="draft.issueStatus" data-testid="edit-status" @change="statusChanged"><option v-if="!manualStatuses.includes(draft.issueStatus)" :value="draft.issueStatus">当前：{{ draft.issueStatus }}</option><option v-for="value in editableStatuses" :key="value">{{ value }}</option></select></label>
       <label><span class="field-label">问题类型 <em class="required-mark">*</em></span><select v-model="draft.issueType" data-testid="edit-type" @change="editError = ''"><option value="">请选择问题类型</option><option v-for="value in editableTypes" :key="value">{{ value }}</option></select></label>
       <label class="wide"><span>初步问题分析 <small>{{ draft.initialAnalysis.length }}/500</small></span><textarea v-model="draft.initialAnalysis" maxlength="500" rows="4" data-testid="edit-analysis" /></label>
       <label class="wide"><span>最终处理方案 <small>{{ draft.finalSolution.length }}/500</small></span><textarea v-model="draft.finalSolution" maxlength="500" rows="4" data-testid="edit-solution" /></label>
       <label class="wide"><span>备注 <small>{{ draft.remark.length }}/500</small></span><textarea v-model="draft.remark" maxlength="500" rows="3" data-testid="edit-remark" /></label>
       <label class="wide collaborator-field"><span>需协同人</span><div class="user-picker"><input v-model="collaboratorText" type="search" placeholder="姓名或账号" data-testid="edit-collaborator" autocomplete="off" @input="searchCollaborator" /><ul v-if="collaborators.length" class="user-options"><li v-for="user in collaborators" :key="user.username"><button @click="selectCollaborator(user)">{{ user.realName || user.displayName || user.username }} ({{ user.username }})</button></li></ul></div><small v-if="collaboratorLoading">正在搜索…</small></label></div>
-      <p v-if="editError" class="form-error" role="alert">{{ editError }}</p><footer><button class="button" :disabled="saving" @click="closeEdit">取消</button><button class="button primary" :disabled="saving" data-testid="save-edit" @click="saveEdit"><Save :size="14" />{{ saving ? '保存中…' : '保存' }}</button></footer>
+      <p v-if="editError" class="form-error" role="alert">{{ editError }}</p><footer><button class="button primary" :disabled="saving" data-testid="save-edit" @click="saveEdit"><Save :size="14" />{{ saving ? '保存中…' : '保存' }}</button></footer>
     </section></div>
 
     <div v-if="reviewRow" class="modal-mask" @click.self="closeReview"><section class="dialog review-dialog" role="dialog" aria-modal="true" aria-labelledby="database-review-title" data-testid="review-modal"><header><div><h3 id="database-review-title">{{ reviewModalTitle }}</h3><p>issue_id：{{ reviewRow.issueId }}</p></div><button class="icon-button" :disabled="reviewing" aria-label="关闭审核窗口" @click="closeReview"><X :size="17" /></button></header><label class="review-reason-field"><span class="field-label">审核原因 <em class="required-mark">*</em><small>{{ reviewReason.length }}/500</small></span><textarea v-model="reviewReason" maxlength="500" rows="5" placeholder="请填写审核原因" data-testid="review-reason" @input="reviewError = ''" /></label><p v-if="reviewError" class="form-error" role="alert" data-testid="review-error">{{ reviewError }}</p><footer><button class="button" :disabled="reviewing" @click="closeReview">取消</button><button class="button primary" :disabled="reviewing" data-testid="submit-review" @click="submitReview"><Save :size="15" />{{ reviewing ? '保存中…' : '确认' }}</button></footer></section></div>
@@ -576,7 +576,14 @@ async function submitReview(){if(reviewing.value||!reviewRow.value)return;const 
 const trackingOpen=ref(false),trackingRow=ref(null),trackingLoading=ref(false),trackingError=ref(''),trackingGroups=ref([]),sourceExpanded=reactive({})
 async function openTracking(row){const sequence=++trackingSequence;trackingRow.value=row;trackingOpen.value=true;trackingLoading.value=true;trackingError.value='';trackingGroups.value=[];for(const key in sourceExpanded)delete sourceExpanded[key];try{const result=await getDatabaseIssueTracking(row.id);if(alive&&sequence===trackingSequence&&trackingOpen.value)trackingGroups.value=result||[]}catch(e){if(sequence===trackingSequence)trackingError.value=e.message||'跟踪加载失败'}finally{if(sequence===trackingSequence)trackingLoading.value=false}}
 function closeTracking(){trackingOpen.value=false;trackingSequence++}
-function onEscape(event){if(event.key!=='Escape')return;if(headerFilterOpen.value)closeHeaderFilter();else if(editRow.value)closeEdit();else if(reviewRow.value)closeReview();else if(importOpen.value)closeImport();else closeTracking()}
+function onEscape(event){
+  if(event.key!=='Escape')return
+  if(headerFilterOpen.value)closeHeaderFilter()
+  else if(editRow.value)return
+  else if(reviewRow.value)closeReview()
+  else if(importOpen.value)closeImport()
+  else closeTracking()
+}
 onMounted(()=>{refresh();window.addEventListener('keydown',onEscape);window.addEventListener('resize',positionHeaderFilter);document.addEventListener('pointerdown',onFilterOutside)})
 onBeforeUnmount(()=>{alive=false;collaboratorSequence++;copySequence++;clearTimeout(copyTimer);clearTimeout(collaboratorTimer);closeHeaderFilter();window.removeEventListener('keydown',onEscape);window.removeEventListener('resize',positionHeaderFilter);document.removeEventListener('pointerdown',onFilterOutside)})
 </script>

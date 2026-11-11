@@ -4,6 +4,18 @@ import { request, download } from './index.js'
 vi.mock('./index.js', () => ({ request: vi.fn(), download: vi.fn() }))
 describe('database issue filter bodies', () => {
   beforeEach(() => vi.clearAllMocks())
+  it('uses encoded database issue mail endpoints and sends only the selected recipient emails', async () => {
+    await api.getDatabaseIssueMailStatus('5/6')
+    expect(request).toHaveBeenLastCalledWith('/ai/parallel-replay/database-issues/5%2F6/mail-status')
+    await api.sendDatabaseIssueMail('5/6', ['helper@example.com', 'owner@example.com'])
+    expect(request).toHaveBeenLastCalledWith('/ai/parallel-replay/database-issues/5%2F6/mail-send', {
+      method: 'POST', body: JSON.stringify({ recipientEmails: ['helper@example.com', 'owner@example.com'] }),
+    })
+    await api.sendDatabaseIssueMail(5)
+    expect(request).toHaveBeenLastCalledWith('/ai/parallel-replay/database-issues/5/mail-send', {
+      method: 'POST', body: JSON.stringify({ recipientEmails: [] }),
+    })
+  })
   it('uses separate plan-date endpoints and preserves null and optimistic version',async()=>{
     await api.updateDatabaseIssuePlanDate(5,null,3)
     expect(request).toHaveBeenCalledWith('/ai/parallel-replay/database-issues/5/planned-completion-date',{method:'PATCH',body:JSON.stringify({plannedCompletionDate:null,version:3})})

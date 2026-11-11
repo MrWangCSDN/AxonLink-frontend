@@ -14,6 +14,8 @@ export function importDatabaseIssues(file, batchNo, releaseAt, token, registrati
 }
 export const getDatabaseIssueImportContext = batchNo => request(`${PREFIX}/import-context?batchNo=${encodeURIComponent(String(batchNo || '').trim())}`)
 export const updateDatabaseIssue = (id, body) => request(`${PREFIX}/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) })
+export const getDatabaseIssueMailStatus = id => request(`${PREFIX}/${encodeURIComponent(id)}/mail-status`)
+export const sendDatabaseIssueMail = (id, recipientEmails = []) => request(`${PREFIX}/${encodeURIComponent(id)}/mail-send`, { method: 'POST', body: JSON.stringify({ recipientEmails }) })
 export const approveDatabaseIssue = (id, body) => request(`${PREFIX}/${encodeURIComponent(id)}/review`, { method: 'POST', body: JSON.stringify(body) })
 export const getDatabaseIssueTracking = id => request(`${PREFIX}/${encodeURIComponent(id)}/tracking`)
 export const exportDatabaseIssues = params => download(`${PREFIX}/export`, '回放数据库问题清单.xlsx', { ...filterBody(params), headers: { 'Content-Type': 'application/json' } })

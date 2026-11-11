@@ -14,7 +14,7 @@ vi.mock('../../utils/replayReleaseTime.js', async importOriginal => ({
   ...await importOriginal(), readImportBatch: vi.fn().mockResolvedValue(''),
 }))
 const row={id:1,version:0,issueId:'koba_off_sheet_acct-dtl_sn',tableName:'koba_off_sheet_acct',tableComment:'表外账户',domain:'贷款组',owner:'张三(c-zhangs3)',technologyOwnerDisplay:'科技甲(100001)',issueLevel:'字段级',fieldName:'dtl_sn',differenceCount:2,batchNo:'DB20261012-01',issueStatus:'新建',issueType:'',cooperationPersonUsername:'',initialAnalysis:'',finalSolution:'',remark:'',canEdit:true,canReview:false}
-const currentIssueTypes=['不参与比对','修改比对规则','修改迁移规则','修改代码','规则性差异','前后交易差异','其他问题']
+const currentIssueTypes=['不参与比对','修改比对规则','修改迁移规则','修改代码','规则性差异','前后交易差异','参数问题','其他问题']
 const latestRegistrationVersion={versionNo:'20261105-100000',generatedName:'张三',generatedAt:'2026-11-05T10:00:00',tableCount:12,fieldCount:345,latest:true}
 const oldRegistrationVersion={versionNo:'20261001-090000',generatedName:'李四',generatedAt:'2026-10-01T09:00:00',tableCount:8,fieldCount:123,latest:false}
 async function selectImportFile(wrapper, batch='DB20261015-01') {
@@ -347,6 +347,8 @@ describe('ReplayDatabaseIssuePage',()=>{
     expect(api.listDatabaseIssues).toHaveBeenLastCalledWith({tableNames:[row.tableName],offset:0,limit:50});w.unmount()
   })
   it('replaces the query panel with independent header multi-select filters',async()=>{
+    api.getDatabaseIssueFilterOptions.mockResolvedValueOnce({items:['仅ccbs','仅528','字段级'].map(value=>({value,count:2})),candidateCount:3,matchedIssueCount:6,truncated:false})
+    api.getDatabaseIssueFilterOptions.mockResolvedValueOnce({items:[{value:'参数问题',count:2}],candidateCount:1,matchedIssueCount:2,truncated:false})
     const w=mount(ReplayDatabaseIssuePage);await flushPromises()
     expect(w.find('[data-testid="query"]').exists()).toBe(false)
     await w.get('[data-testid="header-filter-issueLevel"]').trigger('click');await flushPromises()
@@ -357,10 +359,10 @@ describe('ReplayDatabaseIssuePage',()=>{
     expect(api.getDatabaseIssueFilterOptions).toHaveBeenLastCalledWith({field:'issueType',issueLevels:['仅ccbs','字段级']})
     await w.get('.replay-header-filter-options input').setValue(true)
     await w.get('[data-testid="apply-header-filter"]').trigger('click');await flushPromises()
-    expect(api.listDatabaseIssues).toHaveBeenLastCalledWith({issueLevels:['仅ccbs','字段级'],issueTypes:['需规问题'],offset:0,limit:50})
+    expect(api.listDatabaseIssues).toHaveBeenLastCalledWith({issueLevels:['仅ccbs','字段级'],issueTypes:['参数问题'],offset:0,limit:50})
     expect(w.get('[data-testid="header-filter-issueLevel"]').classes()).toContain('active')
     await w.get('[data-testid="export-issues"]').trigger('click');await flushPromises()
-    expect(api.exportDatabaseIssues).toHaveBeenLastCalledWith({issueLevels:['仅ccbs','字段级'],issueTypes:['需规问题']})
+    expect(api.exportDatabaseIssues).toHaveBeenLastCalledWith({issueLevels:['仅ccbs','字段级'],issueTypes:['参数问题']})
     await w.get('[data-testid="reset-filters"]').trigger('click');await flushPromises()
     expect(api.listDatabaseIssues).toHaveBeenLastCalledWith({offset:0,limit:50})
     expect(w.get('[data-testid="header-filter-issueLevel"]').classes()).not.toContain('active');w.unmount()
@@ -444,6 +446,20 @@ describe('ReplayDatabaseIssuePage',()=>{
       expect(w.get('[data-testid="edit-type"]').element.value).toBe('不参与比对')
     } finally { w.unmount() }
   })
+  it.each(['新建','打开','重新打开','延后修复','修复待验证'])('saves the parameter issue type from the catalog for %s issues',async(issueStatus)=>{
+    api.listDatabaseIssues.mockResolvedValue({items:[{...row,issueStatus}],total:1})
+    api.updateDatabaseIssue.mockResolvedValue({...row,issueStatus,issueType:'参数问题',version:1})
+    const w=mount(ReplayDatabaseIssuePage);await flushPromises()
+    try {
+      await w.get('[data-testid="edit-1"]').trigger('click')
+      const picker=w.get('[data-testid="edit-type"]')
+      expect(picker.findAll('option').map(option=>option.element.value)).toContain('参数问题')
+      await picker.setValue('参数问题')
+      await w.get('[data-testid="save-edit"]').trigger('click');await flushPromises()
+      expect(api.updateDatabaseIssue).toHaveBeenCalledExactlyOnceWith(1,expect.objectContaining({version:0,issueStatus,issueType:'参数问题'}))
+      expect(w.find('[data-testid="edit-modal"]').exists()).toBe(false)
+    } finally { w.unmount() }
+  })
   it.each(['不参与比对','规则性差异'])('only offers the two no-action types and saves an explicit choice of %s',async(issueType)=>{
     api.getDatabaseIssueOptions.mockResolvedValue({issueTypes:currentIssueTypes})
     api.updateDatabaseIssue.mockResolvedValue({...row,issueStatus:'无需处理',issueType,version:1})
@@ -497,8 +513,8 @@ describe('ReplayDatabaseIssuePage',()=>{
   })
   it('clears incompatible choices when switching status and uses current actionable types for deferred fixes',async()=>{
     api.getDatabaseIssueOptions.mockResolvedValue({issueTypes:currentIssueTypes})
-    api.listDatabaseIssues.mockResolvedValue({items:[{...row,issueStatus:'打开',issueType:'修改代码'}],total:1})
-    api.updateDatabaseIssue.mockResolvedValue({...row,issueStatus:'延后修复',issueType:'修改比对规则',version:1})
+    api.listDatabaseIssues.mockResolvedValue({items:[{...row,issueStatus:'打开',issueType:'参数问题'}],total:1})
+    api.updateDatabaseIssue.mockResolvedValue({...row,issueStatus:'延后修复',issueType:'参数问题',version:1})
     const w=mount(ReplayDatabaseIssuePage);await flushPromises()
     try {
       await w.get('[data-testid="edit-1"]').trigger('click')
@@ -508,13 +524,13 @@ describe('ReplayDatabaseIssuePage',()=>{
       await picker.setValue('规则性差异')
       await status.setValue('打开')
       expect(picker.element.value).toBe('')
-      expect(picker.findAll('option').map(o=>o.element.value)).toEqual(['','修改比对规则','修改迁移规则','修改代码','前后交易差异','其他问题'])
-      await picker.setValue('修改比对规则')
+      expect(picker.findAll('option').map(o=>o.element.value)).toEqual(['','修改比对规则','修改迁移规则','修改代码','前后交易差异','参数问题','其他问题'])
+      await picker.setValue('参数问题')
       await status.setValue('延后修复')
       expect(picker.element.disabled).toBe(false)
-      expect(picker.element.value).toBe('修改比对规则')
+      expect(picker.element.value).toBe('参数问题')
       await w.get('[data-testid="save-edit"]').trigger('click');await flushPromises()
-      expect(api.updateDatabaseIssue).toHaveBeenCalledExactlyOnceWith(1,expect.objectContaining({issueStatus:'延后修复',issueType:'修改比对规则'}))
+      expect(api.updateDatabaseIssue).toHaveBeenCalledExactlyOnceWith(1,expect.objectContaining({issueStatus:'延后修复',issueType:'参数问题'}))
     } finally { w.unmount() }
   })
   it.each(['backdrop', 'Escape'])('keeps the database edit dialog and its draft after %s', async closeAttempt => {

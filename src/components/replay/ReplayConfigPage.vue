@@ -54,7 +54,15 @@
         </template>
         <label class="replay-checkbox">
           <input v-model="reviewableByMe" type="checkbox" data-testid="filter-reviewable-by-me" />
-          <span>仅我负责</span>
+          <span data-testid="filter-reviewable-by-me-label">仅我可以审核</span>
+        </label>
+        <label class="replay-checkbox">
+          <input v-model="developedByMe" type="checkbox" data-testid="filter-developed-by-me" />
+          <span>仅看我开发的</span>
+        </label>
+        <label class="replay-checkbox">
+          <input v-model="reasonEmpty" type="checkbox" data-testid="filter-reason-empty" />
+          <span data-testid="filter-reason-empty-label">{{ reasonEmptyLabel }}</span>
         </label>
       </div>
       <div class="replay-filter-actions">
@@ -435,6 +443,7 @@ const SCHEMAS = {
 const activeTab = ref(TABS[0].key)
 const schema = computed(() => SCHEMAS[activeTab.value])
 const isSortTab = computed(() => activeTab.value === 'sort-fields')
+const reasonEmptyLabel = computed(() => (isSortTab.value ? '仅看排序原因为空' : '仅看忽略原因为空'))
 
 const items = ref([])
 const total = ref(0)
@@ -443,6 +452,8 @@ const pageSize = ref(10)
 const loading = ref(false)
 const internalTransactionCode = ref('')
 const reviewableByMe = ref(false)
+const developedByMe = ref(false)
+const reasonEmpty = ref(false)
 const filters = reactive({})
 const selectedIds = ref([])
 const reviewerMappingWarningCodes = ref([])
@@ -544,6 +555,8 @@ function resetFilters() {
   filters.domain = ''
   internalTransactionCode.value = ''
   reviewableByMe.value = false
+  developedByMe.value = false
+  reasonEmpty.value = false
 }
 
 function requestParams() {
@@ -554,6 +567,8 @@ function requestParams() {
   if (internalTransactionCode.value) params.internalTransactionCode = internalTransactionCode.value
   if (filters.domain) params.domain = filters.domain
   if (reviewableByMe.value) params.reviewableByMe = 'true'
+  if (developedByMe.value) params.developedByMe = 'true'
+  if (reasonEmpty.value) params.reasonEmpty = 'true'
   for (const filter of schema.value.filters) {
     const value = filters[filter.key]
     if (value !== undefined && value !== null && value !== '') params[filter.key] = value

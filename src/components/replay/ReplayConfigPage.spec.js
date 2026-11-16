@@ -144,6 +144,37 @@ describe('ReplayConfigPage（忽略清单）', () => {
     expect(wrapper.find('[data-testid="tab-sort-fields"]').exists()).toBe(true)
   })
 
+  it('combines empty ignore reason with my responsibility and other filters', async () => {
+    const wrapper = mount(ReplayConfigPage)
+    await flushPromises()
+
+    await wrapper.find('[data-testid="filter-domain"]').setValue('贷款')
+    await wrapper.find('[data-testid="filter-reviewable-by-me"]').setValue(true)
+    await wrapper.find('[data-testid="filter-reason-empty"]').setValue(true)
+    await wrapper.find('form.replay-filters').trigger('submit')
+    await flushPromises()
+
+    expect(listReplayConfigs).toHaveBeenLastCalledWith('unconditional-ignores', {
+      limit: 10,
+      offset: 0,
+      domain: '贷款',
+      reviewableByMe: 'true',
+      reasonEmpty: 'true',
+    })
+  })
+
+  it('uses the sorting reason label on the sort field tab', async () => {
+    const wrapper = mount(ReplayConfigPage)
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="filter-reason-empty-label"]').text()).toBe('仅看忽略原因为空')
+
+    await wrapper.find('[data-testid="tab-sort-fields"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="filter-reason-empty-label"]').text()).toBe('仅看排序原因为空')
+  })
+
   it('switches tab and reloads with the new resource type', async () => {
     const wrapper = mount(ReplayConfigPage)
     await flushPromises()
@@ -544,16 +575,34 @@ describe('ReplayConfigPage（忽略清单）', () => {
     })
   })
 
-  it('sends reviewableByMe when 仅我负责 is checked', async () => {
+  it('sends reviewableByMe when 仅我可以审核 is checked', async () => {
     const wrapper = mount(ReplayConfigPage)
     await flushPromises()
 
+    expect(wrapper.find('[data-testid="filter-reviewable-by-me-label"]').text()).toBe('仅我可以审核')
     await wrapper.find('[data-testid="filter-reviewable-by-me"]').setValue(true)
     await wrapper.find('form.replay-filters').trigger('submit')
     await flushPromises()
 
     expect(listReplayConfigs).toHaveBeenLastCalledWith('unconditional-ignores', {
       limit: 10, offset: 0, reviewableByMe: 'true',
+    })
+  })
+
+  it('sends developedByMe together with empty reason when 仅看我开发的 is checked', async () => {
+    const wrapper = mount(ReplayConfigPage)
+    await flushPromises()
+
+    await wrapper.find('[data-testid="filter-developed-by-me"]').setValue(true)
+    await wrapper.find('[data-testid="filter-reason-empty"]').setValue(true)
+    await wrapper.find('form.replay-filters').trigger('submit')
+    await flushPromises()
+
+    expect(listReplayConfigs).toHaveBeenLastCalledWith('unconditional-ignores', {
+      limit: 10,
+      offset: 0,
+      developedByMe: 'true',
+      reasonEmpty: 'true',
     })
   })
 

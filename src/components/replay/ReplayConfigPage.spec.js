@@ -2,16 +2,23 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import ReplayConfigPage from './ReplayConfigPage.vue'
 import {
+  batchDeleteMessageSequenceIgnores,
+  batchReviewMessageSequenceIgnores,
   batchCreateReplayConfigs,
   batchDeleteReplayConfigs,
   batchReviewReplayConfigs,
   createReplayConfig,
+  createMessageSequenceIgnores,
+  deleteMessageSequenceIgnore,
   deleteReplayConfig,
+  exportReviewedMessageSequenceIgnores,
   exportReviewedReplayConfigs,
   listReplayConfigDomains,
   listReplayConfigOperations,
   listReplayConfigs,
   reviewReplayConfig,
+  reviewMessageSequenceIgnore,
+  updateMessageSequenceIgnore,
 } from '../../api/replayConfigs.js'
 
 vi.mock('../../api/replayConfigs.js', () => ({
@@ -26,6 +33,13 @@ vi.mock('../../api/replayConfigs.js', () => ({
   reviewReplayConfig: vi.fn(),
   listReplayConfigDomains: vi.fn(),
   exportReviewedReplayConfigs: vi.fn(),
+  createMessageSequenceIgnores: vi.fn(),
+  updateMessageSequenceIgnore: vi.fn(),
+  reviewMessageSequenceIgnore: vi.fn(),
+  batchReviewMessageSequenceIgnores: vi.fn(),
+  deleteMessageSequenceIgnore: vi.fn(),
+  batchDeleteMessageSequenceIgnores: vi.fn(),
+  exportReviewedMessageSequenceIgnores: vi.fn(),
 }))
 
 function arrangeApi() {
@@ -673,5 +687,62 @@ describe('ReplayConfigPage（忽略清单）', () => {
     expect(drawer.text()).toContain('服务码')
     expect(drawer.text()).toContain('未审核')
     expect(drawer.text()).toContain('已审核')
+  })
+
+  it('creates message sequence ignores from the fifth tab', async () => {
+    createMessageSequenceIgnores.mockResolvedValue([])
+    const wrapper = mount(ReplayConfigPage)
+    await flushPromises()
+    const tab = wrapper.find('[data-testid="tab-message-sequence-ignores"]')
+    expect(tab.text()).toBe('流水号忽略')
+    await tab.trigger('click')
+    await flushPromises()
+    await wrapper.find('[data-testid="create-config"]').trigger('click')
+    await wrapper.find('[data-testid="form-serviceCode"]').setValue('S1&sop')
+    await wrapper.find('[data-testid="form-category"]').setValue('QUERY')
+    await wrapper.find('[data-testid="form-messageSequences"]').setValue('seq1,seq2')
+    await wrapper.find('[data-testid="form-ignoreReason"]').setValue('多行\n原因')
+    await wrapper.find('[data-testid="submit-config"]').trigger('submit')
+    await flushPromises()
+    expect(createMessageSequenceIgnores).toHaveBeenCalledWith({
+      serviceCode: 'S1&sop', category: 'QUERY', messageSequences: 'seq1,seq2', ignoreReason: '多行\n原因',
+    })
+  })
+
+  it('rejects more than 100 message sequences before sending', async () => {
+    const wrapper = mount(ReplayConfigPage)
+    await flushPromises()
+    await wrapper.find('[data-testid="tab-message-sequence-ignores"]').trigger('click')
+    await flushPromises()
+    await wrapper.find('[data-testid="create-config"]').trigger('click')
+    await wrapper.find('[data-testid="form-serviceCode"]').setValue('S1&sop')
+    await wrapper.find('[data-testid="form-messageSequences"]').setValue(Array.from({ length: 101 }, (_, i) => `s${i}`).join(','))
+    await wrapper.find('[data-testid="form-ignoreReason"]').setValue('原因')
+    await wrapper.find('[data-testid="submit-config"]').trigger('submit')
+    expect(wrapper.find('[data-testid="form-error"]').text()).toContain('最多新增 100 个')
+    expect(createMessageSequenceIgnores).not.toHaveBeenCalled()
+  })
+
+  it('combines message sequence filters and uses the txt export', async () => {
+    exportReviewedMessageSequenceIgnores.mockResolvedValue(undefined)
+    const wrapper = mount(ReplayConfigPage)
+    await flushPromises()
+    await wrapper.find('[data-testid="tab-message-sequence-ignores"]').trigger('click')
+    await flushPromises()
+    await wrapper.find('[data-testid="filter-category"]').setValue('ACCOUNTING')
+    await wrapper.find('[data-testid="filter-messageSequence"]').setValue('seq')
+    await wrapper.find('[data-testid="filter-reviewable-by-me"]').setValue(true)
+    await wrapper.find('[data-testid="filter-developed-by-me"]').setValue(true)
+    await wrapper.find('[data-testid="filter-reason-empty"]').setValue(true)
+    await wrapper.find('form.replay-filters').trigger('submit')
+    await flushPromises()
+    expect(listReplayConfigs).toHaveBeenLastCalledWith('message-sequence-ignores', {
+      limit: 10, offset: 0, category: 'ACCOUNTING', messageSequence: 'seq',
+      reviewableByMe: 'true', developedByMe: 'true', reasonEmpty: 'true',
+    })
+    await wrapper.find('[data-testid="export-message-sequences"]').trigger('click')
+    await flushPromises()
+    expect(exportReviewedMessageSequenceIgnores).toHaveBeenCalledTimes(1)
+    expect(exportReviewedReplayConfigs).not.toHaveBeenCalled()
   })
 })

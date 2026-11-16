@@ -84,3 +84,39 @@ export function listReplayConfigOperations(type, id, params = {}) {
   const query = queryString(params)
   return request(`${PREFIX}/${type}/${encodeURIComponent(id)}/operations${query ? `?${query}` : ''}`)
 }
+
+const MESSAGE_SEQUENCE_TYPE = 'message-sequence-ignores'
+
+export function createMessageSequenceIgnores(body) {
+  return createReplayConfig(MESSAGE_SEQUENCE_TYPE, body)
+}
+
+export function updateMessageSequenceIgnore(id, body) {
+  return updateReplayConfig(MESSAGE_SEQUENCE_TYPE, id, body)
+}
+
+export function reviewMessageSequenceIgnore(id) {
+  return request(`${PREFIX}/${MESSAGE_SEQUENCE_TYPE}/${encodeURIComponent(id)}/review`, { method: 'POST' })
+}
+
+export function batchReviewMessageSequenceIgnores(ids) {
+  return request(`${PREFIX}/${MESSAGE_SEQUENCE_TYPE}/batch-review`, {
+    method: 'POST',
+    body: JSON.stringify({ ids }),
+  })
+}
+
+export function deleteMessageSequenceIgnore(id) {
+  return request(`${PREFIX}/${MESSAGE_SEQUENCE_TYPE}/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+export function batchDeleteMessageSequenceIgnores(ids) {
+  return request(`${PREFIX}/${MESSAGE_SEQUENCE_TYPE}/batch-delete`, {
+    method: 'POST',
+    body: JSON.stringify({ ids }),
+  })
+}
+
+export function exportReviewedMessageSequenceIgnores() {
+  return download(`${PREFIX}/${MESSAGE_SEQUENCE_TYPE}/export`, '流水号忽略.txt')
+}

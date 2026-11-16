@@ -1,11 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  batchReviewMessageSequenceIgnores,
   batchDeleteReplayConfigs,
+  createMessageSequenceIgnores,
+  deleteMessageSequenceIgnore,
   createReplayConfig,
   deleteReplayConfig,
   listReplayConfigOperations,
   listReplayConfigs,
   updateReplayConfig,
+  updateMessageSequenceIgnore,
 } from './replayConfigs.js'
 
 const jsonResponse = (payload, status = 200) => new Response(JSON.stringify(payload), {
@@ -86,5 +90,28 @@ describe('replayConfigs API', () => {
     expect(fetch.mock.calls[0][0]).toBe(
       '/api/ai/parallel-replay/config/conditional-ignores/5/operations?limit=100&offset=0',
     )
+  })
+
+  it('creates message sequence ignores with the dedicated payload', async () => {
+    global.fetch = vi.fn().mockResolvedValue(jsonResponse({ code: 200, data: [] }))
+    const body = { serviceCode: 'S1&sop', category: 'QUERY', messageSequences: 'a,b', ignoreReason: '原因' }
+    await createMessageSequenceIgnores(body)
+    expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/config/message-sequence-ignores')
+    expect(fetch.mock.calls[0][1].method).toBe('POST')
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual(body)
+  })
+
+  it('uses id-only message sequence update review and delete requests', async () => {
+    global.fetch = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse({ code: 200, data: {} })))
+    await updateMessageSequenceIgnore(7, { serviceCode: 'S1&sop', category: 'QUERY', messageSequence: 'a', ignoreReason: '原因' })
+    expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/config/message-sequence-ignores/7')
+    expect(fetch.mock.calls[0][1].body).not.toContain('version')
+
+    await batchReviewMessageSequenceIgnores([1, 2])
+    expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ ids: [1, 2] })
+
+    await deleteMessageSequenceIgnore(7)
+    expect(fetch.mock.calls[2][0]).toBe('/api/ai/parallel-replay/config/message-sequence-ignores/7')
+    expect(fetch.mock.calls[2][1].method).toBe('DELETE')
   })
 })

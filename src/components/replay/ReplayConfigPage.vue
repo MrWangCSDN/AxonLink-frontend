@@ -4,7 +4,7 @@
       <div class="replay-toolbar-title">
         <div>
           <h2>忽略清单</h2>
-          <p>无条件忽略 / 有条件忽略 / 错误码忽略 / 排序字段</p>
+          <p>无条件忽略 / 有条件忽略 / 错误码忽略 / 排序字段 / 流水号忽略</p>
         </div>
       </div>
     </header>
@@ -26,11 +26,11 @@
     </nav>
 
     <form class="replay-filters" @submit.prevent="search">
-      <div class="replay-filter-group">
-        <span class="replay-filter-group-label">内部核心交易码</span>
+      <div v-if="!isMessageSequenceTab" class="replay-filter-group">
+        <span class="replay-filter-group-label">老核心交易码</span>
         <input v-model.trim="internalTransactionCode" class="replay-control" data-testid="internal-transaction-code" type="search" placeholder="精确匹配" />
       </div>
-      <div class="replay-filter-group">
+      <div v-if="!isMessageSequenceTab" class="replay-filter-group">
         <span class="replay-filter-group-label">领域</span>
         <select v-model="filters.domain" class="replay-control" data-testid="filter-domain">
           <option value="">全部</option>
@@ -49,6 +49,11 @@
             <option value="">全部</option>
             <option value="0">未审核</option>
             <option value="1">已审核</option>
+          </select>
+          <select v-else-if="filter.kind === 'category'" v-model="filters[filter.key]" class="replay-control" :data-testid="`filter-${filter.key}`">
+            <option value="">全部领域</option>
+            <option value="QUERY">查询</option>
+            <option value="ACCOUNTING">账务</option>
           </select>
           <input v-else v-model.trim="filters[filter.key]" class="replay-control" :data-testid="`filter-${filter.key}`" type="search" :placeholder="filter.label" />
         </template>
@@ -75,8 +80,8 @@
           批量删除{{ selectedIds.length ? `（${selectedIds.length}）` : '' }}
         </button>
         <button class="replay-button replay-button-primary" type="button" data-testid="create-config" @click="openCreate">新增</button>
-        <button class="replay-button" type="button" data-testid="export-excel" :disabled="exporting" @click="exportExcel">
-          {{ exporting ? '导出中...' : '导出Excel' }}
+        <button class="replay-button" type="button" :data-testid="isMessageSequenceTab ? 'export-message-sequences' : 'export-excel'" :disabled="exporting" @click="exportConfigs">
+          {{ exporting ? '导出中...' : isMessageSequenceTab ? '导出流水号忽略' : '导出Excel' }}
         </button>
       </div>
     </form>
@@ -277,16 +282,23 @@
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { CircleHelp } from 'lucide-vue-next'
 import {
+  batchDeleteMessageSequenceIgnores,
+  batchReviewMessageSequenceIgnores,
   batchCreateReplayConfigs,
   batchDeleteReplayConfigs,
   batchReviewReplayConfigs,
+  createMessageSequenceIgnores,
   createReplayConfig,
+  deleteMessageSequenceIgnore,
   deleteReplayConfig,
+  exportReviewedMessageSequenceIgnores,
   exportReviewedReplayConfigs,
   listReplayConfigDomains,
   listReplayConfigOperations,
   listReplayConfigs,
+  reviewMessageSequenceIgnore,
   reviewReplayConfig,
+  updateMessageSequenceIgnore,
   updateReplayConfig,
 } from '../../api/replayConfigs.js'
 
@@ -306,6 +318,17 @@ const TABS = [
   { key: 'conditional-ignores', label: '有条件忽略' },
   { key: 'error-code-ignores', label: '错误码忽略' },
   { key: 'sort-fields', label: '排序字段' },
+  { key: 'message-sequence-ignores', label: '流水号忽略' },
+]
+
+const MESSAGE_SEQUENCE_CREATE_FORM = [
+  { key: 'serviceCode', label: '服务码', kind: 'serviceCode', required: true },
+  { key: 'category', label: '领域', kind: 'select', required: true, options: [
+    { value: 'QUERY', label: '查询' },
+    { value: 'ACCOUNTING', label: '账务' },
+  ] },
+  { key: 'messageSequences', label: '流水号', kind: 'textarea', required: true, placeholder: '多个流水号请使用英文逗号分隔，单次最多 100 个' },
+  { key: 'ignoreReason', label: '忽略原因', kind: 'textarea', required: true, maxlength: 512 },
 ]
 
 const SORT_CREATE_FORM = [
@@ -438,11 +461,44 @@ const SCHEMAS = {
       { key: 'ignoreReason', label: '排序原因', kind: 'textarea', required: true, maxlength: 512 },
     ],
   },
+  'message-sequence-ignores': {
+    title: '流水号忽略',
+    filters: [
+      { key: 'category', label: '领域', kind: 'category' },
+      { key: 'serviceCode', label: '服务码', kind: 'text' },
+      { key: 'messageSequence', label: '流水号', kind: 'text' },
+      { key: 'reviewStatus', label: '审核状态', kind: 'review' },
+    ],
+    columns: [
+      { key: 'category', label: '领域', display: 'category' },
+      { key: 'serviceCode', label: '服务码' },
+      { key: 'messageSequence', label: '流水号', long: true },
+      { key: 'ignoreReason', label: '忽略原因', long: true },
+      ...REVIEW_COLUMNS,
+      { key: 'createdAt', label: '新增时间', display: 'time' },
+      { key: 'updatedAt', label: '更新时间', display: 'time' },
+    ],
+    confirmFields: [
+      { key: 'category', label: '领域' },
+      { key: 'serviceCode', label: '服务码' },
+      { key: 'messageSequence', label: '流水号' },
+    ],
+    form: [
+      { key: 'serviceCode', label: '服务码', kind: 'serviceCode', required: true },
+      { key: 'category', label: '领域', kind: 'select', required: true, options: [
+        { value: 'QUERY', label: '查询' },
+        { value: 'ACCOUNTING', label: '账务' },
+      ] },
+      { key: 'messageSequence', label: '流水号', kind: 'textarea', required: true },
+      { key: 'ignoreReason', label: '忽略原因', kind: 'textarea', required: true, maxlength: 512 },
+    ],
+  },
 }
 
 const activeTab = ref(TABS[0].key)
 const schema = computed(() => SCHEMAS[activeTab.value])
 const isSortTab = computed(() => activeTab.value === 'sort-fields')
+const isMessageSequenceTab = computed(() => activeTab.value === 'message-sequence-ignores')
 const reasonEmptyLabel = computed(() => (isSortTab.value ? '仅看排序原因为空' : '仅看忽略原因为空'))
 
 const items = ref([])
@@ -486,12 +542,20 @@ const pageCount = computed(() => Math.max(1, Math.ceil(total.value / pageSize.va
 const allSelected = computed(() => items.value.length > 0 && items.value.every((row) => selectedIds.value.includes(row.id)))
 const editTitle = computed(() => `${editingRow.value ? '修改' : '新增'}${schema.value.title}`)
 const isSortCreate = computed(() => isSortTab.value && !editingRow.value)
-const isMultiCreate = computed(() => !isSortTab.value && !editingRow.value)
-const activeForm = computed(() => (isSortCreate.value ? SORT_CREATE_FORM : schema.value.form))
+const isMessageSequenceCreate = computed(() => isMessageSequenceTab.value && !editingRow.value)
+const isMultiCreate = computed(() => !isSortTab.value && !isMessageSequenceTab.value && !editingRow.value)
+const activeForm = computed(() => {
+  if (isSortCreate.value) return SORT_CREATE_FORM
+  if (isMessageSequenceCreate.value) return MESSAGE_SEQUENCE_CREATE_FORM
+  return schema.value.form
+})
 const formRows = computed(() => (isMultiCreate.value ? createRows.value : [draft]))
 const createHint = computed(() => {
   if (isSortCreate.value) {
     return '按 A 对象的单个属性 B 排序时填写 A.B；按 A 对象的多个属性 B、C 排序时填写 A(B,C)。保存后按映射生成 3 条：&sop 使用老核心排序字段，&soap 与 &bzjson 使用新核心排序字段。'
+  }
+  if (isMessageSequenceCreate.value) {
+    return '多个流水号请使用英文逗号分隔，去除首尾空格后逐条保存；任一项为空或重复时整批不写入。'
   }
   if (isMultiCreate.value) {
     return '最多可一次新增 3 条，每条独立填写，可只填其中部分；任一条重复则整批不写入。'
@@ -521,6 +585,11 @@ function displayValue(column, row) {
     if (value === 1) return '已审核'
     if (value === 0) return '未审核'
   }
+  if (column.display === 'category') {
+    if (value === 'QUERY') return '查询'
+    if (value === 'ACCOUNTING') return '账务'
+  }
+  if (column.display === 'time') return formatTime(value)
   return value === null || value === undefined || value === '' ? '-' : value
 }
 
@@ -637,11 +706,12 @@ function changePageSize() {
   return load()
 }
 
-async function exportExcel() {
+async function exportConfigs() {
   if (exporting.value) return
   exporting.value = true
   try {
-    await exportReviewedReplayConfigs()
+    if (isMessageSequenceTab.value) await exportReviewedMessageSequenceIgnores()
+    else await exportReviewedReplayConfigs()
     showToast('导出成功')
   } catch (cause) {
     showToast(`导出失败：${cause?.message || cause}`, 'error')
@@ -674,7 +744,7 @@ function resetCreateRows() {
 function openCreate() {
   editingRow.value = null
   formError.value = ''
-  if (isSortTab.value) {
+  if (isSortTab.value || isMessageSequenceTab.value) {
     resetDraft()
   } else {
     resetCreateRows()
@@ -771,6 +841,15 @@ function validateDraft() {
     if (!isValidSortField(draft.newSortField)) return '新核心排序字段格式不正确：单个属性请填写 A.B，多个属性请填写 A(B,C)'
     return ''
   }
+  if (isMessageSequenceCreate.value) {
+    const parts = String(draft.messageSequences || '').split(',').map(item => item.trim())
+    if (parts.some(item => !item)) return '流水号不能为空，多个流水号请使用英文逗号分隔'
+    if (parts.length > 100) return '单次最多新增 100 个流水号'
+    if (new Set(parts).size !== parts.length) return '流水号不能重复'
+  }
+  if (isMessageSequenceTab.value && editingRow.value && String(draft.messageSequence || '').includes(',')) {
+    return '修改时只能填写一个流水号'
+  }
   return schema.value.validate ? schema.value.validate(draft) : ''
 }
 
@@ -846,11 +925,16 @@ async function submitForm() {
       payload[field.key] = field.kind !== 'textarea' && typeof value === 'string' ? value.trim() : value
     }
     if (editingRow.value) {
-      payload.version = editingRow.value.version
-      await updateReplayConfig(activeTab.value, editingRow.value.id, payload)
+      if (isMessageSequenceTab.value) await updateMessageSequenceIgnore(editingRow.value.id, payload)
+      else {
+        payload.version = editingRow.value.version
+        await updateReplayConfig(activeTab.value, editingRow.value.id, payload)
+      }
       showToast('修改成功')
     } else {
-      const created = await createReplayConfig(activeTab.value, payload)
+      const created = isMessageSequenceTab.value
+        ? await createMessageSequenceIgnores(payload)
+        : await createReplayConfig(activeTab.value, payload)
       showToast(Array.isArray(created) ? `新增成功（${created.length} 条）` : '新增成功')
       showReviewerMappingWarning(created)
     }
@@ -907,7 +991,8 @@ function reviewRow(row) {
   if (!row.canReview) return
   openConfirm('确认审核通过该条配置？', rowConfirmDetails(row), async () => {
     try {
-      await reviewReplayConfig(activeTab.value, row.id, row.version)
+      if (isMessageSequenceTab.value) await reviewMessageSequenceIgnore(row.id)
+      else await reviewReplayConfig(activeTab.value, row.id, row.version)
       showToast('审核通过')
       await load()
     } catch (cause) {
@@ -919,7 +1004,8 @@ function reviewRow(row) {
 function removeRow(row) {
   openConfirm(`确认删除该条${schema.value.title}配置？此操作不可恢复。`, rowConfirmDetails(row), async () => {
     try {
-      await deleteReplayConfig(activeTab.value, row.id, row.version)
+      if (isMessageSequenceTab.value) await deleteMessageSequenceIgnore(row.id)
+      else await deleteReplayConfig(activeTab.value, row.id, row.version)
       showToast('删除成功')
       await load()
     } catch (cause) {
@@ -940,9 +1026,13 @@ function batchReview() {
   ]
   openConfirm('确认批量审核选中的配置？', details, async () => {
     if (!selectedRows.length) return
-    const payload = selectedRows.map((row) => ({ id: row.id, version: row.version }))
+    const payload = isMessageSequenceTab.value
+      ? selectedRows.map((row) => row.id)
+      : selectedRows.map((row) => ({ id: row.id, version: row.version }))
     try {
-      const result = await batchReviewReplayConfigs(activeTab.value, payload)
+      const result = isMessageSequenceTab.value
+        ? await batchReviewMessageSequenceIgnores(payload)
+        : await batchReviewReplayConfigs(activeTab.value, payload)
       showToast(`审核通过 ${result?.approvedCount ?? 0} 条，跳过 ${result?.skippedCount ?? 0} 条`)
       await load()
     } catch (cause) {
@@ -955,12 +1045,16 @@ function batchDelete() {
   if (!selectedIds.value.length) return
   const byId = new Map(items.value.map((row) => [row.id, row]))
   const selectedRows = selectedIds.value.map((id) => byId.get(id)).filter(Boolean)
-  const payload = selectedRows.map((row) => ({ id: row.id, version: row.version }))
+  const payload = isMessageSequenceTab.value
+    ? selectedRows.map((row) => row.id)
+    : selectedRows.map((row) => ({ id: row.id, version: row.version }))
   const details = [{ label: '已选', value: `${selectedRows.length} 条` }]
   openConfirm(`确认删除已勾选的 ${selectedIds.value.length} 条记录？此操作不可恢复。`, details, async () => {
     if (!payload.length) return
     try {
-      const result = await batchDeleteReplayConfigs(activeTab.value, payload)
+      const result = isMessageSequenceTab.value
+        ? await batchDeleteMessageSequenceIgnores(payload)
+        : await batchDeleteReplayConfigs(activeTab.value, payload)
       showToast(`删除成功：${result?.deletedCount ?? payload.length} 条`)
       await load()
     } catch (cause) {
@@ -1040,7 +1134,7 @@ onUnmounted(() => {
 .replay-select-column{width:44px}
 .replay-operation-column{width:262px;white-space:nowrap}
 .replay-operation-buttons{display:flex;gap:5px}
-.replay-cell-long{max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.replay-cell-long{max-width:320px;white-space:pre-wrap;overflow-wrap:anywhere}
 .replay-state{text-align:center;color:var(--text-muted,#6b7280);padding:28px 0}
 .replay-pager{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 20px;background:var(--bg-card,#fff);border-top:1px solid var(--border,#e5e7eb)}
 .replay-page-size{display:flex;align-items:center;gap:6px;font-size:12px}

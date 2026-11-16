@@ -322,7 +322,7 @@ const TABS = [
 ]
 
 const MESSAGE_SEQUENCE_CREATE_FORM = [
-  { key: 'serviceCode', label: '服务码', kind: 'serviceCode', required: true },
+  { key: 'serviceCode', label: '服务码', kind: 'serviceCode', required: true, placeholder: '如 S120034071CorpInfoQryTrdCrclr&sop' },
   { key: 'category', label: '领域', kind: 'select', required: true, options: [
     { value: 'QUERY', label: '查询' },
     { value: 'ACCOUNTING', label: '账务' },

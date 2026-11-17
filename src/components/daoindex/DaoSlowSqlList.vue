@@ -160,8 +160,8 @@
     <div v-if="importOpen" class="slow-modal-mask" @click.self="!importing && (importOpen = false)">
       <div class="slow-modal">
         <h3>导入慢SQL明细</h3>
-        <p class="slow-hint">支持两种5列格式：微服务 / 抽象SQL / 执行参数 / 执行耗时 / 来源文件，或 slowSqlStatement / ServiceName / 执行参数 / 执行耗时 / 来源文件；首行表头自动识别。
-          导入时按 (微服务+抽象SQL) 聚合：取最大耗时代表行并统计执行次数；同轮次重复导入会覆盖。</p>
+        <p class="slow-hint">支持 Excel/CSV，基础列为 微服务 / 抽象SQL / 执行参数 / 执行耗时 / 来源文件，或 slowSqlStatement / ServiceName / 执行参数 / 执行耗时 / 来源文件。首行表头自动识别。
+          可选 sssCount 列表示上游已聚合的执行次数。同一微服务+抽象SQL合并为一类，重复SQL的sssCount相加，未包含sssCount列时每行计1次。取最大耗时行作为代表，同轮次重复导入会覆盖。</p>
         <input type="file" accept=".xlsx,.xls,.csv" :disabled="importing" @change="onFile" />
         <input v-model="importRound" class="slow-input full" maxlength="20" :disabled="importing"
                placeholder="轮次（必填，如 20260103-20260107）" />
@@ -170,7 +170,7 @@
         <!-- 等待层：上传+解析聚合期间显示不确定进度条（后端同步接口，无法回传精确百分比） -->
         <div v-if="importing" class="slow-import-wait">
           <div class="slow-prog"><div class="slow-prog-fill"></div></div>
-          <p class="slow-hint">正在上传并解析聚合（30 万行约需 10~30 秒），请勿关闭或重复点击…</p>
+          <p class="slow-hint">正在上传并解析导入，请勿关闭或重复点击…</p>
         </div>
         <p v-if="importMsg" class="slow-hint">{{ importMsg }}</p>
         <div class="slow-modal-foot">
@@ -426,8 +426,8 @@ async function doImport() {
   importing.value = true; importMsg.value = ''
   try {
     const r = await importSlowSql(importFileRef.value, props.env, token.value, importRound.value.trim())
-    importMsg.value = `轮次 ${r.round}：原始 ${r.rawRows} 行 → 聚合 ${r.aggregatedRows} 条`
-      + `（${r.repeatHit} 条曾在历史轮次出现，跳过 ${r.skipped}`
+    importMsg.value = `轮次 ${r.round}，有效输入 ${r.rawRows} 行 → 聚合 ${r.aggregatedRows} 类`
+      + `（${r.preAggregated ? '使用sssCount累计执行次数' : '按每行1次累计执行次数'}，${r.repeatHit} 条曾在历史轮次出现，跳过 ${r.skipped}`
       + `${r.filtered ? `，采集过滤名单排除 ${r.filtered} 行` : ''}`
       + `${r.overwritten ? `，覆盖旧轮 ${r.overwritten} 条` : ''}`
       + `${r.reappearedHit ? `，本批次 ${r.reappearedHit} 条优化未生效` : ''}）`

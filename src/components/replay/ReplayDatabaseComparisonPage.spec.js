@@ -5,6 +5,9 @@ enableAutoUnmount(afterEach)
 afterEach(() => vi.unstubAllEnvs())
 
 vi.mock('../../api/replayDatabaseComparison.js', () => ({
+  analyzeCustomSql: vi.fn(),
+  createCustomSqlRegistration: vi.fn(),
+  updateCustomSqlRegistration: vi.fn(),
   createRegistration: vi.fn(),
   deleteRegistration: vi.fn(),
   generateVersion: vi.fn(),
@@ -595,6 +598,208 @@ describe('ReplayDatabaseComparisonPage', () => {
     expect(wrapper.get('[data-testid="generation-dialog"]').exists()).toBe(true)
   })
 
+  it('shows missing domain mappings before generation and clears the gate errors on a successful retry', async () => {
+    useRealMode([registrationRow])
+    comparisonApi.loadLatestVersion.mockResolvedValue({
+      versionNo: '20260914-120000', tableCount: 1, fieldCount: 1,
+    })
+    const error = new Error('2 张表未通过版本生成门禁')
+    error.code = 'VERSION_GATE_BLOCKED'
+    error.data = { errors: [
+      { tableName: 'acct_master', tableComment: '账户主表', reviserName: '张三', groupOwnerName: '李经理', status: 'DOMAIN_MAPPING_MISSING', missingFieldNames: [], reason: '领域无法映射：未配置领域一' },
+      { tableName: 'loan_master', tableComment: '贷款主表', reviserName: '李四', groupOwnerName: '赵经理', status: 'DOMAIN_MAPPING_MISSING', missingFieldNames: [], reason: '领域无法映射：未配置领域二' },
+    ] }
+    let finishGeneration
+    comparisonApi.generateVersion
+      .mockRejectedValueOnce(error)
+      .mockImplementationOnce(() => new Promise(resolve => { finishGeneration = resolve }))
+
+    const wrapper = mount(ReplayDatabaseComparisonPage)
+    await flushPromises()
+    await wrapper.get('[data-testid="generate-version"]').trigger('click')
+    await wrapper.get('[data-testid="generation-token"]').setValue('secret')
+    await wrapper.get('[data-testid="confirm-generate-version"]').trigger('click')
+    await flushPromises()
+
+    const errors = wrapper.findAll('[data-testid="generation-gate-error-row"]')
+    expect(errors).toHaveLength(2)
+    expect(errors[0].text()).toContain('acct_master')
+    expect(errors[0].text()).toContain('领域无法映射：未配置领域一')
+    expect(errors[1].text()).toContain('loan_master')
+    expect(errors[1].text()).toContain('领域无法映射：未配置领域二')
+    expect(errors.map(row => row.get('.gate-status').text())).toEqual(['领域缺少映射', '领域缺少映射'])
+    expect(wrapper.get('[data-testid="generation-dialog"]').exists()).toBe(true)
+    expect(wrapper.get('h2').text()).toContain('20260914-120000')
+    expect(wrapper.text()).not.toContain('已生成版本')
+    expect(wrapper.get('[data-testid="table-name-acct"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="confirm-generate-version"]').element.disabled).toBe(false)
+
+    await wrapper.get('[data-testid="confirm-generate-version"]').trigger('click')
+    expect(wrapper.find('[data-testid="generation-gate-errors"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="generation-error"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="generation-dialog"]').exists()).toBe(true)
+
+    finishGeneration({ versionNo: '20260914-150101', tableCount: 1, fieldCount: 1 })
+    await flushPromises()
+
+    expect(wrapper.get('h2').text()).toContain('20260914-150101')
+    expect(wrapper.text()).toContain('已生成版本，共 1 张表、1 个字段')
+    expect(wrapper.find('[data-testid="generation-dialog"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('未配置领域')
+  })
+
+  it('shows invalid custom SQL with a readable gate status and the affected registration', async () => {
+    useRealMode()
+    comparisonApi.generateVersion.mockRejectedValue(Object.assign(new Error('1 个比对项未通过版本生成门禁'), {
+      code: 'VERSION_GATE_BLOCKED',
+      data: { errors: [{ tableName: 'sql_aggregate', tableComment: '金额汇总', status: 'CUSTOM_SQL_INVALID',
+        missingFieldNames: [], reason: 'SQL 输出列 total_amt 已失效' }] },
+    }))
+    const wrapper = mount(ReplayDatabaseComparisonPage)
+    await flushPromises()
+    await wrapper.get('[data-testid="generate-version"]').trigger('click')
+    await wrapper.get('[data-testid="generation-token"]').setValue('secret')
+    await wrapper.get('[data-testid="confirm-generate-version"]').trigger('click')
+    await flushPromises()
+    const row = wrapper.get('[data-testid="generation-gate-error-row"]')
+    expect(row.get('.gate-status').text()).toBe('自定义 SQL 无效')
+    expect(row.text()).toContain('sql_aggregate')
+    expect(row.text()).toContain('金额汇总')
+    expect(row.text()).toContain('SQL 输出列 total_amt 已失效')
+    expect(wrapper.find('[data-testid="generation-dialog"]').exists()).toBe(true)
+  })
+
+  it('opens custom SQL registration before version history and keeps same-source SQL items independent', async () => {
+    const customSql = { sql: 'select id, sum(amount) as total_amt from acct group by id', sourceTableName: 'acct',
+      resultColumns: [{ columnName: 'id', dataType: 'VARCHAR', ordinalPosition: 1 }, { columnName: 'total_amt', dataType: 'DECIMAL', ordinalPosition: 2 }] }
+    const items = [
+      { id: 11, tableName: 'sql_one', tableComment: '金额汇总', customSql, fieldPreview: ['id', 'total_amt'], version: 2 },
+      { id: 12, tableName: 'sql_two', tableComment: '金额复核', customSql: { ...customSql, sql: customSql.sql.replace('amount', 'balance') }, fieldPreview: ['id', 'total_amt'], version: 3 },
+    ]
+    useRealMode(items, { globalTableCount: 3, globalFieldCount: 5 })
+    comparisonApi.searchRegistrations.mockResolvedValue({ items, total: 2, globalTableCount: 3, globalFieldCount: 5, globalCustomSqlCount: 2 })
+    comparisonApi.loadRegistration.mockImplementation(async id => ({ ...items.find(item => item.id === id),
+      fields: [{ columnName: 'id' }, { columnName: 'total_amt' }], comparisonKey: { indexType: 'RESULT_KEY', indexName: 'SQL_RESULT_KEY', columnNames: ['id'] } }))
+    comparisonApi.loadRegistrationAudits.mockResolvedValue({ items: [] })
+    const wrapper = mount(ReplayDatabaseComparisonPage)
+    await flushPromises()
+    const buttons = wrapper.findAll('.toolbar-actions > button')
+    expect(buttons[0].attributes('data-testid')).toBe('open-custom-sql')
+    expect(wrapper.get('header').text()).toContain('普通表登记 1')
+    expect(wrapper.get('header').text()).toContain('SQL 登记 2')
+    expect(wrapper.get('header').text()).toContain('共 3 个比对项')
+    expect(wrapper.get('[data-testid="table-name-sql_one"]').text()).toContain('金额汇总')
+    expect(wrapper.get('[data-testid="table-name-sql_one"]').text()).toContain('acct')
+    expect(wrapper.get('[data-testid="table-name-sql_one"]').text()).toContain('SQL')
+    await wrapper.get('[data-testid="expand-query-condition-sql_one"]').trigger('click')
+    expect(wrapper.get('[data-testid="query-condition-sql_one"]').text()).toContain('sum(amount)')
+    expect(wrapper.get('[data-testid="query-condition-sql_two"]').text()).not.toContain('sum(balance)')
+    await wrapper.get('[data-testid="view-registration-sql_one"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="registration-detail-dialog"]').text()).toContain(customSql.sql)
+    expect(wrapper.get('[data-testid="detail-comparison-key"]').text()).toContain('结果比对键')
+    await wrapper.get('[data-testid="close-registration-detail"]').trigger('click')
+    await wrapper.get('[data-testid="edit-registration-sql_two"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="custom-sql-name"]').element.value).toBe('金额复核')
+    expect(wrapper.get('[data-testid="custom-sql-text"]').element.value).toContain('sum(balance)')
+    await wrapper.get('[data-testid="close-custom-sql"]').trigger('click')
+    await wrapper.get('[data-testid="audit-registration-sql_two"]').trigger('click')
+    await flushPromises()
+    expect(comparisonApi.loadRegistrationAudits).toHaveBeenCalledWith(12, 0, 50)
+    await wrapper.get('[data-testid="close-audit-dialog"]').trigger('click')
+    await wrapper.get('[data-testid="delete-registration-sql_one"]').trigger('click')
+    await wrapper.get('[data-testid="confirm-list-delete"]').trigger('click')
+    await flushPromises()
+    expect(comparisonApi.deleteRegistration).toHaveBeenCalledWith(11, { version: 2, reason: '删除登记' })
+    expect(comparisonApi.updateRegistration).not.toHaveBeenCalled()
+  })
+
+  it('retains custom SQL input after save failure and uses dedicated create and update routes', async () => {
+    useRealMode()
+    comparisonApi.analyzeCustomSql.mockResolvedValue({ sql: 'select id from acct', sourceTableName: 'acct',
+      resultColumns: [{ columnName: 'id', columnLabel: 'id', dataType: 'VARCHAR', ordinalPosition: 1 }], candidateKeyColumns: ['id'] })
+    comparisonApi.createCustomSqlRegistration.mockRejectedValueOnce(new Error('SQL 保存冲突')).mockResolvedValueOnce({ id: 11 })
+    const wrapper = mount(ReplayDatabaseComparisonPage)
+    await flushPromises()
+    await wrapper.get('[data-testid="open-custom-sql"]').trigger('click')
+    await wrapper.get('[data-testid="custom-sql-name"]').setValue('按账号比对')
+    await wrapper.get('[data-testid="custom-sql-text"]').setValue('select id from acct')
+    await wrapper.get('[data-testid="analyze-custom-sql"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="save-custom-sql"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="custom-sql-error"]').text()).toContain('SQL 保存冲突')
+    expect(wrapper.get('[data-testid="custom-sql-text"]').element.value).toBe('select id from acct')
+    await wrapper.get('[data-testid="save-custom-sql"]').trigger('click')
+    await flushPromises()
+    expect(comparisonApi.createCustomSqlRegistration).toHaveBeenLastCalledWith({ displayName: '按账号比对', sourceTableName: 'acct', sql: 'select id from acct', fieldNames: ['id'], resultKeyColumns: ['id'], compareLimit: null })
+    expect(wrapper.find('[data-testid="custom-sql-dialog"]').exists()).toBe(false)
+  })
+
+  it('updates custom SQL by registration ID and version without using the physical-table save route', async () => {
+    const registration = { id: 21, version: 5, tableName: 'sql_saved', tableComment: '原汇总名称',
+      customSql: { sql: 'select id from acct', sourceTableName: 'acct', resultColumns: [{ columnName: 'id', ordinalPosition: 1, dataType: 'VARCHAR' }] },
+      fields: [{ columnName: 'id' }], comparisonKey: { indexType: 'RESULT_KEY', columnNames: ['id'] }, partitionNum: 4, sampleLimit: 500 }
+    useRealMode([{ ...registration, fieldPreview: ['id'] }])
+    comparisonApi.loadRegistration.mockResolvedValue(registration)
+    comparisonApi.updateCustomSqlRegistration.mockResolvedValue(registration)
+    const wrapper = mount(ReplayDatabaseComparisonPage)
+    await flushPromises()
+    await wrapper.get('[data-testid="edit-registration-sql_saved"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="custom-sql-sample"]').element.disabled).toBe(true)
+    expect(wrapper.get('[data-testid="custom-sql-partition"]').element.disabled).toBe(true)
+    await wrapper.get('[data-testid="custom-sql-name"]').setValue('更新汇总名称')
+    await wrapper.get('[data-testid="save-custom-sql"]').trigger('click')
+    await flushPromises()
+    expect(comparisonApi.updateCustomSqlRegistration).toHaveBeenCalledWith(21, {
+      displayName: '更新汇总名称', version: 5, sourceTableName: 'acct', sql: 'select id from acct',
+      fieldNames: ['id'], resultKeyColumns: ['id'], compareLimit: null,
+    })
+    expect(comparisonApi.updateRegistration).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-testid="custom-sql-dialog"]').exists()).toBe(false)
+  })
+
+  it('keeps the latest SQL editor selection when two same-source details finish loading', async () => {
+    const first = { id: 31, version: 1, tableName: 'sql_first', tableComment: '第一个汇总', customSql: { sql: 'select id from acct', sourceTableName: 'acct', resultColumns: [{ columnName: 'id' }] }, fields: [{ columnName: 'id' }], comparisonKey: { indexType: 'RESULT_KEY', columnNames: ['id'] } }
+    const second = { ...first, id: 32, version: 2, tableName: 'sql_second', tableComment: '第二个汇总' }
+    useRealMode([first, second])
+    let finishFirst
+    let finishSecond
+    comparisonApi.loadRegistration
+      .mockImplementationOnce(() => new Promise(resolve => { finishFirst = resolve }))
+      .mockImplementationOnce(() => new Promise(resolve => { finishSecond = resolve }))
+    const wrapper = mount(ReplayDatabaseComparisonPage)
+    await flushPromises()
+    await wrapper.get('[data-testid="edit-registration-sql_first"]').trigger('click')
+    await wrapper.get('[data-testid="edit-registration-sql_second"]').trigger('click')
+    finishFirst(first)
+    await flushPromises()
+    finishSecond(second)
+    await flushPromises()
+    expect(wrapper.get('[data-testid="custom-sql-name"]').element.value).toBe('第二个汇总')
+    await wrapper.get('[data-testid="save-custom-sql"]').trigger('click')
+    await flushPromises()
+    expect(comparisonApi.updateCustomSqlRegistration).toHaveBeenCalledWith(32, expect.objectContaining({ version: 2 }))
+  })
+
+  it('keeps the custom SQL filter distinct from the existing full-table sentinel', async () => {
+    useRealMode()
+    comparisonApi.loadHeaderFilterOptions.mockResolvedValue({ options: [
+      { value: '__CUSTOM_SQL__', label: '自定义 SQL', count: 2 },
+      { value: '__FULL_TABLE__', label: '全表', count: 1 },
+    ], matchedRegistrationCount: 3 })
+    const wrapper = mount(ReplayDatabaseComparisonPage)
+    await flushPromises()
+    await wrapper.get('[data-filter-key="queryCondition"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('input[value="__CUSTOM_SQL__"]').setValue(true)
+    await wrapper.get('[data-testid="apply-header-filter"]').trigger('click')
+    await flushPromises()
+    expect(comparisonApi.searchRegistrations).toHaveBeenLastCalledWith(expect.objectContaining({ whereConditionValues: ['__CUSTOM_SQL__'] }))
+  })
+
   it('loads the first real list without waiting for primary-key synchronization and refreshes after changes', async () => {
     let finishSynchronization
     comparisonApi.synchronizePrimaryKeys.mockReturnValue(new Promise(resolve => { finishSynchronization = resolve }))
@@ -957,6 +1162,39 @@ describe('ReplayDatabaseComparisonPage', () => {
       tableKeyword: '',
       metadataStatuses: ['MISSING_FIELDS'],
     }))
+  })
+
+  it('filters invalid custom SQL by metadata status instead of a physical table name', async () => {
+    useRealMode()
+    comparisonApi.loadHeaderFilterOptions.mockResolvedValue({ options: [{
+      value: '自定义 SQL 无效', label: '自定义 SQL 无效', count: 1, metadataStatus: 'CUSTOM_SQL_INVALID',
+    }], matchedRegistrationCount: 1 })
+    const wrapper = mount(ReplayDatabaseComparisonPage)
+    await flushPromises()
+    await wrapper.get('[data-filter-key="tableName"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="header-filter-option"] input').setValue(true)
+    await wrapper.get('[data-testid="apply-header-filter"]').trigger('click')
+    await flushPromises()
+    expect(comparisonApi.searchRegistrations).toHaveBeenLastCalledWith(expect.objectContaining({
+      metadataStatuses: ['CUSTOM_SQL_INVALID'], tableNames: [],
+    }))
+  })
+
+  it('shows invalid custom SQL in the list and preserves its saved definition in details', async () => {
+    const invalid = { ...registrationRow, customSql: { sql: 'select id from source_table', sourceTableName: 'source_table', resultColumns: [] },
+      sourceTableName: 'source_table', fields: [{ columnName: 'id' }],
+      metadataValidation: { status: 'CUSTOM_SQL_INVALID', missingFieldNames: [] } }
+    useRealMode([invalid])
+    comparisonApi.loadRegistration.mockResolvedValue(invalid)
+    const wrapper = mount(ReplayDatabaseComparisonPage)
+    await flushPromises()
+    expect(wrapper.get('[data-testid="table-name-acct"]').text()).toContain('自定义 SQL 无效')
+    await wrapper.get('[data-testid="view-registration-acct"]').trigger('click')
+    await flushPromises()
+    const detail = wrapper.get('[data-testid="registration-detail-dialog"]')
+    expect(detail.text()).toContain('自定义 SQL 无效')
+    expect(detail.text()).toContain('select id from source_table')
   })
 
   it('maps the missing-condition-field option to its independent metadata filter', async () => {

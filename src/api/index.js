@@ -205,7 +205,7 @@ export function getFlowtranChain(txId) {
 }
 
 /**
- * 导出指定领域的全部交易链路（交易、服务、构件、数据库表四个 Sheet）。
+ * 导出指定领域的全部交易链路（交易、服务、构件、数据库表、DAO 方法五个 Sheet）。
  * @param {string} domainKey 领域标识，如 public / deposit
  * @param {string} token 共享操作口令
  */

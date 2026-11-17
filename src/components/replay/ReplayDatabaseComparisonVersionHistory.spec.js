@@ -59,6 +59,25 @@ describe('ReplayDatabaseComparisonVersionHistory', () => {
     })
   })
 
+  it('shows frozen custom SQL, source, result keys and separate registration counts', async () => {
+    comparisonApi.loadVersions.mockResolvedValue({ items: [{ versionNo: 'V1', tableCount: 3, customSqlCount: 2, fieldCount: 5, latest: true }] })
+    comparisonApi.searchVersionSnapshot.mockResolvedValue({ items: [{ sourceRegistrationId: 11, tableName: 'sql_one', tableComment: '汇总金额',
+      customSql: { sql: 'select currency, sum(amount) as total_amt from acct group by currency', sourceTableName: 'acct', resultColumns: [] },
+      comparisonKey: { indexType: 'RESULT_KEY', indexName: 'SQL_RESULT_KEY', columnNames: ['currency'] },
+      fields: [{ columnName: 'currency' }, { columnName: 'total_amt' }], compareLimit: 10 }], total: 1 })
+    const wrapper = mount(ReplayDatabaseComparisonVersionHistory, { props: { open: true } })
+    await flushPromises()
+    expect(wrapper.get('[data-testid="version-item-V1"]').text()).toContain('普通表登记 1')
+    expect(wrapper.get('[data-testid="version-item-V1"]').text()).toContain('SQL 登记 2')
+    expect(wrapper.get('[data-testid="version-item-V1"]').text()).toContain('3 个比对项')
+    expect(wrapper.get('[data-testid="version-snapshot-table"]').text()).toContain('汇总金额')
+    expect(wrapper.get('[data-testid="version-snapshot-table"]').text()).toContain('acct')
+    expect(wrapper.get('[data-testid="history-comparison-key-sql_one"]').text()).toBe('结果比对键 · currency')
+    expect(wrapper.get('[data-testid="history-query-condition-sql_one"]').text()).toContain('select currency, sum(amount) as total_amt from acct group by currency')
+    expect(wrapper.get('[data-testid="history-query-condition-sql_one"]').text()).not.toContain('WHERE select')
+    wrapper.unmount()
+  })
+
   it('shows the immutable selected unique index and orders limited snapshots by its complete key', async () => {
     comparisonApi.searchVersionSnapshot.mockResolvedValue({ items: [{
       sourceRegistrationId: 7, tableName: 'acct', compareLimit: 3,

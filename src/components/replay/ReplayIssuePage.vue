@@ -343,7 +343,7 @@
                 <button class="replay-button replay-button-compact" type="button" :data-testid="`edit-${row.id}`" :disabled="!canEditIssue(row)" :title="editIssueTitle(row)" @click="openEdit(row)"><Pencil :size="13" aria-hidden="true" />编辑</button>
                 <button class="replay-button replay-button-compact" type="button" :data-testid="`tracking-${row.id}`" @click="openTracking(row)"><HistoryIcon :size="13" aria-hidden="true" />问题跟踪</button>
               </div>
-              <button v-else-if="column.key === 'lifetime_reopen_count'" type="button" class="replay-button replay-button-compact" :data-testid="`reopen-count-${row.id}`" title="按 issue_key 统计终身重开次数，点击查看台账" @click="openReopenLedger(row.issue_key)">{{ reopenCounts[row.issue_key] ?? '—' }}</button>
+              <button v-else-if="column.key === 'lifetime_reopen_count'" type="button" class="replay-button replay-button-compact" :data-testid="`reopen-count-${row.id}`" title="按 issue_key 统计终身重开次数，点击查看人员与批次统计" @click="openReopenLedger()">{{ reopenCounts[row.issue_key] ?? '—' }}</button>
               <span v-else-if="column.key === 'weekly_task'" v-show="isWeeklyTask(row)" class="replay-weekly-task-badge" data-testid="weekly-task-badge"><Flag :size="12" aria-hidden="true" />优先任务</span>
               <button v-else-if="column.key === 'review_status' && isReviewStatus(row.review_status) && canReviewIssue(row)" type="button" class="replay-review-badge" :class="reviewStatusClass(row)" :data-testid="`review-${row.id}`" :title="reviewActionTitle(row)" @click="approveReview(row)">{{ reviewStatusLabel(row) }}</button>
               <span v-else-if="column.key === 'review_status' && isReviewStatus(row.review_status)" class="replay-review-badge" :class="reviewStatusClass(row)" :data-testid="`review-${row.id}`" :title="reviewActionTitle(row)">{{ reviewStatusLabel(row) }}</span>
@@ -537,7 +537,7 @@
           <input v-model="importToken" data-testid="import-token" type="password" autocomplete="off" :disabled="importing" placeholder="X-DII-Trigger-Token" />
         </label>
         <p v-if="importMessage" class="replay-import-message" :class="{ 'is-error': importError }">{{ importMessage }}</p>
-        <button v-if="importComplete && importRoundId" class="replay-button" type="button" data-testid="open-import-reopen-records" :disabled="importing" @click="openImportReopenRecords">查看本次重开记录</button>
+        <button v-if="importComplete && importRoundId" class="replay-button" type="button" data-testid="open-import-reopen-records" :disabled="importing" @click="openImportReopenRecords">查看重开统计</button>
         <footer>
           <button class="replay-button" type="button" :disabled="importing" @click="closeImport">取消</button>
           <button class="replay-button replay-button-primary" type="button" data-testid="submit-import" :disabled="!importFile || importing || importComplete || importReading || !normalizeReleaseAt(importReleaseAt)" @click="submitImport">
@@ -955,7 +955,7 @@
       @minimize="minimizeStatisticsWindow('completion')"
       @close="closeStatisticsWindow('completion')"
     />
-    <ReplayReopenLedgerModal v-if="reopenLedgerOpen" :replay-type="reopenLedgerReplayType" :issue-key="reopenLedgerIssueKey" :source-round-id="reopenLedgerSourceRoundId" @close="reopenLedgerOpen = false" @changed="loadReopenCounts(items)" />
+    <ReplayReopenLedgerModal v-if="reopenLedgerOpen" :replay-type="reopenLedgerReplayType" @close="reopenLedgerOpen = false" />
   </section>
 </template>
 
@@ -973,18 +973,16 @@ import { replayModalMotionVariables, waitForReplayModalMotion } from './replayMo
 defineEmits(['toggleNavigation'])
 
 const ReplayReopenLedgerModal = defineAsyncComponent(() => import('./ReplayReopenLedgerModal.vue'))
-const reopenLedgerOpen = ref(false), reopenLedgerIssueKey = ref(''), reopenCounts = ref({})
-const reopenLedgerSourceRoundId = ref(null), reopenLedgerReplayType = ref('ALL')
+const reopenLedgerOpen = ref(false), reopenCounts = ref({})
+const reopenLedgerReplayType = ref('ALL')
 let reopenCountsSerial = 0
-function openReopenLedger(issueKey = '', sourceRoundId = null, replayType = statisticsReplayType.value) {
-  reopenLedgerIssueKey.value = issueKey
-  reopenLedgerSourceRoundId.value = sourceRoundId
+function openReopenLedger(replayType = statisticsReplayType.value) {
   reopenLedgerReplayType.value = replayType
   reopenLedgerOpen.value = true
 }
 function openImportReopenRecords() {
   closeImport()
-  openReopenLedger('', importRoundId.value, importResultReplayType.value)
+  openReopenLedger(importResultReplayType.value)
 }
 async function loadReopenCounts(rows) {
   const serial = ++reopenCountsSerial

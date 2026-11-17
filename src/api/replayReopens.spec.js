@@ -9,6 +9,16 @@ describe('reopen API contract', () => {
     expect(await api.getReopenStatistics({ issueKey: 'A|B', replayType: 'QUERY', onlyMine: false })).toEqual({ totalEvents: 6 })
     expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues/reopens/statistics?issueKey=A%7CB&replayType=QUERY&onlyMine=false')
   })
+  it('encodes selected batch names as repeated parameters without splitting commas', async () => {
+    global.fetch = vi.fn().mockResolvedValue(response({ totalEvents: 6 }))
+    await api.getReopenStatistics({ replayType: 'ALL', batchNames: ['RPT-1', 'DZ-2,A&B'], onlyMine: false })
+    expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues/reopens/statistics?replayType=ALL&batchNames=RPT-1&batchNames=DZ-2%2CA%26B&onlyMine=false')
+  })
+  it('omits empty batch selections while preserving scalar batch filters and false values', async () => {
+    global.fetch = vi.fn().mockResolvedValue(response({ totalEvents: 6 }))
+    await api.getReopenStatistics({ replayType: 'QUERY', batchNames: [], batchName: 'RPT-legacy', onlyMine: false, issueDomain: '' })
+    expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/issues/reopens/statistics?replayType=QUERY&batchName=RPT-legacy&onlyMine=false')
+  })
   it.each([
     ['getReopenPermissions', [], '/permissions', undefined],
     ['getReopenFilters', [{ replayType: 'DZ' }], '/filters?replayType=DZ', undefined],
@@ -17,6 +27,7 @@ describe('reopen API contract', () => {
     ['getReopenEvent', [7], '/events/7', undefined],
     ['getReopenHistory', [7, { page: 3, pageSize: 20 }], '/events/7/history?page=3&pageSize=20', undefined],
     ['getReopenIssueCounts', [['A', 'B']], '/issue-counts', { issueKeys: ['A', 'B'] }],
+    ['transferReopenCounts', [{ requestId: 'c538a5a1-56a6-463d-858a-cbddc18866cc', replayType: 'QUERY', batchNames: ['RPT-1'], sourceOwnerUsername: null, targetOwnerUsername: 'bob', count: 2, reason: '核实归属' }], '/count-transfers', { requestId: 'c538a5a1-56a6-463d-858a-cbddc18866cc', replayType: 'QUERY', batchNames: ['RPT-1'], sourceOwnerUsername: null, targetOwnerUsername: 'bob', count: 2, reason: '核实归属' }],
     ['listReopenAppeals', [{ assignedToMe: true }], '/appeals?assignedToMe=true', undefined],
     ['getReopenAppeal', [3], '/appeals/3', undefined],
     ['createReopenAppeal', [{ requestId: 'uuid', eventIds: [7], expectedVersions: { 7: 2 }, kind: 'RECHECK', suggestedOwnerUsername: 'liu', reason: '原因', evidence: '日志' }], '/appeals', { requestId: 'uuid', eventIds: [7], expectedVersions: { 7: 2 }, kind: 'RECHECK', suggestedOwnerUsername: 'liu', reason: '原因', evidence: '日志' }],

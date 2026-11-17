@@ -4,10 +4,11 @@
       <button class="nav-button" type="button" aria-label="打开导航" @click="$emit('toggleNavigation')">☰</button>
       <div>
         <h2>回放数据库比对字段登记（{{ latestVersion?.versionNo ? `版本：${latestVersion.versionNo}` : '尚未生成版本' }}）</h2>
-        <p>共 {{ globalTableCount }} 张表 · 共 {{ globalFieldCount }} 个比对字段</p>
+        <p>共 {{ globalTableCount }} {{ serverGlobalCustomSqlCount ? '个比对项' : '张表' }} · 共 {{ globalFieldCount }} 个比对字段<span v-if="serverGlobalCustomSqlCount"> · 普通表登记 {{ globalTableCount - serverGlobalCustomSqlCount }} · SQL 登记 {{ serverGlobalCustomSqlCount }}</span></p>
         <p v-if="generationMessage" class="generation-message" data-testid="generation-message">{{ generationMessage }}</p>
       </div>
       <div class="toolbar-actions">
+        <button type="button" class="outlined" data-testid="open-custom-sql" @click="openCustomSqlEditor">自定义 SQL</button>
         <button type="button" class="outlined" data-testid="open-version-history" @click="historyOpen = true">版本历史</button>
         <button type="button" class="outlined" data-testid="generate-version" :disabled="generating" @click="openGeneration">生成版本</button>
         <button type="button" class="outlined" data-testid="global-audit-query" @click="openGlobalAudit">审计日志查询</button>
@@ -65,9 +66,10 @@
               :data-testid="`table-name-${row.tableName}`"
               :title="tableDisplayValue(row)"
             >
-              <span class="compact-cell-content table-name-content"><strong>{{ row.tableName }}</strong><small>{{ row.tableComment }}</small></span>
+              <span class="compact-cell-content table-name-content"><strong>{{ row.customSql ? row.tableComment : row.tableName }}</strong><small v-if="row.customSql"><span class="sql-badge">SQL</span> {{ row.tableName }} · 来源 {{ row.sourceTableName }}</small><small v-else>{{ row.tableComment }}</small></span>
               <span v-if="isTableMissing(row)" class="metadata-status is-table-missing-status">母库表已删除</span>
               <span v-else-if="isMetadataUnavailable(row)" class="metadata-status is-unavailable-status" :data-testid="`metadata-unavailable-${row.tableName}`">母库校验暂不可用</span>
+              <span v-else-if="isCustomSqlInvalid(row)" class="metadata-status is-table-missing-status">自定义 SQL 无效</span>
               <span v-if="isMissingFields(row) && row.metadataValidation?.missingFieldNames?.length" class="metadata-status is-table-missing-status">比对字段母库中不存在</span>
               <span v-if="hasMissingConditionFields(row)" class="metadata-status is-table-missing-status">条件字段母库中不存在</span>
               <span v-if="hasOrderingPrimaryKeyChanged(row)" class="metadata-status is-table-missing-status">排序主键已变更</span>
@@ -127,7 +129,8 @@
               :data-testid="`query-condition-${row.tableName}`"
               :title="queryConditionExpression(row)"
             >
-              <div class="query-condition-content">{{ queryConditionExpression(row) }}</div>
+              <DiiSqlPre v-if="row.customSql && isQueryConditionExpanded(row.tableName)" :text="row.customSql.sql" label="自定义 SQL" />
+              <div v-else class="query-condition-content">{{ queryConditionExpression(row) }}</div>
               <div v-if="hasQueryScope(row)" class="field-actions">
                 <button
                   class="field-action"
@@ -254,6 +257,7 @@
     </div>
     <ReplayDatabaseComparisonEditor
       v-if="editorOpen"
+      :key="editingRegistration?.id || 'new-table'"
       :registrations="rows"
       :initial-registration="editingRegistration"
       :search-tables="searchTableOptions"
@@ -266,16 +270,29 @@
       @save="saveRegistration"
       @delete="deleteRegistration"
     />
+    <ReplayDatabaseComparisonCustomSqlEditor
+      v-if="customSqlEditorOpen"
+      :key="customSqlEditingRegistration?.id || 'new-sql'"
+      :initial-registration="customSqlEditingRegistration"
+      :can-configure-partitions="canConfigureSampleLimit"
+      :saving="customSqlSaving"
+      :save-error="customSqlSaveError"
+      @clear-error="customSqlSaveError = null"
+      @close="closeCustomSqlEditor"
+      @save="saveCustomSqlRegistration"
+    />
     <div v-if="detailRegistration" class="page-dialog-backdrop">
       <section class="page-dialog" data-testid="registration-detail-dialog">
         <header><h3>登记详情</h3><button type="button" data-testid="close-registration-detail" aria-label="关闭登记详情" @click="detailRegistration = null">×</button></header>
         <p v-if="isTableMissing(detailRegistration)" class="detail-table-warning" data-testid="detail-table-missing-warning">母库中已找不到该表，当前展示的是历史登记快照。请确认后删除整表登记。</p>
         <p v-else-if="isMetadataUnavailable(detailRegistration)" class="detail-metadata-unavailable">母库校验暂不可用，当前展示历史登记内容。</p>
+        <p v-else-if="isCustomSqlInvalid(detailRegistration)" class="detail-table-warning">自定义 SQL 无效，当前展示已保存的登记内容，请编辑并重新校验 SQL、结果字段和结果比对键。</p>
         <dl>
-          <dt>表英文名</dt><dd>{{ detailRegistration.tableName }}</dd>
-          <dt>表中文名</dt><dd>{{ detailRegistration.tableComment || '-' }}</dd>
+          <dt>{{ detailRegistration.customSql ? '比对编号' : '表英文名' }}</dt><dd>{{ detailRegistration.tableName }}</dd>
+          <dt>{{ detailRegistration.customSql ? '比对项名称' : '表中文名' }}</dt><dd>{{ detailRegistration.tableComment || '-' }}</dd>
+          <template v-if="detailRegistration.customSql"><dt>登记类型</dt><dd><span class="sql-badge">SQL</span></dd><dt>关联基础表</dt><dd>{{ detailRegistration.sourceTableName }}</dd></template>
           <dt>领域</dt><dd>{{ detailRegistration.domain }}</dd>
-          <dt>选择索引</dt><dd data-testid="detail-comparison-key">{{ formatComparisonKey(detailRegistration.comparisonKey) }}</dd>
+          <dt>{{ detailRegistration.customSql ? '结果比对键' : '选择索引' }}</dt><dd data-testid="detail-comparison-key">{{ formatComparisonKey(detailRegistration.comparisonKey) }}</dd>
           <dt>比对字段</dt><dd class="detail-fields">
             <p v-if="isMissingFields(detailRegistration) && missingFieldsFor(detailRegistration).length" class="detail-missing-warning" data-testid="detail-missing-fields-warning">{{ missingFieldsFor(detailRegistration).length }} 个字段已从母库删除，请尽快编辑并移除</p>
             <span
@@ -286,7 +303,8 @@
             >{{ formatField(field) }}<b v-if="selectedIndexFieldLabel(detailRegistration, field)" :class="detailRegistration.comparisonKey?.indexType === 'UNIQUE_INDEX' ? 'comparison-key-badge' : 'primary-key-badge'">{{ selectedIndexFieldLabel(detailRegistration, field) }}</b><b v-if="isMissingFields(detailRegistration) && isFieldMissingInBase(detailRegistration, field)">母库已删除</b></span>
           </dd>
           <dt>比对范围</dt><dd class="detail-scope">
-            <span v-if="detailRegistration.whereCondition">已配置条件</span>
+            <DiiSqlPre v-if="detailRegistration.customSql" :text="detailRegistration.customSql.sql" label="自定义 SQL" />
+            <span v-else-if="detailRegistration.whereCondition">已配置条件</span>
             <span v-else>全表</span>
             <span v-if="detailRegistration.compareLimit">限{{ detailRegistration.compareLimit }}条</span>
             <pre v-if="detailRegistration.whereSql">{{ detailRegistration.whereSql }}</pre>
@@ -323,7 +341,8 @@
     <div v-if="deleteTarget" class="page-dialog-backdrop">
       <section class="page-dialog compact-dialog" data-testid="list-delete-confirmation">
         <header><h3>删除登记</h3><button type="button" aria-label="关闭删除确认" @click="deleteTarget = null">×</button></header>
-        <p>确认删除表 <strong>{{ deleteTarget.tableName }}</strong> 的全部比对字段登记吗？</p>
+        <p v-if="deleteTarget.customSql">确认删除自定义 SQL 登记 <strong>{{ deleteTarget.tableComment }}</strong>（{{ deleteTarget.tableName }}）吗？</p>
+        <p v-else>确认删除表 <strong>{{ deleteTarget.tableName }}</strong> 的全部比对字段登记吗？</p>
         <p v-if="pageError" class="api-error" role="alert">{{ pageError }}</p>
         <footer><button type="button" @click="deleteTarget = null">取消</button><button type="button" class="danger-confirm" data-testid="confirm-list-delete" @click="confirmListDelete">确认删除</button></footer>
       </section>
@@ -335,12 +354,16 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { Search } from 'lucide-vue-next'
 import ReplayDatabaseComparisonEditor from './ReplayDatabaseComparisonEditor.vue'
+import ReplayDatabaseComparisonCustomSqlEditor from './ReplayDatabaseComparisonCustomSqlEditor.vue'
+import DiiSqlPre from '../daoindex/widgets/DiiSqlPre.vue'
 import ReplayDatabaseComparisonAuditDialog from './ReplayDatabaseComparisonAuditDialog.vue'
 import ReplayDatabaseComparisonVersionHistory from './ReplayDatabaseComparisonVersionHistory.vue'
 import { exportInitialImportErrors } from './initialImportErrorWorkbook.js'
 import { buildScopePreview } from './replayDatabaseComparisonScope.js'
 import {
   createRegistration,
+  createCustomSqlRegistration,
+  updateCustomSqlRegistration,
   deleteRegistration as deleteRegistrationApi,
   generateVersion,
   importInitialExcel,
@@ -368,6 +391,7 @@ const filterError = ref('')
 const serverTotal = ref(0)
 const serverGlobalTableCount = ref(0)
 const serverGlobalFieldCount = ref(0)
+const serverGlobalCustomSqlCount = ref(0)
 const auditEvents = reactive([])
 
 const filterColumns = [
@@ -398,6 +422,11 @@ const copiedConditionTable = ref('')
 const editorOpen = ref(false)
 const editingRegistration = ref(null)
 const editorSaveError = ref(null)
+const customSqlEditorOpen = ref(false)
+const customSqlEditingRegistration = ref(null)
+const customSqlSaveError = ref(null)
+const customSqlSaving = ref(false)
+let editorLoadSequence = 0
 const canConfigureSampleLimit = ref(false)
 const detailRegistration = ref(null)
 const auditDialogOpen = ref(false)
@@ -430,6 +459,8 @@ const generationError = ref('')
 const generationMessage = ref('')
 const generationGateErrors = ref([])
 const gateStatusLabel = {
+  DOMAIN_MAPPING_MISSING: '领域缺少映射',
+  CUSTOM_SQL_INVALID: '自定义 SQL 无效',
   MISSING_FIELDS: '比对字段母库中不存在',
   ORDERING_PRIMARY_KEY_CHANGED: '排序主键已变更',
   TABLE_MISSING: '母库表已删除',
@@ -446,6 +477,7 @@ const METADATA_STATUS_BY_LABEL = {
   [MISSING_CONDITION_FIELDS_LABEL]: 'MISSING_CONDITION_FIELDS',
   [TABLE_MISSING_LABEL]: 'TABLE_MISSING',
   [ORDERING_PRIMARY_KEY_CHANGED_LABEL]: 'ORDERING_PRIMARY_KEY_CHANGED',
+  '自定义 SQL 无效': 'CUSTOM_SQL_INVALID',
 }
 
 const formatField = field => field.comment?.trim()
@@ -457,12 +489,15 @@ const tableDisplayValue = row => row.tableComment?.trim()
   : row.tableName
 
 const allFields = row => row.fields.map(formatField).join('、')
-const formatComparisonKey = key => key
-  ? `${key.indexType === 'PRIMARY_KEY' ? '主键' : '唯一索引'} · ${key.indexName} · ${key.columnNames.join('、')}`
-  : '未记录索引选择（按母库默认）'
+const formatComparisonKey = key => {
+  if (!key) return '未记录索引选择（按母库默认）'
+  if (key.indexType === 'RESULT_KEY') return `结果比对键 · ${key.columnNames.join('、')}`
+  return `${key.indexType === 'PRIMARY_KEY' ? '主键' : '唯一索引'} · ${key.indexName} · ${key.columnNames.join('、')}`
+}
 const selectedIndexFieldLabel = (row, field) => {
   if (!row.comparisonKey) return field.primaryKey ? '主键' : ''
   if (!row.comparisonKey.columnNames.some(name => name.toLocaleLowerCase() === (field.name || field.columnName)?.toLocaleLowerCase())) return ''
+  if (row.comparisonKey.indexType === 'RESULT_KEY') return '结果比对键'
   return row.comparisonKey.indexType === 'UNIQUE_INDEX' ? '唯一索引' : '主键'
 }
 const primaryKeyColumnsFor = row => {
@@ -471,6 +506,7 @@ const primaryKeyColumnsFor = row => {
   return row.fields.filter(field => field.primaryKey).map(field => field.name)
 }
 const queryConditionCopyValue = row => {
+  if (row.customSql) return row.customSql.sql
   const preview = buildScopePreview(
     row.whereCondition,
     [],
@@ -479,12 +515,13 @@ const queryConditionCopyValue = row => {
   )
   return preview === '全表比对' ? '全表' : preview
 }
-const queryConditionExpression = row => queryConditionCopyValue(row)
+const queryConditionExpression = row => row.customSql ? '自定义 SQL' : queryConditionCopyValue(row)
 const hasQueryCondition = row => Boolean(row?.whereCondition?.groups?.length)
-const hasQueryScope = row => hasQueryCondition(row) || Boolean(row?.compareLimit)
+const hasQueryScope = row => Boolean(row?.customSql) || hasQueryCondition(row) || Boolean(row?.compareLimit)
 const metadataStatus = row => row?.metadataValidation?.status || 'VALID'
 const isTableMissing = row => metadataStatus(row) === 'TABLE_MISSING'
 const isMetadataUnavailable = row => metadataStatus(row) === 'UNAVAILABLE'
+const isCustomSqlInvalid = row => metadataStatus(row) === 'CUSTOM_SQL_INVALID'
 const isMissingFields = row => metadataStatus(row) === 'MISSING_FIELDS'
 const hasMissingConditionFields = row => Boolean(
   row?.metadataValidation?.missingConditionFieldNames?.length,
@@ -591,6 +628,11 @@ const mapRegistration = registration => ({
   id: registration.id,
   version: registration.version,
   sampleLimit: registration.sampleLimit ?? 100,
+  partitionNum: registration.partitionNum ?? 1,
+  customSql: registration.customSql || null,
+  registrationType: registration.customSql ? 'CUSTOM_SQL' : 'TABLE',
+  comparisonCode: registration.comparisonCode || registration.tableName,
+  sourceTableName: registration.customSql?.sourceTableName || registration.sourceTableName || registration.tableName,
   tableName: registration.tableName,
   tableComment: registration.tableComment || '',
   domain: registration.domainName || registration.domain || '',
@@ -696,24 +738,69 @@ const confirmListDelete = async () => {
 }
 
 const openAddEditor = () => {
+  editorLoadSequence++
   editorSaveError.value = null
   editingRegistration.value = null
   editorOpen.value = true
 }
 
 const openEditEditor = async row => {
+  const request = ++editorLoadSequence
   editorSaveError.value = null
   pageError.value = ''
   try {
-    editingRegistration.value = await hydrateRegistration(row)
-    editorOpen.value = true
-  } catch (error) { pageError.value = error?.message || '登记详情加载失败，请重试' }
+    const registration = await hydrateRegistration(row)
+    if (request !== editorLoadSequence) return
+    if (registration.customSql) {
+      customSqlEditingRegistration.value = registration
+      customSqlSaveError.value = null
+      customSqlEditorOpen.value = true
+    } else {
+      editingRegistration.value = registration
+      editorOpen.value = true
+    }
+  } catch (error) {
+    if (request === editorLoadSequence) pageError.value = error?.message || '登记详情加载失败，请重试'
+  }
 }
 
 const closeEditor = () => {
+  editorLoadSequence++
   editorOpen.value = false
   editingRegistration.value = null
   editorSaveError.value = null
+}
+
+const openCustomSqlEditor = () => {
+  editorLoadSequence++
+  customSqlEditingRegistration.value = null
+  customSqlSaveError.value = null
+  customSqlEditorOpen.value = true
+}
+const closeCustomSqlEditor = () => {
+  if (customSqlSaving.value) return
+  editorLoadSequence++
+  customSqlEditorOpen.value = false
+  customSqlEditingRegistration.value = null
+  customSqlSaveError.value = null
+}
+const saveCustomSqlRegistration = async payload => {
+  if (customSqlSaving.value) return
+  customSqlSaving.value = true
+  customSqlSaveError.value = null
+  const { id, partitionNum, sampleLimit, ...body } = payload
+  if (canConfigureSampleLimit.value) Object.assign(body, { partitionNum, sampleLimit })
+  try {
+    if (id != null) await updateCustomSqlRegistration(id, body)
+    else await createCustomSqlRegistration(body)
+  } catch (error) {
+    customSqlSaveError.value = { message: error?.message || 'SQL 登记保存失败，请重试', data: error?.data }
+    return
+  } finally {
+    customSqlSaving.value = false
+  }
+  closeCustomSqlEditor()
+  await loadPage()
 }
 
 const saveRegistration = async payload => {
@@ -887,7 +974,7 @@ const criteria = () => {
 }
 const mapListItem = item => mapRegistration({
   ...item,
-  fields: (item.fieldPreview || []).map(display => {
+  fields: item.fields || (item.fieldPreview || []).map(display => {
     const match = display.match(/^([^()]+)(?:\((.*)\))?$/)
     return { columnName: match?.[1] || display, columnComment: match?.[2] || '' }
   }),
@@ -900,6 +987,7 @@ const loadPage = async () => {
     serverTotal.value = Number(result.total || 0)
     serverGlobalTableCount.value = Number(result.globalTableCount || 0)
     serverGlobalFieldCount.value = Number(result.globalFieldCount || 0)
+    serverGlobalCustomSqlCount.value = Number(result.globalCustomSqlCount || 0)
   } catch (error) { pageError.value = error?.message || '登记清单加载失败，请重试' }
 }
 const openInitialImport = () => {
@@ -1027,7 +1115,7 @@ const submitGeneration = async () => {
   try {
     const generated = await generateVersion(generationToken.value)
     latestVersion.value = generated
-    generationMessage.value = `已生成版本，共 ${generated.tableCount} 张表、${generated.fieldCount} 个字段`
+    generationMessage.value = `已生成版本，共 ${generated.tableCount} ${generated.customSqlCount ? '个比对项' : '张表'}、${generated.fieldCount} 个字段`
     generationOpen.value = false
     generationToken.value = ''
     page.value = 1
@@ -1061,6 +1149,7 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.sql-badge { display: inline-block; padding: 1px 5px; border-radius: 3px; background: var(--bg-domain-active); color: var(--text-active); font-size: 11px; }
 .db-compare-page { flex: 1; min-width: 0; min-height: 0; height: 100%; display: flex; flex-direction: column; overflow: hidden; background: #f4f6f9; color: #303947; }
 .page-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
 .page-toolbar { flex: 0 0 auto; padding: 20px 22px 0; }

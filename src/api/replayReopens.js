@@ -3,7 +3,9 @@ import { request } from './index.js'
 const PREFIX = '/ai/parallel-replay/issues/reopens'
 const id = encodeURIComponent
 const read = (path, params = {}) => {
-  const query = Object.entries(params).filter(([, value]) => value !== '' && value !== undefined && value !== null)
+  const query = Object.entries(params)
+    .flatMap(([key, value]) => (Array.isArray(value) ? value : [value]).map(item => [key, item]))
+    .filter(([, value]) => value !== '' && value !== undefined && value !== null)
     .map(([key, value]) => `${id(key)}=${id(value)}`).join('&')
   return request(`${PREFIX}${path}${query ? `?${query}` : ''}`)
 }
@@ -17,6 +19,7 @@ export const getReopenEvent = eventId => read(`/events/${id(eventId)}`)
 export const getReopenHistory = (eventId, params) => read(`/events/${id(eventId)}/history`, params)
 export const getReopenIssueCounts = issueKeys => write('/issue-counts', { issueKeys })
 export const getReopenStatistics = params => read('/statistics', params)
+export const transferReopenCounts = payload => write('/count-transfers', payload)
 export const listReopenAppeals = params => read('/appeals', params)
 export const getReopenAppeal = appealId => read(`/appeals/${id(appealId)}`)
 export const createReopenAppeal = payload => write('/appeals', payload)

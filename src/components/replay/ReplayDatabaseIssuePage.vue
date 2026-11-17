@@ -113,15 +113,37 @@
       <footer><button class="button" :disabled="importing" @click="closeImport">关闭</button><button class="button primary" :disabled="!canSubmitImport" data-testid="submit-import" @click="submitImport"><Upload :size="15" />{{ importing ? '导入中…' : '开始导入' }}</button></footer>
     </section></div>
 
-    <div v-if="editRow" class="modal-mask" @click.self="closeEdit"><section class="dialog edit-dialog" role="dialog" aria-modal="true" aria-labelledby="database-edit-title" data-testid="edit-modal"><header><div><h3 id="database-edit-title">编辑数据库问题</h3><p>{{ editRow.issueId }} · {{ editRow.batchNo }}</p></div><button class="icon-button" :disabled="saving" aria-label="关闭编辑" @click="closeEdit"><X :size="17" /></button></header>
-      <div class="edit-fields"><label><span>问题状态</span><select v-model="draft.issueStatus" data-testid="edit-status" @change="statusChanged"><option v-if="!manualStatuses.includes(draft.issueStatus)" :value="draft.issueStatus">当前：{{ draft.issueStatus }}</option><option v-for="value in editableStatuses" :key="value">{{ value }}</option></select></label>
-      <label><span class="field-label">问题类型 <em class="required-mark">*</em></span><select v-model="draft.issueType" data-testid="edit-type" @change="editError = ''"><option value="">请选择问题类型</option><option v-for="value in editableTypes" :key="value">{{ value }}</option></select></label>
-      <label class="wide"><span>初步问题分析 <small>{{ draft.initialAnalysis.length }}/500</small></span><textarea v-model="draft.initialAnalysis" maxlength="500" rows="4" data-testid="edit-analysis" /></label>
-      <label class="wide"><span>最终处理方案 <small>{{ draft.finalSolution.length }}/500</small></span><textarea v-model="draft.finalSolution" maxlength="500" rows="4" data-testid="edit-solution" /></label>
-      <label class="wide"><span>备注 <small>{{ draft.remark.length }}/500</small></span><textarea v-model="draft.remark" maxlength="500" rows="3" data-testid="edit-remark" /></label>
-      <label class="wide collaborator-field"><span>需协同人</span><div class="user-picker"><input v-model="collaboratorText" type="search" placeholder="姓名或账号" data-testid="edit-collaborator" autocomplete="off" @input="searchCollaborator" /><ul v-if="collaborators.length" class="user-options"><li v-for="user in collaborators" :key="user.username"><button @click="selectCollaborator(user)">{{ user.realName || user.displayName || user.username }} ({{ user.username }})</button></li></ul></div><small v-if="collaboratorLoading">正在搜索…</small></label></div>
-      <p v-if="editError" class="form-error" role="alert">{{ editError }}</p><footer><button class="button" :disabled="saving" @click="closeEdit">取消</button><button class="button primary" :disabled="saving" data-testid="save-edit" @click="saveEdit"><Save :size="14" />{{ saving ? '保存中…' : '保存' }}</button></footer>
+    <div v-if="editRow" class="modal-mask"><section class="dialog edit-dialog" role="dialog" aria-modal="true" aria-labelledby="database-edit-title" data-testid="edit-modal"><header><div><h3 id="database-edit-title">编辑数据库问题</h3><p>{{ editRow.issueId }} · {{ editRow.batchNo }}</p></div><button class="icon-button" :disabled="editLocked" aria-label="关闭编辑" @click="closeEdit"><X :size="17" /></button></header>
+      <div class="edit-fields"><label><span>问题状态</span><select v-model="draft.issueStatus" :disabled="editLocked" data-testid="edit-status" @change="statusChanged"><option v-if="!manualStatuses.includes(draft.issueStatus)" :value="draft.issueStatus">当前：{{ draft.issueStatus }}</option><option v-for="value in editableStatuses" :key="value">{{ value }}</option></select></label>
+      <label><span class="field-label">问题类型 <em class="required-mark">*</em></span><select v-model="draft.issueType" :disabled="editLocked" data-testid="edit-type" @change="editError = ''"><option value="">请选择问题类型</option><option v-for="value in editableTypes" :key="value">{{ value }}</option></select></label>
+      <label class="wide"><span>初步问题分析 <small>{{ draft.initialAnalysis.length }}/500</small></span><textarea v-model="draft.initialAnalysis" :disabled="editLocked" maxlength="500" rows="4" data-testid="edit-analysis" /></label>
+      <label class="wide"><span>最终处理方案 <small>{{ draft.finalSolution.length }}/500</small></span><textarea v-model="draft.finalSolution" :disabled="editLocked" maxlength="500" rows="4" data-testid="edit-solution" /></label>
+      <label class="wide"><span>备注 <small>{{ draft.remark.length }}/500</small></span><textarea v-model="draft.remark" :disabled="editLocked" maxlength="500" rows="3" data-testid="edit-remark" /></label>
+      <label class="wide collaborator-field">
+        <span>需协同人 <span v-if="draft.cooperationPersonUsername" class="collaborator-mail-status" :class="`is-${primaryCollaboratorStatus.status.toLowerCase()}`" :title="primaryCollaboratorStatus.failureMessage || (primaryCollaboratorStatus.status === 'PENDING' ? '当前编辑内容相较上次发送内容已变化' : '')" data-testid="edit-mail-status">{{ mailStatusLabel(primaryCollaboratorStatus.status) }}</span></span>
+        <div class="user-picker"><input v-model="collaboratorText" :disabled="editLocked" type="search" placeholder="姓名或账号" data-testid="edit-collaborator" autocomplete="off" @input="searchCollaborator" /><ul v-if="collaborators.length" class="user-options"><li v-for="user in collaborators" :key="user.username"><button :disabled="editLocked" @click="selectCollaborator(user)">{{ user.realName || user.displayName || user.username }} ({{ user.username }})</button></li></ul></div>
+        <small v-if="collaboratorLoading">正在搜索…</small>
+        <small v-if="mailStatusLoading && !mailPromptOpen" role="status">正在读取邮件状态…</small>
+        <span v-if="mailStatusError && !mailPromptOpen" class="mail-error" role="alert" data-testid="edit-mail-error">读取邮件状态失败，{{ mailStatusError }} <button type="button" class="text-button" data-testid="edit-mail-retry" :disabled="mailStatusLoading || editLocked" @click="loadEditMailStatus">重试</button></span>
+      </label></div>
+      <p v-if="editError" class="form-error" role="alert">{{ editError }}</p><footer><button class="button primary" :disabled="editLocked" data-testid="save-edit" @click="saveEdit"><Save :size="14" />{{ saving ? '保存中…' : '保存' }}</button></footer>
     </section></div>
+
+    <div v-if="mailPromptOpen" class="modal-mask mail-prompt-mask">
+      <section class="dialog mail-prompt" role="dialog" aria-modal="true" aria-labelledby="database-mail-prompt-title" data-testid="mail-confirm-modal">
+        <header><div><h3 id="database-mail-prompt-title">发送协同邮件</h3><p>当前问题已保存，是否发送邮件通知协同人及相关负责人？</p></div></header>
+        <div class="mail-prompt-content">
+          <strong>issue_id {{ editRow?.issueId }}</strong>
+          <span v-for="recipient in pendingMailRecipients" :key="recipient.email">{{ recipient.role }} {{ recipient.displayName || recipient.username }}（{{ recipient.email }}）</span>
+          <small v-if="mailStatusLoading" role="status">正在读取邮件状态…</small>
+          <label><input v-model="mailPromptChoice" type="radio" value="no" :disabled="mailSending" data-testid="mail-choice-no" /> 否，仅保存</label>
+          <label><input v-model="mailPromptChoice" type="radio" value="yes" :disabled="mailSending || mailStatusLoading || !!mailStatusError" data-testid="mail-choice-yes" /> 是，发送邮件</label>
+        </div>
+        <p v-if="mailStatusError" class="form-error" role="alert">问题已保存，邮件状态读取失败，{{ mailStatusError }} <button type="button" class="text-button" :disabled="mailStatusLoading || mailSending" data-testid="mail-confirm-retry" @click="retryMailPromptStatus">重试读取邮件状态</button></p>
+        <p v-if="mailPromptError" class="form-error" role="alert">{{ mailPromptError }}</p>
+        <footer><button type="button" class="button primary" :disabled="saving || mailSending || mailStatusLoading" data-testid="mail-confirm-submit" @click="confirmMailPrompt">{{ mailSending ? '处理中…' : '确定' }}</button></footer>
+      </section>
+    </div>
 
     <div v-if="reviewRow" class="modal-mask" @click.self="closeReview"><section class="dialog review-dialog" role="dialog" aria-modal="true" aria-labelledby="database-review-title" data-testid="review-modal"><header><div><h3 id="database-review-title">{{ reviewModalTitle }}</h3><p>issue_id：{{ reviewRow.issueId }}</p></div><button class="icon-button" :disabled="reviewing" aria-label="关闭审核窗口" @click="closeReview"><X :size="17" /></button></header><label class="review-reason-field"><span class="field-label">审核原因 <em class="required-mark">*</em><small>{{ reviewReason.length }}/500</small></span><textarea v-model="reviewReason" maxlength="500" rows="5" placeholder="请填写审核原因" data-testid="review-reason" @input="reviewError = ''" /></label><p v-if="reviewError" class="form-error" role="alert" data-testid="review-error">{{ reviewError }}</p><footer><button class="button" :disabled="reviewing" @click="closeReview">取消</button><button class="button primary" :disabled="reviewing" data-testid="submit-review" @click="submitReview"><Save :size="15" />{{ reviewing ? '保存中…' : '确认' }}</button></footer></section></div>
 
@@ -136,7 +158,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { ArrowDownWideNarrow, ArrowUpNarrowWide, ChevronDown, ChevronLeft, ChevronRight, Copy, Download, History, Menu, Pencil, RefreshCw, Save, Search, Upload, X } from 'lucide-vue-next'
 import ReplayTrackingValue from './ReplayTrackingValue.vue'
 import ReplayDatabaseIssueReportDialog from './ReplayDatabaseIssueReportDialog.vue'
-import { listDatabaseIssues, getDatabaseIssueOptions, getDatabaseIssueFilterOptions, importDatabaseIssues, getDatabaseIssueImportContext, updateDatabaseIssue, getDatabaseIssueTracking, approveDatabaseIssue, exportDatabaseIssues, updateDatabaseIssuePlanDate, getDatabaseIssuePlanDateChanges } from '../../api/replayDatabaseIssues.js'
+import { listDatabaseIssues, getDatabaseIssueOptions, getDatabaseIssueFilterOptions, importDatabaseIssues, getDatabaseIssueImportContext, updateDatabaseIssue, getDatabaseIssueMailStatus, sendDatabaseIssueMail, getDatabaseIssueTracking, approveDatabaseIssue, exportDatabaseIssues, updateDatabaseIssuePlanDate, getDatabaseIssuePlanDateChanges } from '../../api/replayDatabaseIssues.js'
 import { loadVersions } from '../../api/replayDatabaseComparison.js'
 import { searchReplayIssueUsers } from '../../api/replayIssues.js'
 import { copyText } from '../../utils/clipboard.js'
@@ -553,8 +575,87 @@ const editableStatuses=computed(()=>editRow.value?.issueStatus==='重新打开'?
 const editableTypes=computed(()=>draft.issueStatus==='无需处理'?noActionTypes:options.issueTypes.filter(value=>!noActionTypes.includes(value)))
 const typeSelectionMessage=computed(()=>draft.issueStatus==='无需处理'?'无需处理的问题类型请选择：不参与比对、规则性差异':'请选择问题类型')
 const collaboratorText=ref(''),selectedCollaboratorText=ref(''),collaborators=ref([]),collaboratorLoading=ref(false)
+const editMailStatus = ref({ recipients: [] })
+const mailStatusLoading = ref(false)
+const mailStatusError = ref('')
+const collaboratorSelectionPending = ref(false)
+const mailPromptOpen = ref(false)
+const mailPromptChoice = ref('no')
+const mailSending = ref(false)
+const mailPromptError = ref('')
+const editLocked = computed(() => saving.value || mailPromptOpen.value)
+const mailRecipients = computed(() => Array.isArray(editMailStatus.value.recipients) ? editMailStatus.value.recipients : [])
+const pendingMailRecipients = computed(() => mailRecipients.value.filter(recipient =>
+  recipient.email && !['SENT', 'SENDING'].includes(mailRecipientStatus(recipient)),
+))
+const mailPromptRecipient = computed(() => mailRecipients.value.find(recipient => recipient.role === '协同人'))
+const mailContentKeys = ['issueStatus', 'issueType', 'initialAnalysis', 'finalSolution', 'cooperationPersonUsername', 'remark']
+const editMailContentChanged = computed(() => editRow.value && mailContentKeys.some(key => (draft[key] || '') !== (editRow.value[key] || '')))
+const primaryCollaboratorStatus = computed(() => {
+  if (!draft.cooperationPersonUsername || !mailRecipients.value.length) return { status: 'UNSENT', failureMessage: '' }
+  const statuses = mailRecipients.value.map(mailRecipientStatus)
+  const failed = mailRecipients.value.filter((recipient, index) => statuses[index] === 'FAILED')
+  const status = ['FAILED', 'PENDING', 'SENDING', 'UNSENT'].find(value => statuses.includes(value)) || 'SENT'
+  return { status, failureMessage: failed.map(recipient => recipient.failureMessage).filter(Boolean).join('；') }
+})
+let editSequence = 0, mailSequence = 0
+
+function mailStatusLabel(status) {
+  return { UNSENT: '未发送', SENDING: '发送中', SENT: '已发送', PENDING: '待发送（内容已经变更）', FAILED: '发送失败' }[status] || '未发送'
+}
+
+function mailRecipientStatus(recipient) {
+  if (recipient.role === '协同人' && (collaboratorSelectionPending.value || draft.cooperationPersonUsername !== (editRow.value?.cooperationPersonUsername || ''))) return 'UNSENT'
+  const status = String(recipient.status || 'UNSENT').toUpperCase()
+  if (status === 'PENDING' && !(recipient.sentAt || editMailStatus.value.sentAt)) return 'UNSENT'
+  if (status === 'SENT' && editMailContentChanged.value) return 'PENDING'
+  return status
+}
+
+function isCurrentEdit(sequence) {
+  return alive && sequence === editSequence && Boolean(editRow.value)
+}
+
+async function loadEditMailStatus() {
+  if (!editRow.value) return false
+  const scope = editSequence, sequence = ++mailSequence, id = editRow.value.id
+  mailStatusLoading.value = true
+  mailStatusError.value = ''
+  try {
+    const result = await getDatabaseIssueMailStatus(id)
+    if (!isCurrentEdit(scope) || sequence !== mailSequence) return false
+    editMailStatus.value = result || { recipients: [] }
+    return true
+  } catch (cause) {
+    if (isCurrentEdit(scope) && sequence === mailSequence) mailStatusError.value = cause?.message || '读取失败'
+    return false
+  } finally {
+    if (isCurrentEdit(scope) && sequence === mailSequence) mailStatusLoading.value = false
+  }
+}
+
+function resetEdit() {
+  editSequence++
+  mailSequence++
+  collaboratorSequence++
+  clearTimeout(collaboratorTimer)
+  editRow.value = null
+  saving.value = false
+  collaborators.value = []
+  collaboratorLoading.value = false
+  collaboratorSelectionPending.value = false
+  editMailStatus.value = { recipients: [] }
+  mailStatusLoading.value = false
+  mailStatusError.value = ''
+  mailPromptOpen.value = false
+  mailPromptChoice.value = 'no'
+  mailSending.value = false
+  mailPromptError.value = ''
+}
+
 function openEdit(row){
-  if(!canEdit(row))return
+  if(!canEdit(row)||editLocked.value)return
+  resetEdit()
   editRow.value=row
   for(const key of Object.keys(draft))draft[key]=row[key]??(key==='version'?0:'')
   collaboratorText.value=row.cooperationPerson||'';selectedCollaboratorText.value=collaboratorText.value;collaborators.value=[];editError.value=''
@@ -562,12 +663,99 @@ function openEdit(row){
     editError.value=`原问题类型“${draft.issueType}”已不适用，${typeSelectionMessage.value}`
     draft.issueType=''
   }
+  loadEditMailStatus()
 }
-function closeEdit(){if(saving.value)return;editRow.value=null;collaboratorSequence++;clearTimeout(collaboratorTimer);collaborators.value=[];collaboratorLoading.value=false}
+function closeEdit(){if(editLocked.value)return;resetEdit()}
 function statusChanged(){editError.value='';if(!editableTypes.value.includes(draft.issueType))draft.issueType=''}
 function searchCollaborator(){const sequence=++collaboratorSequence;clearTimeout(collaboratorTimer);draft.cooperationPersonUsername='';selectedCollaboratorText.value='';collaborators.value=[];collaboratorLoading.value=false;const keyword=collaboratorText.value.trim();if(!keyword)return;collaboratorLoading.value=true;collaboratorTimer=setTimeout(async()=>{try{const result=await searchReplayIssueUsers(keyword,20);if(alive&&editRow.value&&sequence===collaboratorSequence)collaborators.value=result||[]}catch(e){if(sequence===collaboratorSequence)editError.value=e.message||'搜索失败'}finally{if(sequence===collaboratorSequence)collaboratorLoading.value=false}},250)}
-function selectCollaborator(user){collaboratorSequence++;draft.cooperationPersonUsername=user.username;collaboratorText.value=`${user.realName||user.displayName||user.username}(${user.username})`;selectedCollaboratorText.value=collaboratorText.value;collaborators.value=[];collaboratorLoading.value=false}
-async function saveEdit(){if(saving.value||!editRow.value)return;editError.value='';if(!editableTypes.value.includes(draft.issueType)){editError.value=typeSelectionMessage.value;return}if(collaboratorText.value.trim()&&(!draft.cooperationPersonUsername||collaboratorText.value!==selectedCollaboratorText.value)){editError.value='请从搜索结果中选择需协同人';return}saving.value=true;try{await updateDatabaseIssue(editRow.value.id,{...draft});editRow.value=null;await loadRows()}catch(e){editError.value=e.message||'保存失败'}finally{saving.value=false}}
+function selectCollaborator(user){collaboratorSequence++;draft.cooperationPersonUsername=user.username;collaboratorText.value=`${user.realName||user.displayName||user.username}(${user.username})`;selectedCollaboratorText.value=collaboratorText.value;collaborators.value=[];collaboratorLoading.value=false;collaboratorSelectionPending.value=true}
+
+async function completeSavedEdit(scope) {
+  if (!isCurrentEdit(scope)) return
+  resetEdit()
+  await loadRows()
+}
+
+async function retryMailPromptStatus() {
+  if (!editRow.value || mailSending.value || mailStatusLoading.value) return
+  const scope = editSequence
+  const loaded = await loadEditMailStatus()
+  if (!isCurrentEdit(scope)) return
+  if (!loaded) {
+    mailPromptOpen.value = true
+    return
+  }
+  const collaborator = mailPromptRecipient.value
+  if (collaborator?.email && pendingMailRecipients.value.length) {
+    mailPromptOpen.value = true
+    return
+  }
+  await completeSavedEdit(scope)
+}
+
+async function saveEdit() {
+  if (editLocked.value || !editRow.value) return
+  editError.value = ''
+  if (!editableTypes.value.includes(draft.issueType)) {
+    editError.value = typeSelectionMessage.value
+    return
+  }
+  if (collaboratorText.value.trim() && (!draft.cooperationPersonUsername || collaboratorText.value !== selectedCollaboratorText.value)) {
+    editError.value = '请从搜索结果中选择需协同人'
+    return
+  }
+  const scope = editSequence, payload = { ...draft }
+  saving.value = true
+  mailSequence++
+  mailStatusLoading.value = false
+  try {
+    const saved = await updateDatabaseIssue(editRow.value.id, payload)
+    if (!isCurrentEdit(scope)) return
+    const savedRow = { ...editRow.value, ...payload, ...saved }
+    editRow.value = savedRow
+    for (const key of Object.keys(draft)) draft[key] = savedRow[key] ?? (key === 'version' ? 0 : '')
+    rows.value = rows.value.map(row => row.id === savedRow.id ? savedRow : row)
+    collaboratorSelectionPending.value = false
+    if (!savedRow.cooperationPersonUsername || ['修复待验证', '无需处理'].includes(savedRow.issueStatus)) {
+      await completeSavedEdit(scope)
+      return
+    }
+    editMailStatus.value = { recipients: [] }
+    mailPromptChoice.value = 'no'
+    mailPromptError.value = ''
+    await retryMailPromptStatus()
+  } catch (cause) {
+    if (isCurrentEdit(scope)) editError.value = cause?.message || '保存失败'
+  } finally {
+    if (isCurrentEdit(scope)) saving.value = false
+  }
+}
+
+async function confirmMailPrompt() {
+  if (!mailPromptOpen.value || !editRow.value || saving.value || mailSending.value || mailStatusLoading.value) return
+  if (mailPromptChoice.value === 'yes' && mailStatusError.value) return
+  const scope = editSequence, id = editRow.value.id
+  mailPromptError.value = ''
+  mailSending.value = true
+  try {
+    if (mailPromptChoice.value === 'yes') {
+      const recipientEmails = pendingMailRecipients.value.map(recipient => recipient.email)
+      if (recipientEmails.length) {
+        const result = await sendDatabaseIssueMail(id, recipientEmails)
+        if (!isCurrentEdit(scope)) return
+        if (result?.status === 'FAILED') {
+          editMailStatus.value = result
+          throw new Error(result.failureMessage || '邮件发送失败，请重试')
+        }
+      }
+    }
+    await completeSavedEdit(scope)
+  } catch (cause) {
+    if (isCurrentEdit(scope)) mailPromptError.value = `邮件发送失败，${cause?.message || cause}`
+  } finally {
+    if (isCurrentEdit(scope)) mailSending.value = false
+  }
+}
 const reviewRow=ref(null),reviewReason=ref(''),reviewError=ref(''),reviewing=ref(false)
 const reviewModalTitle=computed(()=>reviewStatusLabel(reviewRow.value||{})==='待审核'?'审核无需处理问题':reviewRow.value?.reviewReason?.trim()?'更新审核原因':'补充审核原因')
 function openReview(row){if(!canReview(row)||!hasReviewStatus(row))return;reviewRow.value=row;reviewReason.value=row.reviewReason||'';reviewError.value=''}
@@ -576,7 +764,14 @@ async function submitReview(){if(reviewing.value||!reviewRow.value)return;const 
 const trackingOpen=ref(false),trackingRow=ref(null),trackingLoading=ref(false),trackingError=ref(''),trackingGroups=ref([]),sourceExpanded=reactive({})
 async function openTracking(row){const sequence=++trackingSequence;trackingRow.value=row;trackingOpen.value=true;trackingLoading.value=true;trackingError.value='';trackingGroups.value=[];for(const key in sourceExpanded)delete sourceExpanded[key];try{const result=await getDatabaseIssueTracking(row.id);if(alive&&sequence===trackingSequence&&trackingOpen.value)trackingGroups.value=result||[]}catch(e){if(sequence===trackingSequence)trackingError.value=e.message||'跟踪加载失败'}finally{if(sequence===trackingSequence)trackingLoading.value=false}}
 function closeTracking(){trackingOpen.value=false;trackingSequence++}
-function onEscape(event){if(event.key!=='Escape')return;if(headerFilterOpen.value)closeHeaderFilter();else if(editRow.value)closeEdit();else if(reviewRow.value)closeReview();else if(importOpen.value)closeImport();else closeTracking()}
+function onEscape(event){
+  if(event.key!=='Escape')return
+  if(headerFilterOpen.value)closeHeaderFilter()
+  else if(editRow.value)return
+  else if(reviewRow.value)closeReview()
+  else if(importOpen.value)closeImport()
+  else closeTracking()
+}
 onMounted(()=>{refresh();window.addEventListener('keydown',onEscape);window.addEventListener('resize',positionHeaderFilter);document.addEventListener('pointerdown',onFilterOutside)})
 onBeforeUnmount(()=>{alive=false;collaboratorSequence++;copySequence++;clearTimeout(copyTimer);clearTimeout(collaboratorTimer);closeHeaderFilter();window.removeEventListener('keydown',onEscape);window.removeEventListener('resize',positionHeaderFilter);document.removeEventListener('pointerdown',onFilterOutside)})
 </script>
@@ -609,6 +804,46 @@ label{display:grid;gap:6px;color:var(--text-secondary,#374151);min-width:0}input
 .edit-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px 14px}.edit-fields .wide{grid-column:1/-1}.edit-fields label{gap:5px;font-size:12px;line-height:16px}.edit-fields label>span{display:flex;justify-content:space-between;gap:8px}.edit-fields input,.edit-fields select,.edit-fields textarea{border-color:var(--border,#e8edf5)}.edit-fields textarea{min-height:78px;line-height:18px}
 .field-label{display:flex!important;align-items:center;justify-content:flex-start!important;gap:4px!important}.field-label>small{margin-left:auto}em{font-style:normal;color:var(--text-muted,#6b7280)}.required-mark{color:#b42318}.dialog .form-error{margin:0;color:var(--c-error-code-text,#cf1124);font-size:12px;overflow-wrap:anywhere}textarea{resize:vertical;line-height:1.5}
 .user-picker{position:relative}.user-options{position:absolute;z-index:8;bottom:calc(100% + 2px);left:0;right:0;list-style:none;margin:0;padding:0;display:grid;max-height:180px;overflow:auto;border:1px solid var(--border,#e8edf5);background:var(--bg-card,#fff);box-shadow:0 8px 18px rgba(13,20,36,.16)}.user-options button{width:100%;text-align:left;border:0;background:transparent;padding:7px 8px;color:var(--text-primary,#1f2937);cursor:pointer;font:inherit}.user-options button:hover{background:var(--database-row-alt)}
+.collaborator-mail-status {
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--text-muted, #6b7280);
+  cursor: help;
+}
+.collaborator-mail-status.is-sent { color: #18864b; }
+.collaborator-mail-status.is-pending,
+.collaborator-mail-status.is-failed { color: #b54708; }
+.collaborator-field .mail-error {
+  display: block;
+  color: #b42318;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.mail-prompt-mask { z-index: 1150; }
+.mail-prompt { width: min(450px, 100%); }
+.mail-prompt-content {
+  display: grid;
+  gap: 10px;
+  font-size: 13px;
+}
+.mail-prompt-content > span {
+  color: var(--text-secondary, #4b5563);
+  overflow-wrap: anywhere;
+}
+.mail-prompt-content label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  cursor: pointer;
+}
+.mail-prompt-content input[type=radio] {
+  width: auto;
+  min-height: 0;
+  margin: 0;
+  accent-color: var(--text-active, #3b5adb);
+}
 .drawer-mask{padding:0;justify-content:flex-end}
 .tracking-drawer{width:min(780px,94vw);height:100%;overflow:auto;background:var(--bg-card,#fff);padding:20px;box-sizing:border-box}.tracking-drawer>header{position:sticky;top:-20px;background:var(--bg-card,#fff);z-index:3;padding:16px 0;border-bottom:1px solid var(--border,#e8edf5)}.batch-timeline{list-style:none;padding:12px 0 0 15px;margin:0}.batch-timeline>li{position:relative;padding:0 0 20px 20px;border-left:1px solid #cddde0}.batch-timeline>li:before{content:'';position:absolute;left:-5px;top:14px;width:9px;height:9px;background:var(--database-teal);border-radius:50%}.batch-group{border:1px solid var(--border,#dce4ec);border-radius:6px;overflow:hidden}.batch-group summary{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px;background:var(--bg-page,#f5f8fb);cursor:pointer;font-size:13px}.latest-batch{font-size:10px;font-weight:500;color:var(--database-teal);background:#e1f3f2;border-radius:3px;padding:2px 5px}.batch-body{padding:12px}.text-button{display:inline-flex;align-items:center;gap:4px;cursor:pointer;border:0;background:transparent;color:var(--text-active,#3b5adb);font:inherit;padding:2px 0;text-align:left}.original-data{display:grid;grid-template-columns:125px minmax(0,1fr);font-size:12px;margin:10px 0;border:1px solid var(--border,#e8edf5)}.original-data dt,.original-data dd{margin:0;padding:7px 9px;min-width:0;border-bottom:1px solid var(--border,#e8edf5)}.original-data dt{background:var(--bg-page,#f6f8fa);color:var(--text-muted,#6b7280)}.section-title{font-size:11px;font-weight:600;color:var(--text-muted,#6b7280);padding:14px 0 6px}.tracking-event{border-top:1px solid var(--border,#e8edf5);padding:11px 0}.event-heading{display:flex;justify-content:space-between;gap:10px}.event-heading strong{font-size:12px}.event-heading time{font-size:11px;color:var(--text-muted,#6b7280);white-space:nowrap}.operator{font-size:11px;color:var(--text-muted,#6b7280);margin:5px 0 8px}.changes-table{border:1px solid var(--border,#e8edf5);border-radius:3px;overflow:hidden}.changes-table>div{display:grid;grid-template-columns:115px minmax(0,1fr) minmax(0,1fr);gap:8px;padding:7px 8px;border-bottom:1px solid var(--border,#e8edf5);font-size:11px;min-width:0}.changes-table>div>span{min-width:0}.change-header{background:var(--bg-page,#f5f7fa);color:var(--text-muted,#6b7280);font-weight:600}.no-changes{font-size:11px;color:var(--text-muted,#6b7280);line-height:1.5}
 .replay-count-sort-button { display: inline-grid; place-items: center; width: 20px; height: 20px; margin-left: 5px; padding: 0; border: 0; border-radius: 3px; color: #b7c9cc; background: transparent; cursor: pointer; vertical-align: middle; }

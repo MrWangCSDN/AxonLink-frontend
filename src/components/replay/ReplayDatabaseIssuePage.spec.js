@@ -6,7 +6,7 @@ import { searchReplayIssueUsers } from '../../api/replayIssues.js'
 import { copyText } from '../../utils/clipboard.js'
 import { readImportBatch } from '../../utils/replayReleaseTime.js'
 import { loadVersions } from '../../api/replayDatabaseComparison.js'
-vi.mock('../../api/replayDatabaseIssues.js', () => ({ listDatabaseIssues:vi.fn(),getDatabaseIssueOptions:vi.fn(),getDatabaseIssueFilterOptions:vi.fn(),importDatabaseIssues:vi.fn(),getDatabaseIssueImportContext:vi.fn(),updateDatabaseIssue:vi.fn(),getDatabaseIssueTracking:vi.fn(),approveDatabaseIssue:vi.fn(),exportDatabaseIssues:vi.fn(),getDatabaseIssueReportOptions:vi.fn(),exportDatabaseIssueReport:vi.fn(),updateDatabaseIssuePlanDate:vi.fn(),getDatabaseIssuePlanDateChanges:vi.fn() }))
+vi.mock('../../api/replayDatabaseIssues.js', () => ({ listDatabaseIssues:vi.fn(),getDatabaseIssueOptions:vi.fn(),getDatabaseIssueFilterOptions:vi.fn(),importDatabaseIssues:vi.fn(),getDatabaseIssueImportContext:vi.fn(),updateDatabaseIssue:vi.fn(),getDatabaseIssueMailStatus:vi.fn(),sendDatabaseIssueMail:vi.fn(),getDatabaseIssueTracking:vi.fn(),approveDatabaseIssue:vi.fn(),exportDatabaseIssues:vi.fn(),getDatabaseIssueReportOptions:vi.fn(),exportDatabaseIssueReport:vi.fn(),updateDatabaseIssuePlanDate:vi.fn(),getDatabaseIssuePlanDateChanges:vi.fn() }))
 vi.mock('../../api/replayDatabaseComparison.js', () => ({loadVersions:vi.fn()}))
 vi.mock('../../api/replayIssues.js', () => ({searchReplayIssueUsers:vi.fn()}))
 vi.mock('../../utils/clipboard.js', () => ({copyText:vi.fn()}))
@@ -14,7 +14,7 @@ vi.mock('../../utils/replayReleaseTime.js', async importOriginal => ({
   ...await importOriginal(), readImportBatch: vi.fn().mockResolvedValue(''),
 }))
 const row={id:1,version:0,issueId:'koba_off_sheet_acct-dtl_sn',tableName:'koba_off_sheet_acct',tableComment:'表外账户',domain:'贷款组',owner:'张三(c-zhangs3)',technologyOwnerDisplay:'科技甲(100001)',issueLevel:'字段级',fieldName:'dtl_sn',differenceCount:2,batchNo:'DB20261012-01',issueStatus:'新建',issueType:'',cooperationPersonUsername:'',initialAnalysis:'',finalSolution:'',remark:'',canEdit:true,canReview:false}
-const currentIssueTypes=['不参与比对','修改比对规则','修改迁移规则','修改代码','规则性差异','前后交易差异','其他问题']
+const currentIssueTypes=['不参与比对','修改比对规则','修改迁移规则','修改代码','规则性差异','前后交易差异','参数问题','其他问题']
 const latestRegistrationVersion={versionNo:'20261105-100000',generatedName:'张三',generatedAt:'2026-11-05T10:00:00',tableCount:12,fieldCount:345,latest:true}
 const oldRegistrationVersion={versionNo:'20261001-090000',generatedName:'李四',generatedAt:'2026-10-01T09:00:00',tableCount:8,fieldCount:123,latest:false}
 async function selectImportFile(wrapper, batch='DB20261015-01') {
@@ -32,6 +32,10 @@ describe('ReplayDatabaseIssuePage',()=>{
     readImportBatch.mockReset().mockResolvedValue('')
   })
   beforeEach(()=>copyText.mockReset().mockResolvedValue(true))
+  beforeEach(() => {
+    api.getDatabaseIssueMailStatus.mockReset().mockResolvedValue({ status: 'UNSENT', recipients: [] })
+    api.sendDatabaseIssueMail.mockReset().mockResolvedValue({ status: 'SENDING', recipients: [] })
+  })
   beforeEach(()=>{vi.clearAllMocks();api.getDatabaseIssueReportOptions.mockReset().mockResolvedValue({batches:['DB20261028-01','DB20261001-01']});api.exportDatabaseIssueReport.mockReset().mockResolvedValue({fileName:'回放数据库问题汇总报表.xlsx'});api.listDatabaseIssues.mockResolvedValue({items:[row],total:1,limit:50,offset:0});api.getDatabaseIssueOptions.mockResolvedValue({domains:['贷款组'],owners:['张三(c-zhangs3)'],batches:['DB20261012-01'],issueLevels:['仅ccbs','仅528','字段级'],issueTypes:currentIssueTypes,issueStatuses:['新建','打开','修复待验证','重新打开','已修复'],reviewableDomains:[]});api.getDatabaseIssueTracking.mockResolvedValue([{batchNo:row.batchNo,originalData:{issueId:row.issueId,differenceCount:2},events:[{id:1,operationType:'导入新增',operationAt:'2026-10-12 10:00:00',operatorName:'系统',operatorUsername:'SYSTEM',changes:[{field:'问题状态',before:'',after:'新建'}]}]}]);api.getDatabaseIssueFilterOptions.mockImplementation(async ({field})=>({items:(field==='issueLevel'?['仅ccbs','仅528','字段级']:field==='issueType'?['需规问题','代码问题']:['贷款组','存款组']).map(value=>({value,count:2})),candidateCount:3,matchedIssueCount:6,truncated:false}));searchReplayIssueUsers.mockResolvedValue([])})
   it('exports the latest complete report independently of list filters and pagination, keeping detail export',async()=>{
     api.listDatabaseIssues.mockResolvedValue({items:[row],total:120})
@@ -347,6 +351,8 @@ describe('ReplayDatabaseIssuePage',()=>{
     expect(api.listDatabaseIssues).toHaveBeenLastCalledWith({tableNames:[row.tableName],offset:0,limit:50});w.unmount()
   })
   it('replaces the query panel with independent header multi-select filters',async()=>{
+    api.getDatabaseIssueFilterOptions.mockResolvedValueOnce({items:['仅ccbs','仅528','字段级'].map(value=>({value,count:2})),candidateCount:3,matchedIssueCount:6,truncated:false})
+    api.getDatabaseIssueFilterOptions.mockResolvedValueOnce({items:[{value:'参数问题',count:2}],candidateCount:1,matchedIssueCount:2,truncated:false})
     const w=mount(ReplayDatabaseIssuePage);await flushPromises()
     expect(w.find('[data-testid="query"]').exists()).toBe(false)
     await w.get('[data-testid="header-filter-issueLevel"]').trigger('click');await flushPromises()
@@ -357,10 +363,10 @@ describe('ReplayDatabaseIssuePage',()=>{
     expect(api.getDatabaseIssueFilterOptions).toHaveBeenLastCalledWith({field:'issueType',issueLevels:['仅ccbs','字段级']})
     await w.get('.replay-header-filter-options input').setValue(true)
     await w.get('[data-testid="apply-header-filter"]').trigger('click');await flushPromises()
-    expect(api.listDatabaseIssues).toHaveBeenLastCalledWith({issueLevels:['仅ccbs','字段级'],issueTypes:['需规问题'],offset:0,limit:50})
+    expect(api.listDatabaseIssues).toHaveBeenLastCalledWith({issueLevels:['仅ccbs','字段级'],issueTypes:['参数问题'],offset:0,limit:50})
     expect(w.get('[data-testid="header-filter-issueLevel"]').classes()).toContain('active')
     await w.get('[data-testid="export-issues"]').trigger('click');await flushPromises()
-    expect(api.exportDatabaseIssues).toHaveBeenLastCalledWith({issueLevels:['仅ccbs','字段级'],issueTypes:['需规问题']})
+    expect(api.exportDatabaseIssues).toHaveBeenLastCalledWith({issueLevels:['仅ccbs','字段级'],issueTypes:['参数问题']})
     await w.get('[data-testid="reset-filters"]').trigger('click');await flushPromises()
     expect(api.listDatabaseIssues).toHaveBeenLastCalledWith({offset:0,limit:50})
     expect(w.get('[data-testid="header-filter-issueLevel"]').classes()).not.toContain('active');w.unmount()
@@ -444,6 +450,20 @@ describe('ReplayDatabaseIssuePage',()=>{
       expect(w.get('[data-testid="edit-type"]').element.value).toBe('不参与比对')
     } finally { w.unmount() }
   })
+  it.each(['新建','打开','重新打开','延后修复','修复待验证'])('saves the parameter issue type from the catalog for %s issues',async(issueStatus)=>{
+    api.listDatabaseIssues.mockResolvedValue({items:[{...row,issueStatus}],total:1})
+    api.updateDatabaseIssue.mockResolvedValue({...row,issueStatus,issueType:'参数问题',version:1})
+    const w=mount(ReplayDatabaseIssuePage);await flushPromises()
+    try {
+      await w.get('[data-testid="edit-1"]').trigger('click')
+      const picker=w.get('[data-testid="edit-type"]')
+      expect(picker.findAll('option').map(option=>option.element.value)).toContain('参数问题')
+      await picker.setValue('参数问题')
+      await w.get('[data-testid="save-edit"]').trigger('click');await flushPromises()
+      expect(api.updateDatabaseIssue).toHaveBeenCalledExactlyOnceWith(1,expect.objectContaining({version:0,issueStatus,issueType:'参数问题'}))
+      expect(w.find('[data-testid="edit-modal"]').exists()).toBe(false)
+    } finally { w.unmount() }
+  })
   it.each(['不参与比对','规则性差异'])('only offers the two no-action types and saves an explicit choice of %s',async(issueType)=>{
     api.getDatabaseIssueOptions.mockResolvedValue({issueTypes:currentIssueTypes})
     api.updateDatabaseIssue.mockResolvedValue({...row,issueStatus:'无需处理',issueType,version:1})
@@ -497,8 +517,8 @@ describe('ReplayDatabaseIssuePage',()=>{
   })
   it('clears incompatible choices when switching status and uses current actionable types for deferred fixes',async()=>{
     api.getDatabaseIssueOptions.mockResolvedValue({issueTypes:currentIssueTypes})
-    api.listDatabaseIssues.mockResolvedValue({items:[{...row,issueStatus:'打开',issueType:'修改代码'}],total:1})
-    api.updateDatabaseIssue.mockResolvedValue({...row,issueStatus:'延后修复',issueType:'修改比对规则',version:1})
+    api.listDatabaseIssues.mockResolvedValue({items:[{...row,issueStatus:'打开',issueType:'参数问题'}],total:1})
+    api.updateDatabaseIssue.mockResolvedValue({...row,issueStatus:'延后修复',issueType:'参数问题',version:1})
     const w=mount(ReplayDatabaseIssuePage);await flushPromises()
     try {
       await w.get('[data-testid="edit-1"]').trigger('click')
@@ -508,15 +528,90 @@ describe('ReplayDatabaseIssuePage',()=>{
       await picker.setValue('规则性差异')
       await status.setValue('打开')
       expect(picker.element.value).toBe('')
-      expect(picker.findAll('option').map(o=>o.element.value)).toEqual(['','修改比对规则','修改迁移规则','修改代码','前后交易差异','其他问题'])
-      await picker.setValue('修改比对规则')
+      expect(picker.findAll('option').map(o=>o.element.value)).toEqual(['','修改比对规则','修改迁移规则','修改代码','前后交易差异','参数问题','其他问题'])
+      await picker.setValue('参数问题')
       await status.setValue('延后修复')
       expect(picker.element.disabled).toBe(false)
-      expect(picker.element.value).toBe('修改比对规则')
+      expect(picker.element.value).toBe('参数问题')
       await w.get('[data-testid="save-edit"]').trigger('click');await flushPromises()
-      expect(api.updateDatabaseIssue).toHaveBeenCalledExactlyOnceWith(1,expect.objectContaining({issueStatus:'延后修复',issueType:'修改比对规则'}))
+      expect(api.updateDatabaseIssue).toHaveBeenCalledExactlyOnceWith(1,expect.objectContaining({issueStatus:'延后修复',issueType:'参数问题'}))
     } finally { w.unmount() }
   })
+  it.each(['backdrop', 'Escape'])('keeps the database edit dialog and its draft after %s', async closeAttempt => {
+    const wrapper = mount(ReplayDatabaseIssuePage, { attachTo: document.body })
+    try {
+      await flushPromises()
+      await wrapper.get('[data-testid="edit-1"]').trigger('click')
+      await wrapper.get('[data-testid="edit-analysis"]').setValue('未保存的分析')
+      await wrapper.get('[data-testid="edit-remark"]').setValue('未保存的备注')
+
+      if (closeAttempt === 'backdrop') await wrapper.get('.modal-mask').trigger('click')
+      else window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      await flushPromises()
+
+      expect(wrapper.find('[data-testid="edit-modal"]').exists()).toBe(true)
+      expect(wrapper.get('[data-testid="edit-analysis"]').element.value).toBe('未保存的分析')
+      expect(wrapper.get('[data-testid="edit-remark"]').element.value).toBe('未保存的备注')
+      expect(api.updateDatabaseIssue).not.toHaveBeenCalled()
+    } finally { wrapper.unmount() }
+  })
+
+  it('offers the X button as the explicit edit-close action and saves from the footer', async () => {
+    const wrapper = mount(ReplayDatabaseIssuePage)
+    try {
+      await flushPromises()
+      await wrapper.get('[data-testid="edit-1"]').trigger('click')
+      expect(wrapper.get('[data-testid="edit-modal"]').findAll('footer button').map(button => button.text()))
+        .toEqual(['保存'])
+
+      await wrapper.get('[aria-label="关闭编辑"]').trigger('click')
+
+      expect(wrapper.find('[data-testid="edit-modal"]').exists()).toBe(false)
+      expect(api.updateDatabaseIssue).not.toHaveBeenCalled()
+    } finally { wrapper.unmount() }
+  })
+
+  it('protects the pending save and lets X close the retained draft after a save failure', async () => {
+    let rejectSave
+    api.updateDatabaseIssue.mockImplementationOnce(() => new Promise((resolve, reject) => { rejectSave = reject }))
+    const wrapper = mount(ReplayDatabaseIssuePage, { attachTo: document.body })
+    try {
+      await flushPromises()
+      await wrapper.get('[data-testid="edit-1"]').trigger('click')
+      await wrapper.get('[data-testid="edit-type"]').setValue('修改比对规则')
+      await wrapper.get('[data-testid="edit-analysis"]').setValue('提交中的分析')
+      await wrapper.get('[data-testid="save-edit"]').trigger('click')
+      expect(wrapper.get('[aria-label="关闭编辑"]').element.disabled).toBe(true)
+      await wrapper.get('[aria-label="关闭编辑"]').trigger('click')
+      await wrapper.get('.modal-mask').trigger('click')
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      await flushPromises()
+      expect(wrapper.find('[data-testid="edit-modal"]').exists()).toBe(true)
+      expect(api.updateDatabaseIssue).toHaveBeenCalledTimes(1)
+
+      rejectSave(new Error('保存失败，请重试'))
+      await flushPromises()
+      expect(wrapper.get('[data-testid="edit-analysis"]').element.value).toBe('提交中的分析')
+      expect(wrapper.get('[data-testid="edit-modal"] [role="alert"]').text()).toContain('保存失败')
+      expect(wrapper.get('[aria-label="关闭编辑"]').element.disabled).toBe(false)
+      await wrapper.get('[aria-label="关闭编辑"]').trigger('click')
+      expect(wrapper.find('[data-testid="edit-modal"]').exists()).toBe(false)
+    } finally { wrapper.unmount() }
+  })
+
+  it('continues closing the tracking drawer with Escape', async () => {
+    const wrapper = mount(ReplayDatabaseIssuePage, { attachTo: document.body })
+    try {
+      await flushPromises()
+      await wrapper.get('[data-testid="tracking-1"]').trigger('click')
+      await flushPromises()
+      expect(wrapper.find('[data-testid="tracking-drawer"]').exists()).toBe(true)
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      await flushPromises()
+      expect(wrapper.find('[data-testid="tracking-drawer"]').exists()).toBe(false)
+    } finally { wrapper.unmount() }
+  })
+
   it('saves valid human fields with optimistic version and retains level',async()=>{api.updateDatabaseIssue.mockResolvedValue({...row,issueStatus:'打开',issueType:'修改比对规则',version:1});const w=mount(ReplayDatabaseIssuePage);await flushPromises();await w.get('[data-testid="edit-1"]').trigger('click');await w.get('[data-testid="edit-status"]').setValue('打开');await w.get('[data-testid="edit-type"]').setValue('修改比对规则');await w.get('[data-testid="edit-analysis"]').setValue('人工分析');await w.get('[data-testid="save-edit"]').trigger('click');await flushPromises();expect(api.updateDatabaseIssue).toHaveBeenCalledWith(1,expect.objectContaining({version:0,issueStatus:'打开',issueType:'修改比对规则',initialAnalysis:'人工分析'}));expect(w.find('[data-testid="edit-modal"]').exists()).toBe(false)})
   it('validates required problem type and keeps failed saves open',async()=>{const w=mount(ReplayDatabaseIssuePage);await flushPromises();await w.get('[data-testid="edit-1"]').trigger('click');await w.get('[data-testid="save-edit"]').trigger('click');expect(api.updateDatabaseIssue).not.toHaveBeenCalled();expect(w.get('[data-testid="edit-modal"]').text()).toContain('请选择问题类型');await w.get('[data-testid="edit-type"]').setValue('修改比对规则');api.updateDatabaseIssue.mockRejectedValue(new Error('记录已更新，请刷新后重新编辑'));await w.get('[data-testid="save-edit"]').trigger('click');await flushPromises();expect(w.get('[data-testid="edit-modal"]').text()).toContain('记录已更新')})
   it('groups tracking by batch with source values and chronological events',async()=>{const w=mount(ReplayDatabaseIssuePage);await flushPromises();await w.get('[data-testid="tracking-1"]').trigger('click');await flushPromises();expect(w.get('[data-testid="tracking-drawer"]').text()).toContain('DB20261012-01');expect(w.get('[data-testid="tracking-drawer"]').text()).toContain('导入新增');await w.get('[data-testid="original-data-toggle"]').trigger('click');expect(w.get('[data-testid="tracking-drawer"]').text()).toContain(row.issueId)})
@@ -727,5 +822,333 @@ describe('ReplayDatabaseIssuePage',()=>{
       await vi.advanceTimersByTimeAsync(1700)
       expect(w.find('[data-testid="copy-feedback"]').exists()).toBe(false)
     }finally{w.unmount();vi.useRealTimers()}
+  })
+
+  describe('collaborator mail', () => {
+    const collaborator = { displayName: '协同甲', username: 'helper', email: 'helper@example.com', role: '协同人', status: 'UNSENT', sentAt: null, failureMessage: null }
+    const mailRow = { ...row, issueStatus: '打开', issueType: '修改比对规则', cooperationPersonUsername: 'helper', cooperationPerson: '协同甲(helper)' }
+    beforeEach(() => {
+      api.listDatabaseIssues.mockResolvedValue({ items: [mailRow], total: 1 })
+      api.updateDatabaseIssue.mockReset().mockResolvedValue({ ...mailRow, version: 1 })
+      api.getDatabaseIssueMailStatus.mockResolvedValue({ status: 'UNSENT', sentAt: null, recipients: [collaborator] })
+    })
+
+    it('shows the aggregate status and projects edited sent content to pending', async () => {
+      api.getDatabaseIssueMailStatus.mockResolvedValue({ status: 'SENT', sentAt: '2026-11-11T10:00:00', recipients: [{ ...collaborator, status: 'SENT', sentAt: '2026-11-11T10:00:00' }] })
+      const wrapper = mount(ReplayDatabaseIssuePage)
+      try {
+        await flushPromises()
+        await wrapper.get('[data-testid="edit-1"]').trigger('click')
+        await flushPromises()
+        expect(wrapper.get('[data-testid="edit-mail-status"]').text()).toBe('已发送')
+        await wrapper.get('[data-testid="edit-remark"]').setValue('更新后的备注')
+        expect(wrapper.get('[data-testid="edit-mail-status"]').text()).toBe('待发送（内容已经变更）')
+        await wrapper.get('[data-testid="edit-remark"]').setValue('')
+        expect(wrapper.get('[data-testid="edit-mail-status"]').text()).toBe('已发送')
+      } finally { wrapper.unmount() }
+    })
+
+    it('aggregates recipient failures and hides status after removing the collaborator', async () => {
+      api.getDatabaseIssueMailStatus.mockResolvedValue({ status: 'FAILED', recipients: [collaborator, { ...collaborator, role: '科技负责人', status: 'FAILED', failureMessage: 'SMTP 连接超时' }] })
+      const wrapper = mount(ReplayDatabaseIssuePage)
+      try {
+        await flushPromises()
+        await wrapper.get('[data-testid="edit-1"]').trigger('click')
+        await flushPromises()
+        expect(wrapper.get('[data-testid="edit-mail-status"]').text()).toBe('发送失败')
+        expect(wrapper.get('[data-testid="edit-mail-status"]').attributes('title')).toContain('SMTP 连接超时')
+        await wrapper.get('[data-testid="edit-collaborator"]').setValue('')
+        expect(wrapper.find('[data-testid="edit-mail-status"]').exists()).toBe(false)
+      } finally { wrapper.unmount() }
+    })
+
+    it('shows unsent immediately after choosing a different collaborator', async () => {
+      api.getDatabaseIssueMailStatus.mockResolvedValue({ status: 'SENT', sentAt: '2026-11-11T10:00:00', recipients: [{ ...collaborator, status: 'SENT', sentAt: '2026-11-11T10:00:00' }] })
+      searchReplayIssueUsers.mockResolvedValue([{ username: 'helper2', realName: '协同乙', displayName: '协同乙(helper2)' }])
+      const wrapper = mount(ReplayDatabaseIssuePage)
+      await flushPromises()
+      vi.useFakeTimers()
+      try {
+        await wrapper.get('[data-testid="edit-1"]').trigger('click')
+        await flushPromises()
+        await wrapper.get('[data-testid="edit-collaborator"]').setValue('协同乙')
+        await vi.advanceTimersByTimeAsync(250)
+        await flushPromises()
+        await wrapper.get('.user-options button').trigger('click')
+        expect(wrapper.get('[data-testid="edit-mail-status"]').text()).toBe('未发送')
+      } finally { wrapper.unmount(); vi.useRealTimers() }
+    })
+
+    it('retries an initial status error while retaining the current editable draft', async () => {
+      api.getDatabaseIssueMailStatus.mockRejectedValueOnce(new Error('邮件状态暂时不可用'))
+      const wrapper = mount(ReplayDatabaseIssuePage)
+      try {
+        await flushPromises()
+        await wrapper.get('[data-testid="edit-1"]').trigger('click')
+        await flushPromises()
+        await wrapper.get('[data-testid="edit-remark"]').setValue('继续编辑的备注')
+        expect(wrapper.get('[data-testid="edit-mail-error"]').text()).toContain('邮件状态暂时不可用')
+        await wrapper.get('[data-testid="edit-mail-retry"]').trigger('click')
+        await flushPromises()
+        expect(wrapper.find('[data-testid="edit-mail-error"]').exists()).toBe(false)
+        expect(wrapper.get('[data-testid="edit-remark"]').element.value).toBe('继续编辑的备注')
+        expect(api.updateDatabaseIssue).not.toHaveBeenCalled()
+      } finally { wrapper.unmount() }
+    })
+
+    it('defaults the saved issue confirmation to no and completes without sending', async () => {
+      const wrapper = mount(ReplayDatabaseIssuePage)
+      try {
+        await flushPromises()
+        await wrapper.get('[data-testid="edit-1"]').trigger('click')
+        await flushPromises()
+        await wrapper.get('[data-testid="save-edit"]').trigger('click')
+        await flushPromises()
+        expect(wrapper.get('[data-testid="mail-confirm-modal"]').text()).toContain(mailRow.issueId)
+        expect(wrapper.get('[data-testid="mail-confirm-modal"]').text()).toContain('helper@example.com')
+        expect(wrapper.get('[data-testid="mail-choice-no"]').element.checked).toBe(true)
+        expect(wrapper.get('[data-testid="save-edit"]').element.disabled).toBe(true)
+        expect(wrapper.get('[aria-label="关闭编辑"]').element.disabled).toBe(true)
+        await wrapper.get('[data-testid="save-edit"]').trigger('click')
+        await wrapper.get('[data-testid="mail-confirm-submit"]').trigger('click')
+        await flushPromises()
+        expect(api.updateDatabaseIssue).toHaveBeenCalledExactlyOnceWith(1, expect.objectContaining({ version: 0 }))
+        expect(api.sendDatabaseIssueMail).not.toHaveBeenCalled()
+        expect(wrapper.find('[data-testid="edit-modal"]').exists()).toBe(false)
+        expect(wrapper.find('[data-testid="mail-confirm-modal"]').exists()).toBe(false)
+      } finally { wrapper.unmount() }
+    })
+
+    it('sends all eligible current recipients only after choosing yes and prevents duplicate sends', async () => {
+      api.getDatabaseIssueMailStatus.mockResolvedValue({ status: 'UNSENT', recipients: [
+        collaborator,
+        { ...collaborator, email: 'owner@example.com', role: '开发负责人', status: 'FAILED' },
+        { ...collaborator, email: 'sent@example.com', role: '科技负责人', status: 'SENT', sentAt: '2026-11-11T10:00:00' },
+        { ...collaborator, email: 'sending@example.com', role: '科技负责人', status: 'SENDING' },
+        { ...collaborator, email: '', role: '开发负责人' },
+      ] })
+      let finishSend
+      api.sendDatabaseIssueMail.mockImplementationOnce(() => new Promise(resolve => { finishSend = resolve }))
+      const wrapper = mount(ReplayDatabaseIssuePage)
+      try {
+        await flushPromises()
+        await wrapper.get('[data-testid="edit-1"]').trigger('click')
+        await flushPromises()
+        await wrapper.get('[data-testid="save-edit"]').trigger('click')
+        await flushPromises()
+        expect(api.sendDatabaseIssueMail).not.toHaveBeenCalled()
+        await wrapper.get('[data-testid="mail-choice-yes"]').setValue(true)
+        await wrapper.get('[data-testid="mail-confirm-submit"]').trigger('click')
+        await wrapper.get('[data-testid="mail-confirm-submit"]').trigger('click')
+        expect(api.sendDatabaseIssueMail).toHaveBeenCalledExactlyOnceWith(1, ['helper@example.com', 'owner@example.com'])
+        expect(wrapper.get('[data-testid="mail-confirm-submit"]').element.disabled).toBe(true)
+        finishSend({ status: 'SENDING', recipients: [{ ...collaborator, status: 'SENDING' }] })
+        await flushPromises()
+        expect(wrapper.find('[data-testid="edit-modal"]').exists()).toBe(false)
+      } finally { wrapper.unmount() }
+    })
+
+    it.each(['修复待验证', '无需处理'])('saves %s without a collaborator mail prompt', async issueStatus => {
+      const issueType = issueStatus === '无需处理' ? '不参与比对' : '修改比对规则'
+      api.updateDatabaseIssue.mockResolvedValue({ ...mailRow, issueStatus, issueType, version: 1 })
+      const wrapper = mount(ReplayDatabaseIssuePage)
+      try {
+        await flushPromises()
+        await wrapper.get('[data-testid="edit-1"]').trigger('click')
+        await flushPromises()
+        await wrapper.get('[data-testid="edit-status"]').setValue(issueStatus)
+        await wrapper.get('[data-testid="edit-type"]').setValue(issueType)
+        await wrapper.get('[data-testid="save-edit"]').trigger('click')
+        await flushPromises()
+        expect(api.updateDatabaseIssue).toHaveBeenCalledTimes(1)
+        expect(api.getDatabaseIssueMailStatus).toHaveBeenCalledTimes(1)
+        expect(api.sendDatabaseIssueMail).not.toHaveBeenCalled()
+        expect(wrapper.find('[data-testid="mail-confirm-modal"]').exists()).toBe(false)
+        expect(wrapper.find('[data-testid="edit-modal"]').exists()).toBe(false)
+      } finally { wrapper.unmount() }
+    })
+
+    it.each(['SENT', 'SENDING'])('does not prompt when the saved collaborator is already %s', async status => {
+      api.getDatabaseIssueMailStatus.mockResolvedValue({ status, sentAt: '2026-11-11T10:00:00', recipients: [{ ...collaborator, status, sentAt: '2026-11-11T10:00:00' }] })
+      const wrapper = mount(ReplayDatabaseIssuePage)
+      try {
+        await flushPromises()
+        await wrapper.get('[data-testid="edit-1"]').trigger('click')
+        await flushPromises()
+        await wrapper.get('[data-testid="save-edit"]').trigger('click')
+        await flushPromises()
+        expect(wrapper.find('[data-testid="mail-confirm-modal"]').exists()).toBe(false)
+        expect(wrapper.find('[data-testid="edit-modal"]').exists()).toBe(false)
+        expect(api.sendDatabaseIssueMail).not.toHaveBeenCalled()
+      } finally { wrapper.unmount() }
+    })
+
+    it.each(['SENT', 'SENDING'])('offers the remaining recipients when the collaborator is already %s', async status => {
+      api.getDatabaseIssueMailStatus.mockResolvedValue({ status: 'FAILED', recipients: [
+        { ...collaborator, status, sentAt: status === 'SENT' ? '2026-11-11T10:00:00' : null },
+        { ...collaborator, username: 'developer', email: 'developer@example.com', role: '开发负责人', status: 'FAILED', failureMessage: '上次发送失败' },
+      ] })
+      const wrapper = mount(ReplayDatabaseIssuePage)
+      try {
+        await flushPromises()
+        await wrapper.get('[data-testid="edit-1"]').trigger('click')
+        await flushPromises()
+        await wrapper.get('[data-testid="save-edit"]').trigger('click')
+        await flushPromises()
+        expect(wrapper.find('[data-testid="mail-confirm-modal"]').exists()).toBe(true)
+        expect(wrapper.get('[data-testid="mail-confirm-modal"]').text()).toContain('developer@example.com')
+        expect(wrapper.get('[data-testid="mail-confirm-modal"]').text()).not.toContain('helper@example.com')
+        await wrapper.get('[data-testid="mail-choice-yes"]').setValue(true)
+        await wrapper.get('[data-testid="mail-confirm-submit"]').trigger('click')
+        await flushPromises()
+        expect(api.sendDatabaseIssueMail).toHaveBeenCalledExactlyOnceWith(1, ['developer@example.com'])
+        expect(api.updateDatabaseIssue).toHaveBeenCalledTimes(1)
+      } finally { wrapper.unmount() }
+    })
+
+    it('retains a saved issue after mail status failure and retries status without another patch', async () => {
+      api.getDatabaseIssueMailStatus
+        .mockResolvedValueOnce({ status: 'UNSENT', recipients: [collaborator] })
+        .mockRejectedValueOnce(new Error('状态服务暂时不可用'))
+        .mockResolvedValueOnce({ status: 'UNSENT', recipients: [collaborator] })
+      const wrapper = mount(ReplayDatabaseIssuePage)
+      try {
+        await flushPromises()
+        await wrapper.get('[data-testid="edit-1"]').trigger('click')
+        await flushPromises()
+        await wrapper.get('[data-testid="save-edit"]').trigger('click')
+        await flushPromises()
+        expect(wrapper.get('[data-testid="mail-confirm-modal"]').text()).toContain('问题已保存')
+        expect(wrapper.get('[data-testid="mail-confirm-modal"]').text()).toContain('状态服务暂时不可用')
+        expect(wrapper.get('[data-testid="mail-choice-yes"]').element.disabled).toBe(true)
+        await wrapper.get('[data-testid="save-edit"]').trigger('click')
+        await wrapper.get('[data-testid="mail-confirm-retry"]').trigger('click')
+        await flushPromises()
+        expect(wrapper.get('[data-testid="mail-choice-yes"]').element.disabled).toBe(false)
+        await wrapper.get('[data-testid="mail-choice-yes"]').setValue(true)
+        await wrapper.get('[data-testid="mail-confirm-submit"]').trigger('click')
+        await flushPromises()
+        expect(api.updateDatabaseIssue).toHaveBeenCalledTimes(1)
+        expect(api.getDatabaseIssueMailStatus).toHaveBeenCalledTimes(3)
+        expect(api.sendDatabaseIssueMail).toHaveBeenCalledExactlyOnceWith(1, ['helper@example.com'])
+        expect(wrapper.find('[data-testid="edit-modal"]').exists()).toBe(false)
+      } finally { wrapper.unmount() }
+    })
+
+    it('retains the confirmation for a send retry without saving again', async () => {
+      api.sendDatabaseIssueMail.mockRejectedValueOnce(new Error('邮件服务器不可用'))
+      const wrapper = mount(ReplayDatabaseIssuePage)
+      try {
+        await flushPromises()
+        await wrapper.get('[data-testid="edit-1"]').trigger('click')
+        await flushPromises()
+        await wrapper.get('[data-testid="save-edit"]').trigger('click')
+        await flushPromises()
+        await wrapper.get('[data-testid="mail-choice-yes"]').setValue(true)
+        await wrapper.get('[data-testid="mail-confirm-submit"]').trigger('click')
+        await flushPromises()
+        expect(wrapper.get('[data-testid="mail-confirm-modal"]').text()).toContain('邮件服务器不可用')
+        expect(wrapper.get('[data-testid="mail-confirm-submit"]').element.disabled).toBe(false)
+        await wrapper.get('[data-testid="mail-confirm-submit"]').trigger('click')
+        await flushPromises()
+        expect(api.sendDatabaseIssueMail).toHaveBeenCalledTimes(2)
+        expect(api.updateDatabaseIssue).toHaveBeenCalledTimes(1)
+        expect(wrapper.find('[data-testid="edit-modal"]').exists()).toBe(false)
+      } finally { wrapper.unmount() }
+    })
+
+    it('keeps a failed HTTP 200 send response open and retries without another save', async () => {
+      api.sendDatabaseIssueMail.mockResolvedValueOnce({ status: 'FAILED', failureMessage: '邮件执行器已满', recipients: [{ ...collaborator, status: 'FAILED', failureMessage: '邮件执行器已满' }] })
+      const wrapper = mount(ReplayDatabaseIssuePage)
+      try {
+        await flushPromises()
+        await wrapper.get('[data-testid="edit-1"]').trigger('click')
+        await flushPromises()
+        await wrapper.get('[data-testid="save-edit"]').trigger('click')
+        await flushPromises()
+        await wrapper.get('[data-testid="mail-choice-yes"]').setValue(true)
+        await wrapper.get('[data-testid="mail-confirm-submit"]').trigger('click')
+        await flushPromises()
+        expect(wrapper.find('[data-testid="mail-confirm-modal"]').exists()).toBe(true)
+        expect(wrapper.get('[data-testid="mail-confirm-modal"]').text()).toContain('邮件执行器已满')
+        await wrapper.get('[data-testid="mail-confirm-submit"]').trigger('click')
+        await flushPromises()
+        expect(api.sendDatabaseIssueMail).toHaveBeenCalledTimes(2)
+        expect(api.updateDatabaseIssue).toHaveBeenCalledTimes(1)
+        expect(wrapper.find('[data-testid="edit-modal"]').exists()).toBe(false)
+      } finally { wrapper.unmount() }
+    })
+
+    it('ignores a late status from an edit that was closed and reopened', async () => {
+      let finishOldStatus
+      api.getDatabaseIssueMailStatus.mockImplementationOnce(() => new Promise(resolve => { finishOldStatus = resolve }))
+      const wrapper = mount(ReplayDatabaseIssuePage)
+      try {
+        await flushPromises()
+        await wrapper.get('[data-testid="edit-1"]').trigger('click')
+        await wrapper.get('[aria-label="关闭编辑"]').trigger('click')
+        await wrapper.get('[data-testid="edit-1"]').trigger('click')
+        await flushPromises()
+        expect(wrapper.get('[data-testid="edit-mail-status"]').text()).toBe('未发送')
+        finishOldStatus({ status: 'FAILED', recipients: [{ ...collaborator, status: 'FAILED', failureMessage: '旧请求失败' }] })
+        await flushPromises()
+        expect(wrapper.get('[data-testid="edit-mail-status"]').text()).toBe('未发送')
+        expect(wrapper.text()).not.toContain('旧请求失败')
+      } finally { wrapper.unmount() }
+    })
+
+    it('ignores a pre-save status result after the saved status has loaded', async () => {
+      let finishOldStatus
+      api.getDatabaseIssueMailStatus.mockImplementationOnce(() => new Promise(resolve => { finishOldStatus = resolve }))
+      const wrapper = mount(ReplayDatabaseIssuePage)
+      try {
+        await flushPromises()
+        await wrapper.get('[data-testid="edit-1"]').trigger('click')
+        await wrapper.get('[data-testid="save-edit"]').trigger('click')
+        await flushPromises()
+        expect(wrapper.find('[data-testid="mail-confirm-modal"]').exists()).toBe(true)
+        finishOldStatus({ status: 'SENT', recipients: [{ ...collaborator, email: 'old@example.com', status: 'SENT', sentAt: '2026-11-11T10:00:00' }] })
+        await flushPromises()
+        await wrapper.get('[data-testid="mail-choice-yes"]').setValue(true)
+        await wrapper.get('[data-testid="mail-confirm-submit"]').trigger('click')
+        await flushPromises()
+        expect(api.sendDatabaseIssueMail).toHaveBeenCalledExactlyOnceWith(1, ['helper@example.com'])
+      } finally { wrapper.unmount() }
+    })
+
+    it('does not request saved mail status after unmounting an in-flight save', async () => {
+      let finishSave
+      api.updateDatabaseIssue.mockImplementationOnce(() => new Promise(resolve => { finishSave = resolve }))
+      const wrapper = mount(ReplayDatabaseIssuePage)
+      await flushPromises()
+      await wrapper.get('[data-testid="edit-1"]').trigger('click')
+      await flushPromises()
+      await wrapper.get('[data-testid="save-edit"]').trigger('click')
+      await wrapper.get('[data-testid="save-edit"]').trigger('click')
+      expect(api.updateDatabaseIssue).toHaveBeenCalledTimes(1)
+      wrapper.unmount()
+      finishSave({ ...mailRow, version: 1 })
+      await flushPromises()
+      expect(api.getDatabaseIssueMailStatus).toHaveBeenCalledTimes(1)
+      expect(api.sendDatabaseIssueMail).not.toHaveBeenCalled()
+    })
+
+    it('does not refresh the list after unmounting an in-flight send', async () => {
+      let finishSend
+      api.sendDatabaseIssueMail.mockImplementationOnce(() => new Promise(resolve => { finishSend = resolve }))
+      const wrapper = mount(ReplayDatabaseIssuePage)
+      await flushPromises()
+      await wrapper.get('[data-testid="edit-1"]').trigger('click')
+      await flushPromises()
+      await wrapper.get('[data-testid="save-edit"]').trigger('click')
+      await flushPromises()
+      await wrapper.get('[data-testid="mail-choice-yes"]').setValue(true)
+      await wrapper.get('[data-testid="mail-confirm-submit"]').trigger('click')
+      wrapper.unmount()
+      finishSend({ status: 'SENDING', recipients: [{ ...collaborator, status: 'SENDING' }] })
+      await flushPromises()
+      expect(api.listDatabaseIssues).toHaveBeenCalledTimes(1)
+      expect(api.updateDatabaseIssue).toHaveBeenCalledTimes(1)
+    })
   })
 })

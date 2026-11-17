@@ -56,6 +56,16 @@ export function batchCreateReplayConfigs(type, items) {
   })
 }
 
+/** 导入无条件忽略原因 Excel（第一行即数据：交易码、忽略字段、忽略原因）。 */
+export function importUnconditionalIgnoreReasons(file) {
+  const form = new FormData()
+  form.append('file', file)
+  return request(`${PREFIX}/unconditional-ignores/import-ignore-reasons`, {
+    method: 'POST',
+    body: form,
+  })
+}
+
 /** 批量审核，items 形如 [{ id, version }]，最多 100 条；能审的通过、其余跳过。 */
 export function batchReviewReplayConfigs(type, items) {
   return request(`${PREFIX}/${type}/batch-review`, {

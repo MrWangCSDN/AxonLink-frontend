@@ -80,6 +80,7 @@
           批量删除{{ selectedIds.length ? `（${selectedIds.length}）` : '' }}
         </button>
         <button class="replay-button replay-button-primary" type="button" data-testid="create-config" @click="openCreate">新增</button>
+        <button v-if="isUnconditionalTab" class="replay-button" type="button" data-testid="open-reason-import" @click="openReasonImport">导入忽略原因</button>
         <button class="replay-button" type="button" :data-testid="isMessageSequenceTab ? 'export-message-sequences' : 'export-excel'" :disabled="exporting" @click="exportConfigs">
           {{ exporting ? '导出中...' : isMessageSequenceTab ? '导出流水号忽略' : '导出Excel' }}
         </button>
@@ -199,6 +200,22 @@
       </section>
     </div>
 
+    <div v-if="reasonImportOpen" class="replay-modal-mask" @click.self="!reasonImporting && closeReasonImport">
+      <section class="replay-edit-modal replay-reason-import-modal" role="dialog" aria-modal="true" aria-label="导入忽略原因" data-testid="reason-import-modal">
+        <header>
+          <h3>导入忽略原因</h3>
+          <button class="replay-icon-button" type="button" data-testid="close-reason-import" :disabled="reasonImporting" @click="closeReasonImport">关闭</button>
+        </header>
+        <p class="replay-hint">Excel 第一行即数据，依次为：交易码、忽略字段、忽略原因。只补充当前为空的忽略原因，已有原因不会覆盖，导入不触发重新审核。</p>
+        <input ref="reasonImportInput" class="replay-file-input" type="file" accept=".xlsx,.xls" data-testid="reason-import-file" :disabled="reasonImporting" @change="reasonImportFile = $event.target.files?.[0] || null" />
+        <div v-if="reasonImportError" class="replay-message replay-error" data-testid="reason-import-error">{{ reasonImportError }}</div>
+        <div class="replay-form-actions">
+          <button class="replay-button" type="button" :disabled="reasonImporting" @click="closeReasonImport">取消</button>
+          <button class="replay-button replay-button-primary" type="button" data-testid="submit-reason-import" :disabled="!reasonImportFile || reasonImporting" @click="submitReasonImport">{{ reasonImporting ? '导入中...' : '开始导入' }}</button>
+        </div>
+      </section>
+    </div>
+
     <div v-if="historyOpen" class="replay-drawer-mask" @click.self="closeHistory">
       <aside class="replay-history-drawer" role="dialog" aria-modal="true" aria-label="操作历史" data-testid="history-drawer">
         <header>
@@ -293,6 +310,7 @@ import {
   deleteReplayConfig,
   exportReviewedMessageSequenceIgnores,
   exportReviewedReplayConfigs,
+  importUnconditionalIgnoreReasons,
   listReplayConfigDomains,
   listReplayConfigOperations,
   listReplayConfigs,
@@ -499,6 +517,7 @@ const activeTab = ref(TABS[0].key)
 const schema = computed(() => SCHEMAS[activeTab.value])
 const isSortTab = computed(() => activeTab.value === 'sort-fields')
 const isMessageSequenceTab = computed(() => activeTab.value === 'message-sequence-ignores')
+const isUnconditionalTab = computed(() => activeTab.value === 'unconditional-ignores')
 const reasonEmptyLabel = computed(() => (isSortTab.value ? '仅看排序原因为空' : '仅看忽略原因为空'))
 
 const items = ref([])
@@ -516,6 +535,11 @@ const reviewerMappingWarningCodes = ref([])
 const reviewerHelp = reactive({ visible: false, style: {} })
 const domainOptions = ref([])
 const exporting = ref(false)
+const reasonImportOpen = ref(false)
+const reasonImportFile = ref(null)
+const reasonImporting = ref(false)
+const reasonImportError = ref('')
+const reasonImportInput = ref(null)
 
 const editOpen = ref(false)
 const editingRow = ref(null)
@@ -717,6 +741,38 @@ async function exportConfigs() {
     showToast(`导出失败：${cause?.message || cause}`, 'error')
   } finally {
     exporting.value = false
+  }
+}
+
+function openReasonImport() {
+  reasonImportFile.value = null
+  reasonImportError.value = ''
+  reasonImportOpen.value = true
+}
+
+function closeReasonImport() {
+  if (reasonImporting.value) return
+  reasonImportOpen.value = false
+  reasonImportFile.value = null
+  reasonImportError.value = ''
+  if (reasonImportInput.value) reasonImportInput.value.value = ''
+}
+
+async function submitReasonImport() {
+  if (!reasonImportFile.value || reasonImporting.value) return
+  reasonImporting.value = true
+  reasonImportError.value = ''
+  try {
+    const result = await importUnconditionalIgnoreReasons(reasonImportFile.value)
+    showToast(`导入完成：补充 ${result?.updatedRows ?? 0} 条，已有原因跳过 ${result?.skippedExistingReasonRows ?? 0} 条，未匹配 ${result?.unmatchedRows ?? 0} 条${result?.invalidRows ? `，格式错误 ${result.invalidRows} 条` : ''}`)
+    reasonImporting.value = false
+    closeReasonImport()
+    await load()
+  } catch (cause) {
+    reasonImportError.value = cause?.message || '导入失败'
+    showToast(`导入失败：${reasonImportError.value}`, 'error')
+  } finally {
+    reasonImporting.value = false
   }
 }
 

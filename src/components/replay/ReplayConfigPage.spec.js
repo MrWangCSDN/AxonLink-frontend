@@ -19,6 +19,7 @@ import {
   reviewReplayConfig,
   reviewMessageSequenceIgnore,
   updateMessageSequenceIgnore,
+  importUnconditionalIgnoreReasons,
 } from '../../api/replayConfigs.js'
 
 vi.mock('../../api/replayConfigs.js', () => ({
@@ -40,6 +41,7 @@ vi.mock('../../api/replayConfigs.js', () => ({
   deleteMessageSequenceIgnore: vi.fn(),
   batchDeleteMessageSequenceIgnores: vi.fn(),
   exportReviewedMessageSequenceIgnores: vi.fn(),
+  importUnconditionalIgnoreReasons: vi.fn(),
 }))
 
 function arrangeApi() {
@@ -103,6 +105,26 @@ describe('ReplayConfigPage（忽略清单）', () => {
     await flushPromises()
 
     expect(wrapper.find('[data-testid="toast"]').text()).toContain('导出失败')
+  })
+
+  it('imports unconditional ignore reasons and refreshes the list', async () => {
+    importUnconditionalIgnoreReasons.mockResolvedValue({
+      totalRows: 3, updatedRows: 1, skippedExistingReasonRows: 1, unmatchedRows: 1, invalidRows: 0,
+    })
+    const wrapper = mount(ReplayConfigPage)
+    await flushPromises()
+
+    await wrapper.find('[data-testid="open-reason-import"]').trigger('click')
+    const file = new File(['S1&sop,accountNo,原因'], 'reasons.xlsx')
+    const input = wrapper.find('[data-testid="reason-import-file"]')
+    Object.defineProperty(input.element, 'files', { configurable: true, value: [file] })
+    await input.trigger('change')
+    await wrapper.find('[data-testid="submit-reason-import"]').trigger('click')
+    await flushPromises()
+
+    expect(importUnconditionalIgnoreReasons).toHaveBeenCalledWith(file)
+    expect(wrapper.find('[data-testid="toast"]').text()).toContain('补充 1 条')
+    expect(wrapper.find('[data-testid="reason-import-modal"]').exists()).toBe(false)
   })
 
   it('shows 领域 as the first data column and filters by it', async () => {

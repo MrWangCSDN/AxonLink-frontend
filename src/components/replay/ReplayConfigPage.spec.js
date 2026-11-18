@@ -9,6 +9,7 @@ import {
   batchReviewReplayConfigs,
   createReplayConfig,
   createMessageSequenceIgnores,
+  createOneSideErrorCodeIgnores,
   deleteMessageSequenceIgnore,
   deleteReplayConfig,
   exportReviewedMessageSequenceIgnores,
@@ -20,6 +21,7 @@ import {
   reviewMessageSequenceIgnore,
   updateMessageSequenceIgnore,
   updateReplayConfig,
+  exportReviewedOneSideErrorCodeIgnores,
 } from '../../api/replayConfigs.js'
 
 vi.mock('../../api/replayConfigs.js', () => ({
@@ -35,12 +37,19 @@ vi.mock('../../api/replayConfigs.js', () => ({
   listReplayConfigDomains: vi.fn(),
   exportReviewedReplayConfigs: vi.fn(),
   createMessageSequenceIgnores: vi.fn(),
+  createOneSideErrorCodeIgnores: vi.fn(),
+  updateOneSideErrorCodeIgnore: vi.fn(),
+  reviewOneSideErrorCodeIgnore: vi.fn(),
+  batchReviewOneSideErrorCodeIgnores: vi.fn(),
+  deleteOneSideErrorCodeIgnore: vi.fn(),
+  batchDeleteOneSideErrorCodeIgnores: vi.fn(),
   updateMessageSequenceIgnore: vi.fn(),
   reviewMessageSequenceIgnore: vi.fn(),
   batchReviewMessageSequenceIgnores: vi.fn(),
   deleteMessageSequenceIgnore: vi.fn(),
   batchDeleteMessageSequenceIgnores: vi.fn(),
   exportReviewedMessageSequenceIgnores: vi.fn(),
+  exportReviewedOneSideErrorCodeIgnores: vi.fn(),
 }))
 
 function arrangeApi() {
@@ -104,6 +113,25 @@ describe('ReplayConfigPage（忽略清单）', () => {
     await flushPromises()
 
     expect(wrapper.find('[data-testid="toast"]').text()).toContain('导出失败')
+  })
+
+  it('shows the sixth one-side error code tab and creates split codes', async () => {
+    createReplayConfig.mockResolvedValue([{ id: 11 }, { id: 12 }])
+    const wrapper = mount(ReplayConfigPage)
+    await flushPromises()
+    await wrapper.find('[data-testid="tab-one-side-error-code-ignores"]').trigger('click')
+    await flushPromises()
+    await wrapper.find('[data-testid="create-config"]').trigger('click')
+    await wrapper.find('[data-testid="form-serviceCode"]').setValue('S1&sop')
+    await wrapper.find('[data-testid="form-category"]').setValue('QUERY')
+    await wrapper.find('[data-testid="form-ownership"]').setValue('528')
+    await wrapper.find('[data-testid="form-errorCodes"]').setValue('E001,E002')
+    await wrapper.find('[data-testid="form-ignoreReason"]').setValue('原因')
+    await wrapper.find('form.replay-edit-grid').trigger('submit')
+    await flushPromises()
+    expect(createOneSideErrorCodeIgnores).toHaveBeenCalledWith({
+      serviceCode: 'S1&sop', category: 'QUERY', ownership: '528', errorCodes: 'E001,E002', ignoreReason: '原因',
+    })
   })
 
   it('does not expose the unconditional reason import entry', async () => {

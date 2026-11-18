@@ -10,6 +10,7 @@ import {
   listReplayConfigs,
   updateReplayConfig,
   updateMessageSequenceIgnore,
+  exportReviewedOneSideErrorCodeIgnores,
 } from './replayConfigs.js'
 
 const jsonResponse = (payload, status = 200) => new Response(JSON.stringify(payload), {
@@ -113,5 +114,11 @@ describe('replayConfigs API', () => {
     await deleteMessageSequenceIgnore(7)
     expect(fetch.mock.calls[2][0]).toBe('/api/ai/parallel-replay/config/message-sequence-ignores/7')
     expect(fetch.mock.calls[2][1].method).toBe('DELETE')
+  })
+
+  it('exports reviewed one-side error codes through the dedicated path', async () => {
+    global.fetch = vi.fn().mockResolvedValue(new Response(new Blob(['内容']), { status: 200 }))
+    await exportReviewedOneSideErrorCodeIgnores()
+    expect(fetch.mock.calls[0][0]).toBe('/api/ai/parallel-replay/config/one-side-error-code-ignores/export')
   })
 })

@@ -120,3 +120,39 @@ export function batchDeleteMessageSequenceIgnores(ids) {
 export function exportReviewedMessageSequenceIgnores() {
   return download(`${PREFIX}/${MESSAGE_SEQUENCE_TYPE}/export`, '流水号忽略.txt')
 }
+
+const ONE_SIDE_ERROR_CODE_TYPE = 'one-side-error-code-ignores'
+
+export function createOneSideErrorCodeIgnores(body) {
+  return createReplayConfig(ONE_SIDE_ERROR_CODE_TYPE, body)
+}
+
+export function updateOneSideErrorCodeIgnore(id, body) {
+  return updateReplayConfig(ONE_SIDE_ERROR_CODE_TYPE, id, body)
+}
+
+export function reviewOneSideErrorCodeIgnore(id) {
+  return request(`${PREFIX}/${ONE_SIDE_ERROR_CODE_TYPE}/${encodeURIComponent(id)}/review`, { method: 'POST' })
+}
+
+export function batchReviewOneSideErrorCodeIgnores(ids) {
+  return request(`${PREFIX}/${ONE_SIDE_ERROR_CODE_TYPE}/batch-review`, {
+    method: 'POST',
+    body: JSON.stringify({ ids }),
+  })
+}
+
+export function deleteOneSideErrorCodeIgnore(id) {
+  return request(`${PREFIX}/${ONE_SIDE_ERROR_CODE_TYPE}/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+export function batchDeleteOneSideErrorCodeIgnores(ids) {
+  return request(`${PREFIX}/${ONE_SIDE_ERROR_CODE_TYPE}/batch-delete`, {
+    method: 'POST',
+    body: JSON.stringify({ ids }),
+  })
+}
+
+export function exportReviewedOneSideErrorCodeIgnores() {
+  return download(`${PREFIX}/${ONE_SIDE_ERROR_CODE_TYPE}/export`, '单边失败错误码忽略.txt')
+}

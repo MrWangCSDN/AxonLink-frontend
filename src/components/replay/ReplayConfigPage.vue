@@ -80,7 +80,6 @@
           批量删除{{ selectedIds.length ? `（${selectedIds.length}）` : '' }}
         </button>
         <button class="replay-button replay-button-primary" type="button" data-testid="create-config" @click="openCreate">新增</button>
-        <button v-if="isUnconditionalTab" class="replay-button" type="button" data-testid="open-reason-import" @click="openReasonImport">导入忽略原因</button>
         <button class="replay-button" type="button" :data-testid="isMessageSequenceTab ? 'export-message-sequences' : 'export-excel'" :disabled="exporting" @click="exportConfigs">
           {{ exporting ? '导出中...' : isMessageSequenceTab ? '导出流水号忽略' : '导出Excel' }}
         </button>
@@ -118,7 +117,7 @@
         <tbody>
           <tr v-for="row in items" :key="row.id">
             <td class="replay-select-column"><input type="checkbox" :value="row.id" v-model="selectedIds" :data-testid="`select-${row.id}`" /></td>
-            <td v-for="column in schema.columns" :key="column.key" :class="{ 'replay-cell-long': column.long }" :title="displayValue(column, row)">
+            <td v-for="column in schema.columns" :key="column.key" :class="{ 'replay-cell-long': column.long, 'replay-cell-ellipsis': column.ellipsis }" :title="displayValue(column, row)">
               {{ displayValue(column, row) }}
             </td>
             <td class="replay-operation-column">
@@ -197,22 +196,6 @@
             <button class="replay-button replay-button-primary" type="submit" data-testid="submit-config" :disabled="saving">{{ saving ? '保存中...' : '保存' }}</button>
           </div>
         </form>
-      </section>
-    </div>
-
-    <div v-if="reasonImportOpen" class="replay-modal-mask" @click.self="!reasonImporting && closeReasonImport">
-      <section class="replay-edit-modal replay-reason-import-modal" role="dialog" aria-modal="true" aria-label="导入忽略原因" data-testid="reason-import-modal">
-        <header>
-          <h3>导入忽略原因</h3>
-          <button class="replay-icon-button" type="button" data-testid="close-reason-import" :disabled="reasonImporting" @click="closeReasonImport">关闭</button>
-        </header>
-        <p class="replay-hint">Excel 第一行即数据，依次为：交易码、忽略字段、忽略原因。只补充当前为空的忽略原因，已有原因不会覆盖，导入不触发重新审核。</p>
-        <input ref="reasonImportInput" class="replay-file-input" type="file" accept=".xlsx,.xls" data-testid="reason-import-file" :disabled="reasonImporting" @change="reasonImportFile = $event.target.files?.[0] || null" />
-        <div v-if="reasonImportError" class="replay-message replay-error" data-testid="reason-import-error">{{ reasonImportError }}</div>
-        <div class="replay-form-actions">
-          <button class="replay-button" type="button" :disabled="reasonImporting" @click="closeReasonImport">取消</button>
-          <button class="replay-button replay-button-primary" type="button" data-testid="submit-reason-import" :disabled="!reasonImportFile || reasonImporting" @click="submitReasonImport">{{ reasonImporting ? '导入中...' : '开始导入' }}</button>
-        </div>
       </section>
     </div>
 
@@ -310,7 +293,6 @@ import {
   deleteReplayConfig,
   exportReviewedMessageSequenceIgnores,
   exportReviewedReplayConfigs,
-  importUnconditionalIgnoreReasons,
   listReplayConfigDomains,
   listReplayConfigOperations,
   listReplayConfigs,
@@ -352,7 +334,9 @@ const MESSAGE_SEQUENCE_CREATE_FORM = [
 const SORT_CREATE_FORM = [
   { key: 'tranCode', label: '4 位交易码', kind: 'text', required: true, placeholder: '如 6208' },
   { key: 'oldSortField', label: '老核心排序字段', kind: 'text', required: true, placeholder: '单个属性：A.B；多个属性：A(B,C)' },
+  { key: 'oldSortFieldChineseName', label: '老核心中文名称', kind: 'text', required: true, maxlength: 256 },
   { key: 'newSortField', label: '新核心排序字段', kind: 'text', required: true, placeholder: '单个属性：A.B；多个属性：A(B,C)' },
+  { key: 'newSortFieldChineseName', label: '新核心中文名称', kind: 'text', required: true, maxlength: 256 },
   { key: 'ignoreReason', label: '排序原因', kind: 'textarea', required: true, maxlength: 512 },
 ]
 
@@ -368,16 +352,19 @@ const SCHEMAS = {
       { key: 'domain', label: '领域' },
       { key: 'tranCode', label: '服务码' },
       { key: 'fieldName', label: '忽略字段' },
-      { key: 'ignoreReason', label: '忽略原因', long: true },
+      { key: 'fieldChineseName', label: '中文名称' },
+      { key: 'ignoreReason', label: '忽略原因', ellipsis: true },
       ...REVIEW_COLUMNS,
     ],
     confirmFields: [
       { key: 'tranCode', label: '服务码' },
       { key: 'fieldName', label: '忽略字段' },
+      { key: 'fieldChineseName', label: '中文名称' },
     ],
     form: [
       { key: 'tranCode', label: '服务码', kind: 'serviceCode', required: true, placeholder: '如 S120034071CorpInfoQryTrdCrclr&sop' },
       { key: 'fieldName', label: '忽略字段', kind: 'text', required: true },
+      { key: 'fieldChineseName', label: '中文名称', kind: 'text', required: true, maxlength: 256 },
       { key: 'ignoreReason', label: '忽略原因', kind: 'textarea', required: true, maxlength: 512 },
     ],
   },
@@ -393,20 +380,23 @@ const SCHEMAS = {
       { key: 'domain', label: '领域' },
       { key: 'origTrcd', label: '服务码' },
       { key: 'fieldRmoveName', label: '忽略字段' },
+      { key: 'fieldChineseName', label: '中文名称' },
       { key: 'fieldFileIndx', label: '字段索引' },
       { key: 'fieldFileFlag', label: '字段标识', display: 'flag' },
       { key: 'origFieldCond', label: '主系统字段忽略条件', long: true },
       { key: 'destFieldCond', label: '备系统字段忽略条件', long: true },
-      { key: 'ignoreReason', label: '忽略原因', long: true },
+      { key: 'ignoreReason', label: '忽略原因', ellipsis: true },
       ...REVIEW_COLUMNS,
     ],
     confirmFields: [
       { key: 'origTrcd', label: '服务码' },
       { key: 'fieldRmoveName', label: '忽略字段' },
+      { key: 'fieldChineseName', label: '中文名称' },
     ],
     form: [
       { key: 'origTrcd', label: '服务码', kind: 'serviceCode', required: true },
       { key: 'fieldRmoveName', label: '忽略字段', kind: 'text', required: true },
+      { key: 'fieldChineseName', label: '中文名称', kind: 'text', required: true, maxlength: 256 },
       { key: 'fieldFileFlag', label: '字段标识', kind: 'select', required: true, options: [
         { value: 1, label: '普通字段' },
         { value: 2, label: '对象或数组' },
@@ -429,7 +419,7 @@ const SCHEMAS = {
       { key: 'serviceCode', label: '服务码' },
       { key: 'oldRespCode', label: '老核心错误码' },
       { key: 'newRespCode', label: '新核心错误码' },
-      { key: 'ignoreReason', label: '忽略原因', long: true },
+      { key: 'ignoreReason', label: '忽略原因', ellipsis: true },
       ...REVIEW_COLUMNS,
     ],
     confirmFields: [
@@ -463,19 +453,22 @@ const SCHEMAS = {
       { key: 'origTrcd', label: '服务码' },
       { key: 'origArryName', label: '对象/数组名称' },
       { key: 'origFieldName', label: '排序字段' },
-      { key: 'ignoreReason', label: '排序原因', long: true },
+      { key: 'fieldChineseName', label: '中文名称' },
+      { key: 'ignoreReason', label: '排序原因', ellipsis: true },
       ...REVIEW_COLUMNS,
     ],
     confirmFields: [
       { key: 'origTrcd', label: '服务码' },
       { key: 'origArryName', label: '对象/数组名称' },
       { key: 'origFieldName', label: '排序字段' },
+      { key: 'fieldChineseName', label: '中文名称' },
       { key: 'ignoreReason', label: '排序原因' },
     ],
     form: [
       { key: 'origTrcd', label: '服务码', kind: 'serviceCode', required: true },
       { key: 'origArryName', label: '对象/数组名称', kind: 'text', required: true },
       { key: 'origFieldName', label: '排序字段', kind: 'text', required: true },
+      { key: 'fieldChineseName', label: '中文名称', kind: 'text', required: true, maxlength: 256 },
       { key: 'ignoreReason', label: '排序原因', kind: 'textarea', required: true, maxlength: 512 },
     ],
   },
@@ -491,7 +484,7 @@ const SCHEMAS = {
       { key: 'category', label: '领域', display: 'category' },
       { key: 'serviceCode', label: '服务码' },
       { key: 'messageSequence', label: '流水号', long: true },
-      { key: 'ignoreReason', label: '忽略原因', long: true },
+      { key: 'ignoreReason', label: '忽略原因', ellipsis: true },
       ...REVIEW_COLUMNS,
       { key: 'createdAt', label: '新增时间', display: 'time' },
       { key: 'updatedAt', label: '更新时间', display: 'time' },
@@ -535,11 +528,6 @@ const reviewerMappingWarningCodes = ref([])
 const reviewerHelp = reactive({ visible: false, style: {} })
 const domainOptions = ref([])
 const exporting = ref(false)
-const reasonImportOpen = ref(false)
-const reasonImportFile = ref(null)
-const reasonImporting = ref(false)
-const reasonImportError = ref('')
-const reasonImportInput = ref(null)
 
 const editOpen = ref(false)
 const editingRow = ref(null)
@@ -741,38 +729,6 @@ async function exportConfigs() {
     showToast(`导出失败：${cause?.message || cause}`, 'error')
   } finally {
     exporting.value = false
-  }
-}
-
-function openReasonImport() {
-  reasonImportFile.value = null
-  reasonImportError.value = ''
-  reasonImportOpen.value = true
-}
-
-function closeReasonImport() {
-  if (reasonImporting.value) return
-  reasonImportOpen.value = false
-  reasonImportFile.value = null
-  reasonImportError.value = ''
-  if (reasonImportInput.value) reasonImportInput.value.value = ''
-}
-
-async function submitReasonImport() {
-  if (!reasonImportFile.value || reasonImporting.value) return
-  reasonImporting.value = true
-  reasonImportError.value = ''
-  try {
-    const result = await importUnconditionalIgnoreReasons(reasonImportFile.value)
-    showToast(`导入完成：补充 ${result?.updatedRows ?? 0} 条，已有原因跳过 ${result?.skippedExistingReasonRows ?? 0} 条，未匹配 ${result?.unmatchedRows ?? 0} 条${result?.invalidRows ? `，格式错误 ${result.invalidRows} 条` : ''}`)
-    reasonImporting.value = false
-    closeReasonImport()
-    await load()
-  } catch (cause) {
-    reasonImportError.value = cause?.message || '导入失败'
-    showToast(`导入失败：${reasonImportError.value}`, 'error')
-  } finally {
-    reasonImporting.value = false
   }
 }
 
@@ -1191,6 +1147,7 @@ onUnmounted(() => {
 .replay-operation-column{width:262px;white-space:nowrap}
 .replay-operation-buttons{display:flex;gap:5px}
 .replay-cell-long{max-width:320px;white-space:pre-wrap;overflow-wrap:anywhere}
+.replay-cell-ellipsis{width:240px;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .replay-state{text-align:center;color:var(--text-muted,#6b7280);padding:28px 0}
 .replay-pager{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 20px;background:var(--bg-card,#fff);border-top:1px solid var(--border,#e5e7eb)}
 .replay-page-size{display:flex;align-items:center;gap:6px;font-size:12px}

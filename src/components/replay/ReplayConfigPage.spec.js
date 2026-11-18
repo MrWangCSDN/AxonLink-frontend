@@ -415,7 +415,7 @@ describe('ReplayConfigPage（忽略清单）', () => {
     await wrapper.find('[data-testid="edit-1"]').trigger('click')
     await wrapper.find('[data-testid="form-fieldChineseName"]').setValue('')
     await wrapper.find('form.replay-edit-grid').trigger('submit')
-    expect(wrapper.find('[data-testid="form-error"]').text()).toContain('中文名称不能为空')
+    expect(wrapper.find('[data-testid="form-error"]').text()).toContain('忽略字段中文名称不能为空')
 
     await wrapper.find('[data-testid="form-fieldChineseName"]').setValue('客户账号')
     await wrapper.find('form.replay-edit-grid').trigger('submit')
@@ -483,7 +483,7 @@ describe('ReplayConfigPage（忽略清单）', () => {
     await flushPromises()
 
     expect(batchCreateReplayConfigs).not.toHaveBeenCalled()
-    expect(wrapper.find('[data-testid="form-error"]').text()).toContain('中文名称不能为空')
+    expect(wrapper.find('[data-testid="form-error"]').text()).toContain('忽略字段中文名称不能为空')
   })
 
   it('creates sort fields from the triple form and reports three rows', async () => {

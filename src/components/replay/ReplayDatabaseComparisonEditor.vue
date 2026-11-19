@@ -209,7 +209,7 @@ const props = defineProps({
   saveError: { type: Object, default: null },
   canConfigureSampleLimit: { type: Boolean, default: false },
 })
-const emit = defineEmits(['close', 'save', 'delete'])
+const emit = defineEmits(['close', 'save', 'delete', 'edit-custom-sql'])
 
 const domains = ['存款组', '贷款组', '公共组', '结算组', '平台组']
 const tableKeywordInput = ref('')
@@ -560,6 +560,10 @@ const selectTable = table => {
     : props.registrations.find(item => item.tableName === table.tableName)
   const applyRegistration = registration => {
     if (requestId !== columnLoadRequestId) return
+    if (registration?.customSql) {
+      emit('edit-custom-sql', registration)
+      return
+    }
     columnsLoaded.value = false
     const applyColumns = metadata => {
       if (requestId !== columnLoadRequestId) return
@@ -601,7 +605,7 @@ const selectTable = table => {
     selectedFieldKeyword.value = ''
     fieldFilter.value = 'ALL'
   }
-  if (!localRegistration && table.registrationStatus !== 'UNREGISTERED' && props.loadRegistration) {
+  if ((!localRegistration || localRegistration.customSql) && table.registrationStatus !== 'UNREGISTERED' && props.loadRegistration) {
     requestMetadata(() => props.loadRegistration(table.registrationId), applyRegistration, requestId, '登记信息加载失败')
   } else applyRegistration(localRegistration)
 }

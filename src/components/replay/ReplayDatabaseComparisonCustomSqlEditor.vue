@@ -2,16 +2,16 @@
   <div class="custom-sql-backdrop">
     <section class="custom-sql-dialog" role="dialog" aria-modal="true" aria-labelledby="custom-sql-title" data-testid="custom-sql-dialog">
       <header>
-        <div><h3 id="custom-sql-title">{{ initialRegistration ? '编辑自定义 SQL' : '自定义 SQL 登记' }}</h3><p>两侧共用一条单表 SELECT，支持计算列及聚合查询</p></div>
+        <div><h3 id="custom-sql-title">{{ initialRegistration?.deleted ? '重新登记自定义 SQL' : initialRegistration ? '编辑自定义 SQL' : '自定义 SQL 登记' }}</h3><p>两侧共用一条单表 SELECT，支持计算列及聚合查询</p></div>
         <button type="button" aria-label="关闭自定义 SQL" data-testid="close-custom-sql" :disabled="saving" @click="emit('close')">×</button>
       </header>
       <div class="custom-sql-body">
-        <label>比对项名称<input v-model="displayName" data-testid="custom-sql-name" maxlength="100" :disabled="saving" placeholder="例如按币种汇总金额" /></label>
         <label>SQL<textarea v-model="sql" data-testid="custom-sql-text" rows="10" spellcheck="false" :disabled="saving" placeholder="SELECT currency, SUM(amount) AS total_amt FROM account GROUP BY currency" /></label>
-        <p class="help">使用无 schema 的基础表名，按 BASE 母库解析校验。计算列需提供唯一英文别名，LIMIT 请通过下方比对条数设置。</p>
+        <p class="help">使用无 schema 的基础表名，按 BASE 母库解析校验并自动提取表英文名和中文注释。计算列需提供唯一英文别名，LIMIT 请通过下方比对条数设置。</p>
         <button type="button" class="analyze-button" data-testid="analyze-custom-sql" :disabled="!sql.trim() || analyzing || saving" @click="analyze">{{ analyzing ? '解析中…' : '校验并解析结果字段' }}</button>
         <dl v-if="analysis || lockedSource" class="source-metadata">
-          <dt>关联基础表</dt><dd>{{ analysis?.sourceTableName || lockedSource }} {{ analysis?.sourceTableComment || '' }}<small v-if="lockedSource">关联基础表在创建后固定</small></dd>
+          <dt>表英文名</dt><dd><span data-testid="custom-sql-table-name">{{ registeredTableName }}</span><small v-if="lockedSource">登记表在创建后固定</small></dd>
+          <dt>表中文名</dt><dd data-testid="custom-sql-table-comment">{{ registeredTableComment || '-' }}</dd>
           <dt>领域</dt><dd>{{ analysis?.domainName || initialRegistration?.domainName || initialRegistration?.domain || '-' }}</dd>
           <dt>开发负责人</dt><dd>{{ analysis?.reviserName || initialRegistration?.reviserName || initialRegistration?.reviser || '-' }}</dd>
           <dt>科技负责人</dt><dd>{{ analysis?.groupOwnerName || initialRegistration?.groupOwnerName || initialRegistration?.groupOwner || '-' }}</dd>
@@ -39,9 +39,9 @@
         </div>
         <p class="help">比对条数在聚合查询外层按结果键排序后截取。样本数 0 表示仅汇总，样本数与分区数由有配置权限的人员修改。</p>
         <p v-if="validationMessage" class="validation-message" role="status">{{ validationMessage }}</p>
-        <div v-if="errorMessage" class="sql-error" data-testid="custom-sql-error" role="alert"><p>{{ errorMessage }}</p><ul v-if="saveError?.data?.errors?.length"><li v-for="(item, index) in saveError.data.errors" :key="index">{{ item.fieldName || item.path || '' }} {{ item.reason }}</li></ul></div>
+        <div v-if="errorMessage" class="sql-error" data-testid="custom-sql-error" role="alert"><p>{{ errorMessage }}</p><ul v-if="saveError?.data?.errors?.length"><li v-for="(item, index) in saveError.data.errors" :key="index">{{ item.fieldName || item.path || '' }} {{ item.reason }}</li></ul><button v-if="canOpenExistingRegistration" type="button" data-testid="open-existing-custom-sql" :disabled="saving || loadingExisting" @click="emit('open-existing', saveError.data.existingId)">{{ loadingExisting ? '加载中…' : '进入原登记' }}</button></div>
       </div>
-      <footer><button type="button" :disabled="saving" @click="emit('close')">取消</button><button type="button" class="primary" data-testid="save-custom-sql" :disabled="!canSave" @click="save">{{ saving ? '保存中…' : '保存' }}</button></footer>
+      <footer><button type="button" :disabled="saving" @click="emit('close')">取消</button><button type="button" class="primary" data-testid="save-custom-sql" :disabled="!canSave" @click="save">{{ saving ? '保存中…' : initialRegistration?.deleted ? '重新登记' : '保存' }}</button></footer>
     </section>
   </div>
 </template>
@@ -56,17 +56,21 @@ const props = defineProps({
   analyzeSql: { type: Function, default: analyzeCustomSql },
   canConfigurePartitions: { type: Boolean, default: false },
   saving: { type: Boolean, default: false },
+  loadingExisting: { type: Boolean, default: false },
   saveError: { type: Object, default: null },
 })
-const emit = defineEmits(['close', 'save', 'clear-error'])
+const emit = defineEmits(['close', 'save', 'clear-error', 'open-existing'])
 const initial = props.initialRegistration
-const lockedSource = initial?.customSql?.sourceTableName || ''
-const displayName = ref(initial?.tableComment || '')
+const lockedSource = initial?.customSql?.sourceTableName || initial?.sourceTableName || initial?.tableName || ''
 const sql = ref(initial?.customSql?.sql || '')
 const compareLimit = ref(initial?.compareLimit ?? '')
 const sampleLimit = ref(initial?.sampleLimit ?? 100)
 const partitionNum = ref(initial?.partitionNum ?? 1)
 const analysis = ref(initial?.customSql ? { ...initial.customSql } : null)
+const registeredTableName = computed(() => analysis.value?.sourceTableName || lockedSource)
+const registeredTableComment = computed(() => analysis.value?.sourceTableComment !== undefined
+  ? analysis.value.sourceTableComment
+  : initial?.tableComment ?? '')
 const selectedNames = ref((initial?.fields || []).map(field => field.columnName || field.name))
 const keyNames = ref([...(initial?.comparisonKey?.columnNames || [])])
 const analyzedInput = ref(initial?.customSql?.sql || '')
@@ -85,7 +89,6 @@ watch(sql, () => {
   emit('clear-error')
 })
 const validationMessage = computed(() => {
-  if (!displayName.value.trim()) return '请填写比对项名称'
   if (new TextEncoder().encode(sql.value).length > 65535) return 'SQL 的 UTF-8 大小不能超过 65535 字节'
   if (!analysis.value || analyzedInput.value !== sql.value) return '请先校验并解析 SQL'
   if (!selectedNames.value.length) return '请选择参与比对的结果字段'
@@ -96,8 +99,10 @@ const validationMessage = computed(() => {
   if (props.canConfigurePartitions && (!Number.isInteger(partitionNum.value) || partitionNum.value < 1 || partitionNum.value > 256)) return '读取分区数必须为 1 至 256 的整数'
   return ''
 })
-const canSave = computed(() => !props.saving && !analyzing.value && !validationMessage.value)
+const canSave = computed(() => !props.saving && !props.loadingExisting && !analyzing.value && !validationMessage.value)
 const errorMessage = computed(() => analysisError.value || props.saveError?.message || '')
+const canOpenExistingRegistration = computed(() => props.saveError?.status === 409
+  && props.saveError?.code === 'DUPLICATE_REGISTRATION' && props.saveError?.data?.existingId != null)
 
 const analyze = async () => {
   const requestedSql = sql.value
@@ -112,7 +117,7 @@ const analyze = async () => {
     const result = await props.analyzeSql(requestedSql)
     if (request !== analysisSequence || sql.value !== requestedSql) return
     if (lockedSource && result.sourceTableName?.toLocaleLowerCase() !== lockedSource.toLocaleLowerCase()) {
-      analysisError.value = `关联基础表在创建后固定为 ${lockedSource}`
+      analysisError.value = `登记表在创建后固定为 ${lockedSource}`
       return
     }
     analysis.value = result
@@ -144,7 +149,6 @@ const save = () => {
   if (!canSave.value) return
   emit('save', {
     ...(initial ? { id: initial.id, version: initial.version } : {}),
-    displayName: displayName.value.trim(),
     sourceTableName: lockedSource || analysis.value.sourceTableName,
     sql: analysis.value.sql || sql.value,
     fieldNames: [...selectedNames.value],

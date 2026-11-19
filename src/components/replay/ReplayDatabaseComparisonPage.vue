@@ -66,7 +66,7 @@
               :data-testid="`table-name-${row.tableName}`"
               :title="tableDisplayValue(row)"
             >
-              <span class="compact-cell-content table-name-content"><strong>{{ row.customSql ? row.tableComment : row.tableName }}</strong><small v-if="row.customSql"><span class="sql-badge">SQL</span> {{ row.tableName }} · 来源 {{ row.sourceTableName }}</small><small v-else>{{ row.tableComment }}</small></span>
+              <span class="compact-cell-content table-name-content"><strong>{{ displayTableName(row) }}</strong><small v-if="row.customSql"><span class="sql-badge">SQL</span> {{ row.tableComment }}</small><small v-else>{{ row.tableComment }}</small></span>
               <span v-if="isTableMissing(row)" class="metadata-status is-table-missing-status">母库表已删除</span>
               <span v-else-if="isMetadataUnavailable(row)" class="metadata-status is-unavailable-status" :data-testid="`metadata-unavailable-${row.tableName}`">母库校验暂不可用</span>
               <span v-else-if="isCustomSqlInvalid(row)" class="metadata-status is-table-missing-status">自定义 SQL 无效</span>
@@ -166,6 +166,7 @@
             <td class="operation-cell">
               <button class="operation-button" type="button" :data-testid="`view-registration-${row.tableName}`" @click="openRegistrationDetail(row)">查看</button>
               <button class="operation-button" type="button" :data-testid="`edit-registration-${row.tableName}`" @click="openEditEditor(row)">编辑</button>
+              <button v-if="!row.customSql" class="operation-button" type="button" :data-testid="`configure-custom-sql-${row.tableName}`" @click="openEditEditor(row, true)">自定义 SQL</button>
               <button class="operation-button danger" type="button" :data-testid="`delete-registration-${row.tableName}`" @click="requestDeleteRegistration(row)">删除</button>
               <button class="operation-button" type="button" :data-testid="`audit-registration-${row.tableName}`" @click="openRegistrationAudit(row)">审计日志</button>
             </td>
@@ -269,6 +270,7 @@
       @close="closeEditor"
       @save="saveRegistration"
       @delete="deleteRegistration"
+      @edit-custom-sql="openLoadedCustomSqlRegistration"
     />
     <ReplayDatabaseComparisonCustomSqlEditor
       v-if="customSqlEditorOpen"
@@ -276,10 +278,12 @@
       :initial-registration="customSqlEditingRegistration"
       :can-configure-partitions="canConfigureSampleLimit"
       :saving="customSqlSaving"
+      :loading-existing="customSqlOpeningExisting"
       :save-error="customSqlSaveError"
       @clear-error="customSqlSaveError = null"
       @close="closeCustomSqlEditor"
       @save="saveCustomSqlRegistration"
+      @open-existing="openExistingCustomSqlRegistration"
     />
     <div v-if="detailRegistration" class="page-dialog-backdrop">
       <section class="page-dialog" data-testid="registration-detail-dialog">
@@ -288,9 +292,9 @@
         <p v-else-if="isMetadataUnavailable(detailRegistration)" class="detail-metadata-unavailable">母库校验暂不可用，当前展示历史登记内容。</p>
         <p v-else-if="isCustomSqlInvalid(detailRegistration)" class="detail-table-warning">自定义 SQL 无效，当前展示已保存的登记内容，请编辑并重新校验 SQL、结果字段和结果比对键。</p>
         <dl>
-          <dt>{{ detailRegistration.customSql ? '比对编号' : '表英文名' }}</dt><dd>{{ detailRegistration.tableName }}</dd>
-          <dt>{{ detailRegistration.customSql ? '比对项名称' : '表中文名' }}</dt><dd>{{ detailRegistration.tableComment || '-' }}</dd>
-          <template v-if="detailRegistration.customSql"><dt>登记类型</dt><dd><span class="sql-badge">SQL</span></dd><dt>关联基础表</dt><dd>{{ detailRegistration.sourceTableName }}</dd></template>
+          <dt>表英文名</dt><dd>{{ displayTableName(detailRegistration) }}</dd>
+          <dt>表中文名</dt><dd>{{ detailRegistration.tableComment || '-' }}</dd>
+          <template v-if="detailRegistration.customSql"><dt>登记类型</dt><dd><span class="sql-badge">SQL</span></dd></template>
           <dt>领域</dt><dd>{{ detailRegistration.domain }}</dd>
           <dt>{{ detailRegistration.customSql ? '结果比对键' : '选择索引' }}</dt><dd data-testid="detail-comparison-key">{{ formatComparisonKey(detailRegistration.comparisonKey) }}</dd>
           <dt>比对字段</dt><dd class="detail-fields">
@@ -341,7 +345,7 @@
     <div v-if="deleteTarget" class="page-dialog-backdrop">
       <section class="page-dialog compact-dialog" data-testid="list-delete-confirmation">
         <header><h3>删除登记</h3><button type="button" aria-label="关闭删除确认" @click="deleteTarget = null">×</button></header>
-        <p v-if="deleteTarget.customSql">确认删除自定义 SQL 登记 <strong>{{ deleteTarget.tableComment }}</strong>（{{ deleteTarget.tableName }}）吗？</p>
+        <p v-if="deleteTarget.customSql">确认删除表 <strong>{{ displayTableName(deleteTarget) }}</strong> 的自定义 SQL 登记吗？</p>
         <p v-else>确认删除表 <strong>{{ deleteTarget.tableName }}</strong> 的全部比对字段登记吗？</p>
         <p v-if="pageError" class="api-error" role="alert">{{ pageError }}</p>
         <footer><button type="button" @click="deleteTarget = null">取消</button><button type="button" class="danger-confirm" data-testid="confirm-list-delete" @click="confirmListDelete">确认删除</button></footer>
@@ -426,6 +430,7 @@ const customSqlEditorOpen = ref(false)
 const customSqlEditingRegistration = ref(null)
 const customSqlSaveError = ref(null)
 const customSqlSaving = ref(false)
+const customSqlOpeningExisting = ref(false)
 let editorLoadSequence = 0
 const canConfigureSampleLimit = ref(false)
 const detailRegistration = ref(null)
@@ -484,9 +489,10 @@ const formatField = field => field.comment?.trim()
   ? `${field.name}(${field.comment.trim()})`
   : field.name
 
+const displayTableName = row => row.sourceTableName || row.customSql?.sourceTableName || row.tableName
 const tableDisplayValue = row => row.tableComment?.trim()
-  ? `${row.tableName} / ${row.tableComment.trim()}`
-  : row.tableName
+  ? `${displayTableName(row)} / ${row.tableComment.trim()}`
+  : displayTableName(row)
 
 const allFields = row => row.fields.map(formatField).join('、')
 const formatComparisonKey = key => {
@@ -627,6 +633,7 @@ const formatPerson = (name, username, employeeNumber) => {
 const mapRegistration = registration => ({
   id: registration.id,
   version: registration.version,
+  deleted: Boolean(registration.deleted),
   sampleLimit: registration.sampleLimit ?? 100,
   partitionNum: registration.partitionNum ?? 1,
   customSql: registration.customSql || null,
@@ -744,14 +751,14 @@ const openAddEditor = () => {
   editorOpen.value = true
 }
 
-const openEditEditor = async row => {
+const openEditEditor = async (row, useCustomSqlEditor = false) => {
   const request = ++editorLoadSequence
   editorSaveError.value = null
   pageError.value = ''
   try {
     const registration = await hydrateRegistration(row)
     if (request !== editorLoadSequence) return
-    if (registration.customSql) {
+    if (registration.customSql || useCustomSqlEditor) {
       customSqlEditingRegistration.value = registration
       customSqlSaveError.value = null
       customSqlEditorOpen.value = true
@@ -775,7 +782,33 @@ const openCustomSqlEditor = () => {
   editorLoadSequence++
   customSqlEditingRegistration.value = null
   customSqlSaveError.value = null
+  customSqlOpeningExisting.value = false
   customSqlEditorOpen.value = true
+}
+const openLoadedCustomSqlRegistration = registration => {
+  closeEditor()
+  customSqlEditingRegistration.value = registration
+  customSqlSaveError.value = null
+  customSqlOpeningExisting.value = false
+  customSqlEditorOpen.value = true
+}
+const openExistingCustomSqlRegistration = async id => {
+  if (customSqlOpeningExisting.value || customSqlSaving.value) return
+  const request = ++editorLoadSequence
+  const duplicateError = customSqlSaveError.value
+  customSqlOpeningExisting.value = true
+  try {
+    const registration = await loadRegistrationDetail(id)
+    if (request !== editorLoadSequence || !customSqlEditorOpen.value) return
+    customSqlEditingRegistration.value = registration
+    customSqlSaveError.value = null
+  } catch (error) {
+    if (request === editorLoadSequence) customSqlSaveError.value = {
+      ...duplicateError, message: error?.message || '登记详情加载失败，请重试',
+    }
+  } finally {
+    if (request === editorLoadSequence) customSqlOpeningExisting.value = false
+  }
 }
 const closeCustomSqlEditor = () => {
   if (customSqlSaving.value) return
@@ -783,6 +816,7 @@ const closeCustomSqlEditor = () => {
   customSqlEditorOpen.value = false
   customSqlEditingRegistration.value = null
   customSqlSaveError.value = null
+  customSqlOpeningExisting.value = false
 }
 const saveCustomSqlRegistration = async payload => {
   if (customSqlSaving.value) return
@@ -794,7 +828,10 @@ const saveCustomSqlRegistration = async payload => {
     if (id != null) await updateCustomSqlRegistration(id, body)
     else await createCustomSqlRegistration(body)
   } catch (error) {
-    customSqlSaveError.value = { message: error?.message || 'SQL 登记保存失败，请重试', data: error?.data }
+    customSqlSaveError.value = {
+      message: error?.message || 'SQL 登记保存失败，请重试', data: error?.data,
+      status: error?.status, code: error?.code,
+    }
     return
   } finally {
     customSqlSaving.value = false

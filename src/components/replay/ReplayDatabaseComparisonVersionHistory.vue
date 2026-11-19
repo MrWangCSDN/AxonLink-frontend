@@ -130,7 +130,7 @@
               </thead>
               <tbody>
                 <tr v-for="row in snapshot.items" :key="`${row.sourceRegistrationId}-${row.tableName}`">
-                  <td><strong>{{ row.customSql ? row.tableComment : row.tableName }}</strong><small v-if="row.customSql"><span class="sql-badge">SQL</span> {{ row.tableName }} · 来源 {{ row.customSql.sourceTableName }}</small><small v-else>{{ row.tableComment || '-' }}</small></td>
+                  <td><strong>{{ displayTableName(row) }}</strong><small v-if="row.customSql"><span class="sql-badge">SQL</span> {{ row.tableComment || '-' }}</small><small v-else>{{ row.tableComment || '-' }}</small></td>
                   <td>{{ row.domainName || '-' }}</td>
                   <td :data-testid="`history-comparison-key-${row.tableName}`">{{ formatComparisonKey(row.comparisonKey) }}</td>
                   <td class="field-cell">
@@ -214,6 +214,7 @@ const draftFilters = reactive({
 const appliedFilters = reactive({})
 
 const formatDateTime = value => value ? value.replace('T', ' ') : '-'
+const displayTableName = row => row.customSql?.sourceTableName || row.sourceTableName || row.tableName
 const formatField = field => field.columnComment
   ? `${field.columnName}(${field.columnComment})`
   : field.columnName

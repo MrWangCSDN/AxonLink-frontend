@@ -691,17 +691,22 @@ describe('ReplayDatabaseComparisonPage', () => {
     expect(wrapper.get('[data-testid="table-name-sql_one"]').text()).toContain('金额汇总')
     expect(wrapper.get('[data-testid="table-name-sql_one"]').text()).toContain('acct')
     expect(wrapper.get('[data-testid="table-name-sql_one"]').text()).toContain('SQL')
+    expect(wrapper.get('[data-testid="table-name-sql_one"] strong').text()).toBe('acct')
+    expect(wrapper.get('[data-testid="table-name-sql_one"]').text()).not.toContain('sql_one')
     await wrapper.get('[data-testid="expand-query-condition-sql_one"]').trigger('click')
     expect(wrapper.get('[data-testid="query-condition-sql_one"]').text()).toContain('sum(amount)')
     expect(wrapper.get('[data-testid="query-condition-sql_two"]').text()).not.toContain('sum(balance)')
     await wrapper.get('[data-testid="view-registration-sql_one"]').trigger('click')
     await flushPromises()
     expect(wrapper.get('[data-testid="registration-detail-dialog"]').text()).toContain(customSql.sql)
+    expect(wrapper.get('[data-testid="registration-detail-dialog"]').text()).not.toContain('比对编号')
+    expect(wrapper.get('[data-testid="registration-detail-dialog"]').text()).not.toContain('sql_one')
     expect(wrapper.get('[data-testid="detail-comparison-key"]').text()).toContain('结果比对键')
     await wrapper.get('[data-testid="close-registration-detail"]').trigger('click')
     await wrapper.get('[data-testid="edit-registration-sql_two"]').trigger('click')
     await flushPromises()
-    expect(wrapper.get('[data-testid="custom-sql-name"]').element.value).toBe('金额复核')
+    expect(wrapper.get('[data-testid="custom-sql-table-name"]').text()).toBe('acct')
+    expect(wrapper.get('[data-testid="custom-sql-table-comment"]').text()).toBe('金额复核')
     expect(wrapper.get('[data-testid="custom-sql-text"]').element.value).toContain('sum(balance)')
     await wrapper.get('[data-testid="close-custom-sql"]').trigger('click')
     await wrapper.get('[data-testid="audit-registration-sql_two"]').trigger('click')
@@ -709,6 +714,8 @@ describe('ReplayDatabaseComparisonPage', () => {
     expect(comparisonApi.loadRegistrationAudits).toHaveBeenCalledWith(12, 0, 50)
     await wrapper.get('[data-testid="close-audit-dialog"]').trigger('click')
     await wrapper.get('[data-testid="delete-registration-sql_one"]').trigger('click')
+    expect(wrapper.get('[data-testid="list-delete-confirmation"]').text()).toContain('acct')
+    expect(wrapper.get('[data-testid="list-delete-confirmation"]').text()).not.toContain('sql_one')
     await wrapper.get('[data-testid="confirm-list-delete"]').trigger('click')
     await flushPromises()
     expect(comparisonApi.deleteRegistration).toHaveBeenCalledWith(11, { version: 2, reason: '删除登记' })
@@ -719,22 +726,110 @@ describe('ReplayDatabaseComparisonPage', () => {
     useRealMode()
     comparisonApi.analyzeCustomSql.mockResolvedValue({ sql: 'select id from acct', sourceTableName: 'acct',
       resultColumns: [{ columnName: 'id', columnLabel: 'id', dataType: 'VARCHAR', ordinalPosition: 1 }], candidateKeyColumns: ['id'] })
-    comparisonApi.createCustomSqlRegistration.mockRejectedValueOnce(new Error('SQL 保存冲突')).mockResolvedValueOnce({ id: 11 })
+    comparisonApi.createCustomSqlRegistration.mockRejectedValueOnce(new Error('表 acct 已登记，请进入原登记后编辑')).mockResolvedValueOnce({ id: 11 })
     const wrapper = mount(ReplayDatabaseComparisonPage)
     await flushPromises()
     await wrapper.get('[data-testid="open-custom-sql"]').trigger('click')
-    await wrapper.get('[data-testid="custom-sql-name"]').setValue('按账号比对')
     await wrapper.get('[data-testid="custom-sql-text"]').setValue('select id from acct')
     await wrapper.get('[data-testid="analyze-custom-sql"]').trigger('click')
     await flushPromises()
     await wrapper.get('[data-testid="save-custom-sql"]').trigger('click')
     await flushPromises()
-    expect(wrapper.get('[data-testid="custom-sql-error"]').text()).toContain('SQL 保存冲突')
+    expect(wrapper.get('[data-testid="custom-sql-error"]').text()).toContain('表 acct 已登记')
     expect(wrapper.get('[data-testid="custom-sql-text"]').element.value).toBe('select id from acct')
+    expect(comparisonApi.updateCustomSqlRegistration).not.toHaveBeenCalled()
     await wrapper.get('[data-testid="save-custom-sql"]').trigger('click')
     await flushPromises()
-    expect(comparisonApi.createCustomSqlRegistration).toHaveBeenLastCalledWith({ displayName: '按账号比对', sourceTableName: 'acct', sql: 'select id from acct', fieldNames: ['id'], resultKeyColumns: ['id'], compareLimit: null })
+    expect(comparisonApi.createCustomSqlRegistration).toHaveBeenLastCalledWith({ sourceTableName: 'acct', sql: 'select id from acct', fieldNames: ['id'], resultKeyColumns: ['id'], compareLimit: null })
     expect(wrapper.find('[data-testid="custom-sql-dialog"]').exists()).toBe(false)
+  })
+
+  it.each([
+    { deleted: false, hasCustomSql: true },
+    { deleted: true, hasCustomSql: true },
+    { deleted: false, hasCustomSql: false },
+  ])('opens the original registration explicitly after a SQL duplicate ($deleted, $hasCustomSql)', async ({ deleted, hasCustomSql }) => {
+    useRealMode()
+    const draftSql = 'select id from acct'
+    const savedSql = 'select legacy_id from acct'
+    const registration = { id: 35, version: 12, tableName: 'acct', tableComment: '账户表', deleted,
+      fields: [{ columnName: hasCustomSql ? 'legacy_id' : 'id' }],
+      comparisonKey: { indexType: hasCustomSql ? 'RESULT_KEY' : 'PRIMARY_KEY', columnNames: [hasCustomSql ? 'legacy_id' : 'id'] },
+      ...(hasCustomSql ? { customSql: { sql: savedSql, sourceTableName: 'acct', resultColumns: [{ columnName: 'legacy_id' }] } } : {}) }
+    comparisonApi.analyzeCustomSql.mockResolvedValue({ sql: draftSql, sourceTableName: 'acct',
+      resultColumns: [{ columnName: 'id' }], candidateKeyColumns: ['id'] })
+    comparisonApi.createCustomSqlRegistration.mockRejectedValue(Object.assign(new Error('表 acct 已登记，请进入原登记后编辑'), {
+      status: 409, code: 'DUPLICATE_REGISTRATION', data: { existingId: 35 },
+    }))
+    comparisonApi.loadRegistration.mockResolvedValue(registration)
+    comparisonApi.updateCustomSqlRegistration.mockResolvedValue(registration)
+    const wrapper = mount(ReplayDatabaseComparisonPage)
+    await flushPromises()
+    await wrapper.get('[data-testid="open-custom-sql"]').trigger('click')
+    await wrapper.get('[data-testid="custom-sql-text"]').setValue(draftSql)
+    await wrapper.get('[data-testid="analyze-custom-sql"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="save-custom-sql"]').trigger('click')
+    await flushPromises()
+    expect(comparisonApi.updateCustomSqlRegistration).not.toHaveBeenCalled()
+    expect(comparisonApi.loadRegistration).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-testid="open-existing-custom-sql"]').text()).toBe('进入原登记')
+
+    await wrapper.get('[data-testid="open-existing-custom-sql"]').trigger('click')
+    await flushPromises()
+    expect(comparisonApi.loadRegistration).toHaveBeenCalledWith(35)
+    expect(wrapper.get('[data-testid="custom-sql-dialog"] h3').text()).toBe(deleted ? '重新登记自定义 SQL' : '编辑自定义 SQL')
+    expect(wrapper.get('[data-testid="save-custom-sql"]').text()).toBe(deleted ? '重新登记' : '保存')
+    expect(wrapper.get('[data-testid="custom-sql-text"]').element.value).toBe(hasCustomSql ? savedSql : '')
+    if (!hasCustomSql) {
+      await wrapper.get('[data-testid="custom-sql-text"]').setValue(draftSql)
+      await wrapper.get('[data-testid="analyze-custom-sql"]').trigger('click')
+      await flushPromises()
+    }
+    await wrapper.get('[data-testid="save-custom-sql"]').trigger('click')
+    await flushPromises()
+    expect(comparisonApi.createCustomSqlRegistration).toHaveBeenCalledTimes(1)
+    expect(comparisonApi.updateCustomSqlRegistration).toHaveBeenCalledWith(35, expect.objectContaining({
+      version: 12, sourceTableName: 'acct', sql: hasCustomSql ? savedSql : draftSql,
+      fieldNames: [hasCustomSql ? 'legacy_id' : 'id'], resultKeyColumns: [hasCustomSql ? 'legacy_id' : 'id'],
+    }))
+    expect(comparisonApi.updateRegistration).not.toHaveBeenCalled()
+    expect(comparisonApi.reregisterRegistration).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    { deleted: false, listed: false },
+    { deleted: true, listed: false },
+    { deleted: false, listed: true },
+  ])('routes a selected custom SQL table to its own editor ($deleted, $listed)', async ({ deleted, listed }) => {
+    const savedSql = 'select id from acct'
+    const registration = { id: 36, version: 9, tableName: 'acct', tableComment: '账户表', deleted,
+      customSql: { sql: savedSql, sourceTableName: 'acct', resultColumns: [{ columnName: 'id' }] },
+      fields: [{ columnName: 'id' }], comparisonKey: { indexType: 'RESULT_KEY', columnNames: ['id'] } }
+    useRealMode(listed ? [{ ...registration, version: 3, fields: [], fieldPreview: ['id'] }] : [])
+    comparisonApi.searchBaseTables.mockResolvedValue([{ tableName: 'acct', tableComment: '账户表',
+      registrationStatus: deleted ? 'DELETED' : 'ACTIVE', registrationId: 36, registrationVersion: 9 }])
+    comparisonApi.loadRegistration.mockResolvedValue(registration)
+    comparisonApi.updateCustomSqlRegistration.mockResolvedValue(registration)
+    const wrapper = mount(ReplayDatabaseComparisonPage)
+    await flushPromises()
+    await wrapper.get('[data-testid="add-registration"]').trigger('click')
+    await wrapper.get('[data-testid="table-search-input"]').setValue('acct')
+    await new Promise(resolve => setTimeout(resolve, 275))
+    await flushPromises()
+    await wrapper.get('[data-testid="table-search-result"]').trigger('click')
+    await flushPromises()
+    expect(comparisonApi.loadRegistration).toHaveBeenCalledWith(36)
+    expect(wrapper.findComponent(ReplayDatabaseComparisonEditor).exists()).toBe(false)
+    expect(wrapper.get('[data-testid="custom-sql-dialog"] h3').text()).toBe(deleted ? '重新登记自定义 SQL' : '编辑自定义 SQL')
+    expect(wrapper.get('[data-testid="custom-sql-text"]').element.value).toBe(savedSql)
+    expect(comparisonApi.loadBaseColumns).not.toHaveBeenCalled()
+    await wrapper.get('[data-testid="save-custom-sql"]').trigger('click')
+    await flushPromises()
+    expect(comparisonApi.updateCustomSqlRegistration).toHaveBeenCalledWith(36, expect.objectContaining({ version: 9, sql: savedSql }))
+    expect(comparisonApi.createCustomSqlRegistration).not.toHaveBeenCalled()
+    expect(comparisonApi.updateRegistration).not.toHaveBeenCalled()
+    expect(comparisonApi.reregisterRegistration).not.toHaveBeenCalled()
   })
 
   it('updates custom SQL by registration ID and version without using the physical-table save route', async () => {
@@ -750,15 +845,61 @@ describe('ReplayDatabaseComparisonPage', () => {
     await flushPromises()
     expect(wrapper.get('[data-testid="custom-sql-sample"]').element.disabled).toBe(true)
     expect(wrapper.get('[data-testid="custom-sql-partition"]').element.disabled).toBe(true)
-    await wrapper.get('[data-testid="custom-sql-name"]').setValue('更新汇总名称')
     await wrapper.get('[data-testid="save-custom-sql"]').trigger('click')
     await flushPromises()
     expect(comparisonApi.updateCustomSqlRegistration).toHaveBeenCalledWith(21, {
-      displayName: '更新汇总名称', version: 5, sourceTableName: 'acct', sql: 'select id from acct',
+      version: 5, sourceTableName: 'acct', sql: 'select id from acct',
       fieldNames: ['id'], resultKeyColumns: ['id'], compareLimit: null,
     })
     expect(comparisonApi.updateRegistration).not.toHaveBeenCalled()
     expect(wrapper.find('[data-testid="custom-sql-dialog"]').exists()).toBe(false)
+  })
+
+  it('configures custom SQL on an existing ordinary table through its registration ID', async () => {
+    const registration = { id: 21, version: 5, tableName: 'acct', tableComment: '账户表',
+      fields: [{ columnName: 'id' }], comparisonKey: { indexType: 'PRIMARY_KEY', columnNames: ['id'] } }
+    useRealMode([{ ...registration, fieldPreview: ['id'] }])
+    comparisonApi.loadRegistration.mockResolvedValue(registration)
+    comparisonApi.analyzeCustomSql.mockResolvedValue({ sql: 'select id from acct', sourceTableName: 'acct',
+      sourceTableComment: '账户表', resultColumns: [{ columnName: 'id' }], candidateKeyColumns: ['id'] })
+    comparisonApi.updateCustomSqlRegistration.mockResolvedValue(registration)
+    const wrapper = mount(ReplayDatabaseComparisonPage)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="configure-custom-sql-acct"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.findComponent(ReplayDatabaseComparisonEditor).exists()).toBe(false)
+    expect(wrapper.get('[data-testid="custom-sql-table-name"]').text()).toBe('acct')
+    await wrapper.get('[data-testid="custom-sql-text"]').setValue('select id from acct')
+    await wrapper.get('[data-testid="analyze-custom-sql"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="save-custom-sql"]').trigger('click')
+    await flushPromises()
+
+    expect(comparisonApi.updateCustomSqlRegistration).toHaveBeenCalledWith(21, {
+      version: 5, sourceTableName: 'acct', sql: 'select id from acct', fieldNames: ['id'],
+      resultKeyColumns: ['id'], compareLimit: null,
+    })
+    expect(comparisonApi.createCustomSqlRegistration).not.toHaveBeenCalled()
+    expect(comparisonApi.updateRegistration).not.toHaveBeenCalled()
+  })
+
+  it('copies the physical table name for historical custom SQL registrations', async () => {
+    const clipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+    try {
+      useRealMode([{ id: 11, tableName: 'sql_legacy', tableComment: '账户表',
+        customSql: { sql: 'select id from acct', sourceTableName: 'acct' }, fieldPreview: ['id'] }])
+      const wrapper = mount(ReplayDatabaseComparisonPage)
+      await flushPromises()
+      await wrapper.get('[data-testid="copy-table-name-sql_legacy"]').trigger('click')
+      await flushPromises()
+      expect(writeText).toHaveBeenCalledWith('acct / 账户表')
+    } finally {
+      if (clipboardDescriptor) Object.defineProperty(navigator, 'clipboard', clipboardDescriptor)
+      else delete navigator.clipboard
+    }
   })
 
   it('keeps the latest SQL editor selection when two same-source details finish loading', async () => {
@@ -778,7 +919,7 @@ describe('ReplayDatabaseComparisonPage', () => {
     await flushPromises()
     finishSecond(second)
     await flushPromises()
-    expect(wrapper.get('[data-testid="custom-sql-name"]').element.value).toBe('第二个汇总')
+    expect(wrapper.get('[data-testid="custom-sql-table-comment"]').text()).toBe('第二个汇总')
     await wrapper.get('[data-testid="save-custom-sql"]').trigger('click')
     await flushPromises()
     expect(comparisonApi.updateCustomSqlRegistration).toHaveBeenCalledWith(32, expect.objectContaining({ version: 2 }))

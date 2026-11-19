@@ -1,6 +1,10 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+const workbook = vi.hoisted(() => ({ exportVersionDetails: vi.fn() }))
+
+vi.mock('./versionDetailWorkbook.js', () => workbook)
+
 vi.mock('../../api/replayDatabaseComparison.js', () => ({
   downloadVersionConfigScript: vi.fn(),
   generateVersionConfigScript: vi.fn(),
@@ -15,6 +19,7 @@ import ReplayDatabaseComparisonVersionHistory from './ReplayDatabaseComparisonVe
 
 describe('ReplayDatabaseComparisonVersionHistory', () => {
   beforeEach(() => {
+    workbook.exportVersionDetails.mockReset().mockResolvedValue(undefined)
     Object.values(comparisonApi).forEach(value => value.mockReset())
     comparisonApi.loadVersions.mockResolvedValue({
       items: [
@@ -223,6 +228,147 @@ describe('ReplayDatabaseComparisonVersionHistory', () => {
     await wrapper.get('[data-testid="close-version-history"]').trigger('click')
 
     expect(wrapper.emitted('close')).toHaveLength(1)
+  })
+
+  it('places detail export beside the script action and disables it without a selected version', async () => {
+    comparisonApi.loadVersions.mockResolvedValue({ items: [], page: 0, size: 20, total: 0 })
+    const wrapper = mount(ReplayDatabaseComparisonVersionHistory, { props: { open: true } })
+    await flushPromises()
+
+    const action = wrapper.get('[data-testid="export-details-action"]')
+    expect(action.text()).toBe('导出明细')
+    expect(action.element.nextElementSibling.dataset.testid).toBe('config-script-action')
+    expect(action.attributes('disabled')).toBeDefined()
+    await action.trigger('click')
+    expect(workbook.exportVersionDetails).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('exports the selected version with captured applied filters across pagination and later edits', async () => {
+    let finishExport
+    workbook.exportVersionDetails.mockReturnValue(new Promise(resolve => { finishExport = resolve }))
+    const wrapper = mount(ReplayDatabaseComparisonVersionHistory, { props: { open: true } })
+    await flushPromises()
+    await wrapper.get('[data-testid="history-table-keyword"]').setValue('acct')
+    await wrapper.get('[data-testid="history-field-keyword"]').setValue('account_no')
+    await wrapper.get('[data-testid="history-domain"]').setValue('存款组')
+    await wrapper.get('[data-testid="history-reviser"]').setValue('001')
+    await wrapper.get('[data-testid="history-group-owner"]').setValue('101')
+    await wrapper.get('[data-testid="history-registered-date"]').setValue('2026-09-14')
+    await wrapper.get('[data-testid="apply-history-filters"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="history-next-page"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="history-table-keyword"]').setValue('unsubmitted')
+    await wrapper.get('[data-testid="history-domain"]').setValue('贷款组')
+
+    await wrapper.get('[data-testid="export-details-action"]').trigger('click')
+    expect(workbook.exportVersionDetails).toHaveBeenCalledWith('20260914-150101', {
+      tableKeyword: 'acct',
+      fieldKeyword: 'account_no',
+      domains: ['存款组'],
+      reviserEmpNos: ['001'],
+      groupOwnerEmpNos: ['101'],
+      registeredDateFrom: '2026-09-14',
+      registeredDateTo: '2026-09-14',
+    })
+    const capturedCriteria = workbook.exportVersionDetails.mock.calls[0][1]
+
+    await wrapper.get('[data-testid="apply-history-filters"]').trigger('click')
+    await wrapper.get('[data-testid="version-item-20260913-120000"]').trigger('click')
+    await flushPromises()
+    expect(capturedCriteria.domains).toEqual(['存款组'])
+    expect(capturedCriteria.tableKeyword).toBe('acct')
+    expect(workbook.exportVersionDetails).toHaveBeenCalledTimes(1)
+
+    finishExport()
+    await flushPromises()
+    wrapper.unmount()
+  })
+
+  it('blocks repeated detail exports while leaving script download available', async () => {
+    let finishExport
+    workbook.exportVersionDetails.mockReturnValue(new Promise(resolve => { finishExport = resolve }))
+    comparisonApi.loadVersionConfigScriptStatus.mockResolvedValue({ generated: true })
+    const wrapper = mount(ReplayDatabaseComparisonVersionHistory, { props: { open: true } })
+    await flushPromises()
+
+    const action = wrapper.get('[data-testid="export-details-action"]')
+    await action.trigger('click')
+    await action.trigger('click')
+    expect(workbook.exportVersionDetails).toHaveBeenCalledTimes(1)
+    expect(action.attributes('disabled')).toBeDefined()
+    expect(action.text()).toBe('导出中…')
+    expect(wrapper.get('[data-testid="config-script-action"]').attributes('disabled')).toBeUndefined()
+
+    finishExport()
+    await flushPromises()
+    expect(action.attributes('disabled')).toBeUndefined()
+    expect(action.text()).toBe('导出明细')
+    wrapper.unmount()
+  })
+
+  it('isolates applied search filters from nested export criteria changes', async () => {
+    workbook.exportVersionDetails.mockImplementation(async (_, criteria) => {
+      criteria.domains.push('导出内部条件')
+    })
+    const wrapper = mount(ReplayDatabaseComparisonVersionHistory, { props: { open: true } })
+    await flushPromises()
+    await wrapper.get('[data-testid="history-domain"]').setValue('存款组')
+    await wrapper.get('[data-testid="apply-history-filters"]').trigger('click')
+    await flushPromises()
+
+    await wrapper.get('[data-testid="export-details-action"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="history-next-page"]').trigger('click')
+    await flushPromises()
+
+    expect(comparisonApi.searchVersionSnapshot).toHaveBeenLastCalledWith('20260914-150101',
+      expect.objectContaining({ domains: ['存款组'], page: 1 }))
+    wrapper.unmount()
+  })
+
+  it('shows detail export failures and allows retry without clearing the snapshot', async () => {
+    workbook.exportVersionDetails.mockRejectedValueOnce(new Error('明细数据加载失败'))
+    const wrapper = mount(ReplayDatabaseComparisonVersionHistory, { props: { open: true } })
+    await flushPromises()
+
+    await wrapper.get('[data-testid="export-details-action"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="export-details-errors"]').text()).toContain('明细数据加载失败')
+    expect(wrapper.get('[data-testid="version-snapshot-table"]').text()).toContain('acct_master')
+    expect(wrapper.get('[data-testid="export-details-action"]').attributes('disabled')).toBeUndefined()
+
+    await wrapper.get('[data-testid="export-details-action"]').trigger('click')
+    await flushPromises()
+    expect(workbook.exportVersionDetails).toHaveBeenCalledTimes(2)
+    expect(wrapper.find('[data-testid="export-details-errors"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('clears export errors on a version switch and ignores failures after selection changes', async () => {
+    let failExport
+    workbook.exportVersionDetails.mockRejectedValueOnce(new Error('首次导出失败'))
+    const wrapper = mount(ReplayDatabaseComparisonVersionHistory, { props: { open: true } })
+    await flushPromises()
+    await wrapper.get('[data-testid="export-details-action"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="export-details-errors"]').exists()).toBe(true)
+
+    await wrapper.get('[data-testid="version-item-20260913-120000"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="export-details-errors"]').exists()).toBe(false)
+    workbook.exportVersionDetails.mockReturnValueOnce(new Promise((_, reject) => { failExport = reject }))
+    await wrapper.get('[data-testid="export-details-action"]').trigger('click')
+    await wrapper.get('[data-testid="version-item-20260914-150101"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="version-item-20260913-120000"]').trigger('click')
+    await flushPromises()
+    failExport(new Error('旧版本导出失败'))
+    await flushPromises()
+    expect(wrapper.find('[data-testid="export-details-errors"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="export-details-action"]').attributes('disabled')).toBeUndefined()
+    wrapper.unmount()
   })
 
   it('loads script status whenever the selected version changes', async () => {

@@ -91,6 +91,13 @@
               </label>
               <button
                 type="button"
+                class="outlined export-action"
+                :disabled="!selectedVersionNo || loadingVersions || exportingDetails"
+                data-testid="export-details-action"
+                @click="handleExportDetails"
+              >{{ exportingDetails ? '导出中…' : '导出明细' }}</button>
+              <button
+                type="button"
                 class="primary script-action"
                 :class="{ generated: scriptStatus.generated }"
                 :disabled="!selectedVersionNo || loadingScriptStatus || generatingScript"
@@ -110,6 +117,9 @@
                 {{ item.tableName || '-' }}<template v-if="item.fieldName"> / {{ item.fieldName }}</template>：{{ item.reason }}
               </li>
             </ul>
+          </div>
+          <div v-if="exportError" class="script-error" data-testid="export-details-errors" role="alert">
+            {{ exportError }}
           </div>
           </div>
 
@@ -177,6 +187,14 @@
 <script setup>
 import { computed, reactive, ref, watch } from 'vue'
 import DiiSqlPre from '../daoindex/widgets/DiiSqlPre.vue'
+import { exportVersionDetails } from './versionDetailWorkbook.js'
+import {
+  displayTableName,
+  formatComparisonKey,
+  formatField,
+  personLabel,
+  queryConditionText,
+} from './versionSnapshotFormatters.js'
 import {
   downloadVersionConfigScript,
   generateVersionConfigScript,
@@ -200,6 +218,9 @@ const scriptStatus = ref({ generated: false })
 const scriptError = ref('')
 const scriptValidationErrors = ref([])
 let scriptStatusRequest = 0
+const exportingDetails = ref(false)
+const exportError = ref('')
+let exportContext = 0
 const pageSize = ref(50)
 const snapshot = reactive({ items: [], page: 0, size: 50, total: 0 })
 const filterOptions = reactive({ domainName: [], reviser: [], groupOwner: [] })
@@ -214,43 +235,11 @@ const draftFilters = reactive({
 const appliedFilters = reactive({})
 
 const formatDateTime = value => value ? value.replace('T', ' ') : '-'
-const displayTableName = row => row.customSql?.sourceTableName || row.sourceTableName || row.tableName
-const formatField = field => field.columnComment
-  ? `${field.columnName}(${field.columnComment})`
-  : field.columnName
-const formatComparisonKey = key => {
-  if (!key) return '历史默认主键'
-  if (key.indexType === 'RESULT_KEY') return `结果比对键 · ${key.columnNames.join('、')}`
-  return `${key.indexType === 'PRIMARY_KEY' ? '主键' : '唯一索引'} · ${key.indexName} · ${key.columnNames.join('、')}`
-}
 const selectedIndexFieldLabel = (row, field) => {
   if (!row.comparisonKey) return field.primaryKey ? '主键' : ''
   if (!row.comparisonKey.columnNames.some(name => name.toLocaleLowerCase() === field.columnName?.toLocaleLowerCase())) return ''
   if (row.comparisonKey.indexType === 'RESULT_KEY') return '结果比对键'
   return row.comparisonKey.indexType === 'UNIQUE_INDEX' ? '唯一索引' : '主键'
-}
-const queryConditionText = row => {
-  if (row.customSql) return row.customSql.sql
-  const parts = []
-  const whereSql = String(row?.whereSql || '').trim().replace(/^where\s+/i, '')
-  if (whereSql) parts.push(`WHERE ${whereSql}`)
-  if (row?.compareLimit !== null && row?.compareLimit !== undefined && row?.compareLimit !== '') {
-    const primaryKeys = row.comparisonKey?.columnNames || [...(row.fields || [])]
-      .filter(field => field.primaryKey)
-      .sort((left, right) => (left.primaryKeyOrder ?? left.comparisonOrder ?? Number.MAX_SAFE_INTEGER)
-        - (right.primaryKeyOrder ?? right.comparisonOrder ?? Number.MAX_SAFE_INTEGER))
-      .map(field => field.columnName)
-    if (primaryKeys.length) parts.push(`ORDER BY ${primaryKeys.join(', ')}`)
-    parts.push(`LIMIT ${row.compareLimit}`)
-  }
-  return parts.join(' ') || '全表'
-}
-const personLabel = (name, username, fallback) => {
-  const account = username || fallback
-  if (name?.includes('(') && name.endsWith(')')) return name
-  if (!name && !account) return '-'
-  if (!name || !account || name === account) return name || account
-  return `${name}(${account})`
 }
 
 const configScriptActionText = computed(() => {
@@ -312,6 +301,8 @@ const loadScriptStatus = async versionNo => {
 }
 
 const loadHistory = async () => {
+  ++exportContext
+  exportError.value = ''
   loadingVersions.value = true
   try {
     const result = await loadVersions(0, 20)
@@ -337,11 +328,31 @@ const loadHistory = async () => {
 
 const selectVersion = async versionNo => {
   if (versionNo === selectedVersionNo.value) return
+  ++exportContext
+  exportError.value = ''
   selectedVersionNo.value = versionNo
   scriptStatus.value = { generated: false }
   scriptError.value = ''
   scriptValidationErrors.value = []
   await Promise.all([loadSnapshot(0), loadFilterOptions(), loadScriptStatus(versionNo)])
+}
+
+const handleExportDetails = async () => {
+  if (!selectedVersionNo.value || loadingVersions.value || exportingDetails.value) return
+  const versionNo = selectedVersionNo.value
+  const filters = JSON.parse(JSON.stringify(appliedFilters))
+  const context = ++exportContext
+  exportingDetails.value = true
+  exportError.value = ''
+  try {
+    await exportVersionDetails(versionNo, filters)
+  } catch (error) {
+    if (context === exportContext && versionNo === selectedVersionNo.value && props.open) {
+      exportError.value = error?.message || '明细导出失败'
+    }
+  } finally {
+    exportingDetails.value = false
+  }
 }
 
 const handleConfigScript = async () => {
@@ -394,6 +405,10 @@ const changePageSize = async () => { await loadSnapshot(0) }
 
 watch(() => props.open, value => {
   if (value) loadHistory()
+  else {
+    ++exportContext
+    exportError.value = ''
+  }
 }, { immediate: true })
 </script>
 
@@ -433,6 +448,7 @@ watch(() => props.open, value => {
 .filter-actions .script-action { min-width: 116px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; white-space: nowrap; }
 .filter-actions .script-action.generated { border-color: #506579; background: #506579; }
 .filter-actions .script-action:disabled { cursor: not-allowed; opacity: .62; }
+.filter-actions .export-action:disabled { cursor: not-allowed; opacity: .62; }
 .filter-actions .script-action:disabled:not(.generated) { cursor: wait; }
 .script-error { margin: 0 18px 10px; padding: 9px 12px; border: 1px solid #efb4b4; border-radius: 4px; color: #a63333; background: #fff1f1; font-size: 12px; }
 .script-error strong { display: block; }

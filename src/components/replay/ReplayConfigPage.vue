@@ -26,11 +26,11 @@
     </nav>
 
     <form class="replay-filters" @submit.prevent="search">
-      <div v-if="!isMessageSequenceTab" class="replay-filter-group">
+      <div v-if="!isServiceSequenceTab" class="replay-filter-group">
         <span class="replay-filter-group-label">老核心交易码</span>
         <input v-model.trim="internalTransactionCode" class="replay-control" data-testid="internal-transaction-code" type="search" placeholder="精确匹配" />
       </div>
-      <div v-if="!isMessageSequenceTab" class="replay-filter-group">
+      <div v-if="!isServiceSequenceTab" class="replay-filter-group">
         <span class="replay-filter-group-label">领域</span>
         <select v-model="filters.domain" class="replay-control" data-testid="filter-domain">
           <option value="">全部</option>
@@ -54,6 +54,11 @@
             <option value="">全部领域</option>
             <option value="QUERY">查询</option>
             <option value="ACCOUNTING">账务</option>
+          </select>
+          <select v-else-if="filter.kind === 'ownership'" v-model="filters[filter.key]" class="replay-control" :data-testid="`filter-${filter.key}`">
+            <option value="">全部归属</option>
+            <option value="528">528</option>
+            <option value="ccbs">ccbs</option>
           </select>
           <input v-else v-model.trim="filters[filter.key]" class="replay-control" :data-testid="`filter-${filter.key}`" type="search" :placeholder="filter.label" />
         </template>
@@ -80,9 +85,8 @@
           批量删除{{ selectedIds.length ? `（${selectedIds.length}）` : '' }}
         </button>
         <button class="replay-button replay-button-primary" type="button" data-testid="create-config" @click="openCreate">新增</button>
-        <button v-if="isUnconditionalTab" class="replay-button" type="button" data-testid="open-reason-import" @click="openReasonImport">导入忽略原因</button>
-        <button class="replay-button" type="button" :data-testid="isMessageSequenceTab ? 'export-message-sequences' : 'export-excel'" :disabled="exporting" @click="exportConfigs">
-          {{ exporting ? '导出中...' : isMessageSequenceTab ? '导出流水号忽略' : '导出Excel' }}
+        <button class="replay-button" type="button" :data-testid="isMessageSequenceTab ? 'export-message-sequences' : isOneSideTab ? 'export-one-side-error-codes' : 'export-excel'" :disabled="exporting" @click="exportConfigs">
+          {{ exporting ? '导出中...' : isMessageSequenceTab ? '导出流水号忽略' : isOneSideTab ? '导出单边失败错误码' : '导出Excel' }}
         </button>
       </div>
     </form>
@@ -118,7 +122,7 @@
         <tbody>
           <tr v-for="row in items" :key="row.id">
             <td class="replay-select-column"><input type="checkbox" :value="row.id" v-model="selectedIds" :data-testid="`select-${row.id}`" /></td>
-            <td v-for="column in schema.columns" :key="column.key" :class="{ 'replay-cell-long': column.long }" :title="displayValue(column, row)">
+            <td v-for="column in schema.columns" :key="column.key" :class="{ 'replay-cell-long': column.long, 'replay-cell-ellipsis': column.ellipsis }" :title="displayValue(column, row)">
               {{ displayValue(column, row) }}
             </td>
             <td class="replay-operation-column">
@@ -183,7 +187,10 @@
             <p v-if="isMultiCreate" class="replay-field-wide replay-create-row-title">第 {{ index + 1 }} 条</p>
             <label v-for="field in activeForm" :key="field.key" class="replay-field" :class="{ 'replay-field-wide': field.kind === 'textarea' }">
               <span>{{ field.label }}<em v-if="field.required"> *</em></span>
-              <select v-if="field.kind === 'select'" v-model.number="row[field.key]" :data-testid="fieldTestId(field, index)">
+              <select v-if="field.kind === 'ownership'" v-model="row[field.key]" :data-testid="fieldTestId(field, index)">
+                <option v-for="option in field.options" :key="option.value" :value="option.value">{{ option.label }}</option>
+              </select>
+              <select v-else-if="field.kind === 'select'" v-model.number="row[field.key]" :data-testid="fieldTestId(field, index)">
                 <option v-for="option in field.options" :key="option.value" :value="option.value">{{ option.label }}</option>
               </select>
               <textarea v-else-if="field.kind === 'textarea'" v-model="row[field.key]" :data-testid="fieldTestId(field, index)" rows="3" :maxlength="field.maxlength || undefined" :placeholder="field.placeholder || ''"></textarea>
@@ -197,22 +204,6 @@
             <button class="replay-button replay-button-primary" type="submit" data-testid="submit-config" :disabled="saving">{{ saving ? '保存中...' : '保存' }}</button>
           </div>
         </form>
-      </section>
-    </div>
-
-    <div v-if="reasonImportOpen" class="replay-modal-mask" @click.self="!reasonImporting && closeReasonImport">
-      <section class="replay-edit-modal replay-reason-import-modal" role="dialog" aria-modal="true" aria-label="导入忽略原因" data-testid="reason-import-modal">
-        <header>
-          <h3>导入忽略原因</h3>
-          <button class="replay-icon-button" type="button" data-testid="close-reason-import" :disabled="reasonImporting" @click="closeReasonImport">关闭</button>
-        </header>
-        <p class="replay-hint">Excel 第一行即数据，依次为：交易码、忽略字段、忽略原因。只补充当前为空的忽略原因，已有原因不会覆盖，导入不触发重新审核。</p>
-        <input ref="reasonImportInput" class="replay-file-input" type="file" accept=".xlsx,.xls" data-testid="reason-import-file" :disabled="reasonImporting" @change="reasonImportFile = $event.target.files?.[0] || null" />
-        <div v-if="reasonImportError" class="replay-message replay-error" data-testid="reason-import-error">{{ reasonImportError }}</div>
-        <div class="replay-form-actions">
-          <button class="replay-button" type="button" :disabled="reasonImporting" @click="closeReasonImport">取消</button>
-          <button class="replay-button replay-button-primary" type="button" data-testid="submit-reason-import" :disabled="!reasonImportFile || reasonImporting" @click="submitReasonImport">{{ reasonImporting ? '导入中...' : '开始导入' }}</button>
-        </div>
       </section>
     </div>
 
@@ -300,23 +291,29 @@ import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { CircleHelp } from 'lucide-vue-next'
 import {
   batchDeleteMessageSequenceIgnores,
+  batchDeleteOneSideErrorCodeIgnores,
   batchReviewMessageSequenceIgnores,
+  batchReviewOneSideErrorCodeIgnores,
   batchCreateReplayConfigs,
   batchDeleteReplayConfigs,
   batchReviewReplayConfigs,
   createMessageSequenceIgnores,
+  createOneSideErrorCodeIgnores,
   createReplayConfig,
   deleteMessageSequenceIgnore,
+  deleteOneSideErrorCodeIgnore,
   deleteReplayConfig,
   exportReviewedMessageSequenceIgnores,
+  exportReviewedOneSideErrorCodeIgnores,
   exportReviewedReplayConfigs,
-  importUnconditionalIgnoreReasons,
   listReplayConfigDomains,
   listReplayConfigOperations,
   listReplayConfigs,
   reviewMessageSequenceIgnore,
+  reviewOneSideErrorCodeIgnore,
   reviewReplayConfig,
   updateMessageSequenceIgnore,
+  updateOneSideErrorCodeIgnore,
   updateReplayConfig,
 } from '../../api/replayConfigs.js'
 
@@ -337,6 +334,7 @@ const TABS = [
   { key: 'error-code-ignores', label: '错误码忽略' },
   { key: 'sort-fields', label: '排序字段' },
   { key: 'message-sequence-ignores', label: '流水号忽略' },
+  { key: 'one-side-error-code-ignores', label: '单边失败错误码忽略' },
 ]
 
 const MESSAGE_SEQUENCE_CREATE_FORM = [
@@ -349,10 +347,26 @@ const MESSAGE_SEQUENCE_CREATE_FORM = [
   { key: 'ignoreReason', label: '忽略原因', kind: 'textarea', required: true, maxlength: 512 },
 ]
 
+const ONE_SIDE_ERROR_CODE_CREATE_FORM = [
+  { key: 'serviceCode', label: '服务码', kind: 'serviceCode', required: true, placeholder: '如 S120034071CorpInfoQryTrdCrclr&sop' },
+  { key: 'category', label: '领域', kind: 'select', required: true, options: [
+    { value: 'QUERY', label: '查询' },
+    { value: 'ACCOUNTING', label: '账务' },
+  ] },
+  { key: 'ownership', label: '归属', kind: 'ownership', required: true, options: [
+    { value: '528', label: '528' },
+    { value: 'ccbs', label: 'ccbs' },
+  ] },
+  { key: 'errorCodes', label: '忽略错误码', kind: 'textarea', required: true, placeholder: '多个错误码请使用英文逗号分隔，单次最多 100 个' },
+  { key: 'ignoreReason', label: '忽略原因', kind: 'textarea', required: true, maxlength: 512 },
+]
+
 const SORT_CREATE_FORM = [
   { key: 'tranCode', label: '4 位交易码', kind: 'text', required: true, placeholder: '如 6208' },
   { key: 'oldSortField', label: '老核心排序字段', kind: 'text', required: true, placeholder: '单个属性：A.B；多个属性：A(B,C)' },
+  { key: 'oldSortFieldChineseName', label: '老核心排序字段中文名称', kind: 'text', required: true, maxlength: 256 },
   { key: 'newSortField', label: '新核心排序字段', kind: 'text', required: true, placeholder: '单个属性：A.B；多个属性：A(B,C)' },
+  { key: 'newSortFieldChineseName', label: '新核心排序字段中文名称', kind: 'text', required: true, maxlength: 256 },
   { key: 'ignoreReason', label: '排序原因', kind: 'textarea', required: true, maxlength: 512 },
 ]
 
@@ -368,16 +382,19 @@ const SCHEMAS = {
       { key: 'domain', label: '领域' },
       { key: 'tranCode', label: '服务码' },
       { key: 'fieldName', label: '忽略字段' },
-      { key: 'ignoreReason', label: '忽略原因', long: true },
+      { key: 'fieldChineseName', label: '忽略字段中文名称' },
+      { key: 'ignoreReason', label: '忽略原因', ellipsis: true },
       ...REVIEW_COLUMNS,
     ],
     confirmFields: [
       { key: 'tranCode', label: '服务码' },
       { key: 'fieldName', label: '忽略字段' },
+      { key: 'fieldChineseName', label: '忽略字段中文名称' },
     ],
     form: [
       { key: 'tranCode', label: '服务码', kind: 'serviceCode', required: true, placeholder: '如 S120034071CorpInfoQryTrdCrclr&sop' },
       { key: 'fieldName', label: '忽略字段', kind: 'text', required: true },
+      { key: 'fieldChineseName', label: '忽略字段中文名称', kind: 'text', required: true, maxlength: 256 },
       { key: 'ignoreReason', label: '忽略原因', kind: 'textarea', required: true, maxlength: 512 },
     ],
   },
@@ -393,20 +410,23 @@ const SCHEMAS = {
       { key: 'domain', label: '领域' },
       { key: 'origTrcd', label: '服务码' },
       { key: 'fieldRmoveName', label: '忽略字段' },
+      { key: 'fieldChineseName', label: '忽略字段中文名称' },
       { key: 'fieldFileIndx', label: '字段索引' },
       { key: 'fieldFileFlag', label: '字段标识', display: 'flag' },
       { key: 'origFieldCond', label: '主系统字段忽略条件', long: true },
       { key: 'destFieldCond', label: '备系统字段忽略条件', long: true },
-      { key: 'ignoreReason', label: '忽略原因', long: true },
+      { key: 'ignoreReason', label: '忽略原因', ellipsis: true },
       ...REVIEW_COLUMNS,
     ],
     confirmFields: [
       { key: 'origTrcd', label: '服务码' },
       { key: 'fieldRmoveName', label: '忽略字段' },
+      { key: 'fieldChineseName', label: '忽略字段中文名称' },
     ],
     form: [
       { key: 'origTrcd', label: '服务码', kind: 'serviceCode', required: true },
       { key: 'fieldRmoveName', label: '忽略字段', kind: 'text', required: true },
+      { key: 'fieldChineseName', label: '忽略字段中文名称', kind: 'text', required: true, maxlength: 256 },
       { key: 'fieldFileFlag', label: '字段标识', kind: 'select', required: true, options: [
         { value: 1, label: '普通字段' },
         { value: 2, label: '对象或数组' },
@@ -429,7 +449,7 @@ const SCHEMAS = {
       { key: 'serviceCode', label: '服务码' },
       { key: 'oldRespCode', label: '老核心错误码' },
       { key: 'newRespCode', label: '新核心错误码' },
-      { key: 'ignoreReason', label: '忽略原因', long: true },
+      { key: 'ignoreReason', label: '忽略原因', ellipsis: true },
       ...REVIEW_COLUMNS,
     ],
     confirmFields: [
@@ -463,19 +483,22 @@ const SCHEMAS = {
       { key: 'origTrcd', label: '服务码' },
       { key: 'origArryName', label: '对象/数组名称' },
       { key: 'origFieldName', label: '排序字段' },
-      { key: 'ignoreReason', label: '排序原因', long: true },
+      { key: 'fieldChineseName', label: '排序字段中文名称' },
+      { key: 'ignoreReason', label: '排序原因', ellipsis: true },
       ...REVIEW_COLUMNS,
     ],
     confirmFields: [
       { key: 'origTrcd', label: '服务码' },
       { key: 'origArryName', label: '对象/数组名称' },
       { key: 'origFieldName', label: '排序字段' },
+      { key: 'fieldChineseName', label: '排序字段中文名称' },
       { key: 'ignoreReason', label: '排序原因' },
     ],
     form: [
       { key: 'origTrcd', label: '服务码', kind: 'serviceCode', required: true },
       { key: 'origArryName', label: '对象/数组名称', kind: 'text', required: true },
       { key: 'origFieldName', label: '排序字段', kind: 'text', required: true },
+      { key: 'fieldChineseName', label: '排序字段中文名称', kind: 'text', required: true, maxlength: 256 },
       { key: 'ignoreReason', label: '排序原因', kind: 'textarea', required: true, maxlength: 512 },
     ],
   },
@@ -491,7 +514,7 @@ const SCHEMAS = {
       { key: 'category', label: '领域', display: 'category' },
       { key: 'serviceCode', label: '服务码' },
       { key: 'messageSequence', label: '流水号', long: true },
-      { key: 'ignoreReason', label: '忽略原因', long: true },
+      { key: 'ignoreReason', label: '忽略原因', ellipsis: true },
       ...REVIEW_COLUMNS,
       { key: 'createdAt', label: '新增时间', display: 'time' },
       { key: 'updatedAt', label: '更新时间', display: 'time' },
@@ -511,12 +534,53 @@ const SCHEMAS = {
       { key: 'ignoreReason', label: '忽略原因', kind: 'textarea', required: true, maxlength: 512 },
     ],
   },
+  'one-side-error-code-ignores': {
+    title: '单边失败错误码忽略',
+    filters: [
+      { key: 'category', label: '领域', kind: 'category' },
+      { key: 'serviceCode', label: '服务码', kind: 'text' },
+      { key: 'ownership', label: '归属', kind: 'ownership' },
+      { key: 'errorCode', label: '忽略错误码', kind: 'text' },
+      { key: 'reviewStatus', label: '审核状态', kind: 'review' },
+    ],
+    columns: [
+      { key: 'category', label: '领域', display: 'category' },
+      { key: 'serviceCode', label: '服务码' },
+      { key: 'ownership', label: '归属' },
+      { key: 'errorCode', label: '忽略错误码', long: true },
+      { key: 'ignoreReason', label: '忽略原因', ellipsis: true },
+      ...REVIEW_COLUMNS,
+      { key: 'createdAt', label: '新增时间', display: 'time' },
+      { key: 'updatedAt', label: '更新时间', display: 'time' },
+    ],
+    confirmFields: [
+      { key: 'category', label: '领域' },
+      { key: 'serviceCode', label: '服务码' },
+      { key: 'ownership', label: '归属' },
+      { key: 'errorCode', label: '忽略错误码' },
+    ],
+    form: [
+      { key: 'serviceCode', label: '服务码', kind: 'serviceCode', required: true },
+      { key: 'category', label: '领域', kind: 'select', required: true, options: [
+        { value: 'QUERY', label: '查询' },
+        { value: 'ACCOUNTING', label: '账务' },
+      ] },
+      { key: 'ownership', label: '归属', kind: 'ownership', required: true, options: [
+        { value: '528', label: '528' },
+        { value: 'ccbs', label: 'ccbs' },
+      ] },
+      { key: 'errorCode', label: '忽略错误码', kind: 'text', required: true },
+      { key: 'ignoreReason', label: '忽略原因', kind: 'textarea', required: true, maxlength: 512 },
+    ],
+  },
 }
 
 const activeTab = ref(TABS[0].key)
 const schema = computed(() => SCHEMAS[activeTab.value])
 const isSortTab = computed(() => activeTab.value === 'sort-fields')
 const isMessageSequenceTab = computed(() => activeTab.value === 'message-sequence-ignores')
+const isOneSideTab = computed(() => activeTab.value === 'one-side-error-code-ignores')
+const isServiceSequenceTab = computed(() => isMessageSequenceTab.value || isOneSideTab.value)
 const isUnconditionalTab = computed(() => activeTab.value === 'unconditional-ignores')
 const reasonEmptyLabel = computed(() => (isSortTab.value ? '仅看排序原因为空' : '仅看忽略原因为空'))
 
@@ -535,11 +599,6 @@ const reviewerMappingWarningCodes = ref([])
 const reviewerHelp = reactive({ visible: false, style: {} })
 const domainOptions = ref([])
 const exporting = ref(false)
-const reasonImportOpen = ref(false)
-const reasonImportFile = ref(null)
-const reasonImporting = ref(false)
-const reasonImportError = ref('')
-const reasonImportInput = ref(null)
 
 const editOpen = ref(false)
 const editingRow = ref(null)
@@ -567,10 +626,12 @@ const allSelected = computed(() => items.value.length > 0 && items.value.every((
 const editTitle = computed(() => `${editingRow.value ? '修改' : '新增'}${schema.value.title}`)
 const isSortCreate = computed(() => isSortTab.value && !editingRow.value)
 const isMessageSequenceCreate = computed(() => isMessageSequenceTab.value && !editingRow.value)
-const isMultiCreate = computed(() => !isSortTab.value && !isMessageSequenceTab.value && !editingRow.value)
+const isOneSideCreate = computed(() => isOneSideTab.value && !editingRow.value)
+const isMultiCreate = computed(() => !isSortTab.value && !isServiceSequenceTab.value && !editingRow.value)
 const activeForm = computed(() => {
   if (isSortCreate.value) return SORT_CREATE_FORM
   if (isMessageSequenceCreate.value) return MESSAGE_SEQUENCE_CREATE_FORM
+  if (isOneSideCreate.value) return ONE_SIDE_ERROR_CODE_CREATE_FORM
   return schema.value.form
 })
 const formRows = computed(() => (isMultiCreate.value ? createRows.value : [draft]))
@@ -580,6 +641,9 @@ const createHint = computed(() => {
   }
   if (isMessageSequenceCreate.value) {
     return '多个流水号请使用英文逗号分隔，去除首尾空格后逐条保存；任一项为空或重复时整批不写入。'
+  }
+  if (isOneSideCreate.value) {
+    return '多个错误码请使用英文逗号分隔，去除首尾空格后逐条保存；任一项为空或重复时整批不写入。'
   }
   if (isMultiCreate.value) {
     return '最多可一次新增 3 条，每条独立填写，可只填其中部分；任一条重复则整批不写入。'
@@ -735,44 +799,13 @@ async function exportConfigs() {
   exporting.value = true
   try {
     if (isMessageSequenceTab.value) await exportReviewedMessageSequenceIgnores()
+    else if (isOneSideTab.value) await exportReviewedOneSideErrorCodeIgnores()
     else await exportReviewedReplayConfigs()
     showToast('导出成功')
   } catch (cause) {
     showToast(`导出失败：${cause?.message || cause}`, 'error')
   } finally {
     exporting.value = false
-  }
-}
-
-function openReasonImport() {
-  reasonImportFile.value = null
-  reasonImportError.value = ''
-  reasonImportOpen.value = true
-}
-
-function closeReasonImport() {
-  if (reasonImporting.value) return
-  reasonImportOpen.value = false
-  reasonImportFile.value = null
-  reasonImportError.value = ''
-  if (reasonImportInput.value) reasonImportInput.value.value = ''
-}
-
-async function submitReasonImport() {
-  if (!reasonImportFile.value || reasonImporting.value) return
-  reasonImporting.value = true
-  reasonImportError.value = ''
-  try {
-    const result = await importUnconditionalIgnoreReasons(reasonImportFile.value)
-    showToast(`导入完成：补充 ${result?.updatedRows ?? 0} 条，已有原因跳过 ${result?.skippedExistingReasonRows ?? 0} 条，未匹配 ${result?.unmatchedRows ?? 0} 条${result?.invalidRows ? `，格式错误 ${result.invalidRows} 条` : ''}`)
-    reasonImporting.value = false
-    closeReasonImport()
-    await load()
-  } catch (cause) {
-    reasonImportError.value = cause?.message || '导入失败'
-    showToast(`导入失败：${reasonImportError.value}`, 'error')
-  } finally {
-    reasonImporting.value = false
   }
 }
 
@@ -800,7 +833,7 @@ function resetCreateRows() {
 function openCreate() {
   editingRow.value = null
   formError.value = ''
-  if (isSortTab.value || isMessageSequenceTab.value) {
+  if (isSortTab.value || isServiceSequenceTab.value) {
     resetDraft()
   } else {
     resetCreateRows()
@@ -897,14 +930,17 @@ function validateDraft() {
     if (!isValidSortField(draft.newSortField)) return '新核心排序字段格式不正确：单个属性请填写 A.B，多个属性请填写 A(B,C)'
     return ''
   }
-  if (isMessageSequenceCreate.value) {
-    const parts = String(draft.messageSequences || '').split(',').map(item => item.trim())
-    if (parts.some(item => !item)) return '流水号不能为空，多个流水号请使用英文逗号分隔'
-    if (parts.length > 100) return '单次最多新增 100 个流水号'
-    if (new Set(parts).size !== parts.length) return '流水号不能重复'
+  if (isMessageSequenceCreate.value || isOneSideCreate.value) {
+    const source = isOneSideCreate.value ? draft.errorCodes : draft.messageSequences
+    const label = isOneSideCreate.value ? '忽略错误码' : '流水号'
+    const parts = String(source || '').split(',').map(item => item.trim())
+    if (parts.some(item => !item)) return `${label}不能为空，多个${label}请使用英文逗号分隔`
+    if (parts.length > 100) return `单次最多新增 100 个${label}`
+    if (new Set(parts).size !== parts.length) return `${label}不能重复`
   }
-  if (isMessageSequenceTab.value && editingRow.value && String(draft.messageSequence || '').includes(',')) {
-    return '修改时只能填写一个流水号'
+  if (isServiceSequenceTab.value && editingRow.value) {
+    const value = isOneSideTab.value ? draft.errorCode : draft.messageSequence
+    if (String(value || '').includes(',')) return `修改时只能填写一个${isOneSideTab.value ? '忽略错误码' : '流水号'}`
   }
   return schema.value.validate ? schema.value.validate(draft) : ''
 }
@@ -982,6 +1018,7 @@ async function submitForm() {
     }
     if (editingRow.value) {
       if (isMessageSequenceTab.value) await updateMessageSequenceIgnore(editingRow.value.id, payload)
+      else if (isOneSideTab.value) await updateOneSideErrorCodeIgnore(editingRow.value.id, payload)
       else {
         payload.version = editingRow.value.version
         await updateReplayConfig(activeTab.value, editingRow.value.id, payload)
@@ -990,7 +1027,9 @@ async function submitForm() {
     } else {
       const created = isMessageSequenceTab.value
         ? await createMessageSequenceIgnores(payload)
-        : await createReplayConfig(activeTab.value, payload)
+        : isOneSideTab.value
+          ? await createOneSideErrorCodeIgnores(payload)
+          : await createReplayConfig(activeTab.value, payload)
       showToast(Array.isArray(created) ? `新增成功（${created.length} 条）` : '新增成功')
       showReviewerMappingWarning(created)
     }
@@ -1048,6 +1087,7 @@ function reviewRow(row) {
   openConfirm('确认审核通过该条配置？', rowConfirmDetails(row), async () => {
     try {
       if (isMessageSequenceTab.value) await reviewMessageSequenceIgnore(row.id)
+      else if (isOneSideTab.value) await reviewOneSideErrorCodeIgnore(row.id)
       else await reviewReplayConfig(activeTab.value, row.id, row.version)
       showToast('审核通过')
       await load()
@@ -1061,6 +1101,7 @@ function removeRow(row) {
   openConfirm(`确认删除该条${schema.value.title}配置？此操作不可恢复。`, rowConfirmDetails(row), async () => {
     try {
       if (isMessageSequenceTab.value) await deleteMessageSequenceIgnore(row.id)
+      else if (isOneSideTab.value) await deleteOneSideErrorCodeIgnore(row.id)
       else await deleteReplayConfig(activeTab.value, row.id, row.version)
       showToast('删除成功')
       await load()
@@ -1082,13 +1123,15 @@ function batchReview() {
   ]
   openConfirm('确认批量审核选中的配置？', details, async () => {
     if (!selectedRows.length) return
-    const payload = isMessageSequenceTab.value
+    const payload = isServiceSequenceTab.value
       ? selectedRows.map((row) => row.id)
       : selectedRows.map((row) => ({ id: row.id, version: row.version }))
     try {
       const result = isMessageSequenceTab.value
         ? await batchReviewMessageSequenceIgnores(payload)
-        : await batchReviewReplayConfigs(activeTab.value, payload)
+        : isOneSideTab.value
+          ? await batchReviewOneSideErrorCodeIgnores(payload)
+          : await batchReviewReplayConfigs(activeTab.value, payload)
       showToast(`审核通过 ${result?.approvedCount ?? 0} 条，跳过 ${result?.skippedCount ?? 0} 条`)
       await load()
     } catch (cause) {
@@ -1101,7 +1144,7 @@ function batchDelete() {
   if (!selectedIds.value.length) return
   const byId = new Map(items.value.map((row) => [row.id, row]))
   const selectedRows = selectedIds.value.map((id) => byId.get(id)).filter(Boolean)
-  const payload = isMessageSequenceTab.value
+  const payload = isServiceSequenceTab.value
     ? selectedRows.map((row) => row.id)
     : selectedRows.map((row) => ({ id: row.id, version: row.version }))
   const details = [{ label: '已选', value: `${selectedRows.length} 条` }]
@@ -1110,7 +1153,9 @@ function batchDelete() {
     try {
       const result = isMessageSequenceTab.value
         ? await batchDeleteMessageSequenceIgnores(payload)
-        : await batchDeleteReplayConfigs(activeTab.value, payload)
+        : isOneSideTab.value
+          ? await batchDeleteOneSideErrorCodeIgnores(payload)
+          : await batchDeleteReplayConfigs(activeTab.value, payload)
       showToast(`删除成功：${result?.deletedCount ?? payload.length} 条`)
       await load()
     } catch (cause) {
@@ -1191,6 +1236,7 @@ onUnmounted(() => {
 .replay-operation-column{width:262px;white-space:nowrap}
 .replay-operation-buttons{display:flex;gap:5px}
 .replay-cell-long{max-width:320px;white-space:pre-wrap;overflow-wrap:anywhere}
+.replay-cell-ellipsis{width:240px;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .replay-state{text-align:center;color:var(--text-muted,#6b7280);padding:28px 0}
 .replay-pager{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 20px;background:var(--bg-card,#fff);border-top:1px solid var(--border,#e5e7eb)}
 .replay-page-size{display:flex;align-items:center;gap:6px;font-size:12px}

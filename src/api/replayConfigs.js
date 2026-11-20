@@ -56,16 +56,6 @@ export function batchCreateReplayConfigs(type, items) {
   })
 }
 
-/** 导入无条件忽略原因 Excel（第一行即数据：交易码、忽略字段、忽略原因）。 */
-export function importUnconditionalIgnoreReasons(file) {
-  const form = new FormData()
-  form.append('file', file)
-  return request(`${PREFIX}/unconditional-ignores/import-ignore-reasons`, {
-    method: 'POST',
-    body: form,
-  })
-}
-
 /** 批量审核，items 形如 [{ id, version }]，最多 100 条；能审的通过、其余跳过。 */
 export function batchReviewReplayConfigs(type, items) {
   return request(`${PREFIX}/${type}/batch-review`, {
@@ -129,4 +119,40 @@ export function batchDeleteMessageSequenceIgnores(ids) {
 
 export function exportReviewedMessageSequenceIgnores() {
   return download(`${PREFIX}/${MESSAGE_SEQUENCE_TYPE}/export`, '流水号忽略.txt')
+}
+
+const ONE_SIDE_ERROR_CODE_TYPE = 'one-side-error-code-ignores'
+
+export function createOneSideErrorCodeIgnores(body) {
+  return createReplayConfig(ONE_SIDE_ERROR_CODE_TYPE, body)
+}
+
+export function updateOneSideErrorCodeIgnore(id, body) {
+  return updateReplayConfig(ONE_SIDE_ERROR_CODE_TYPE, id, body)
+}
+
+export function reviewOneSideErrorCodeIgnore(id) {
+  return request(`${PREFIX}/${ONE_SIDE_ERROR_CODE_TYPE}/${encodeURIComponent(id)}/review`, { method: 'POST' })
+}
+
+export function batchReviewOneSideErrorCodeIgnores(ids) {
+  return request(`${PREFIX}/${ONE_SIDE_ERROR_CODE_TYPE}/batch-review`, {
+    method: 'POST',
+    body: JSON.stringify({ ids }),
+  })
+}
+
+export function deleteOneSideErrorCodeIgnore(id) {
+  return request(`${PREFIX}/${ONE_SIDE_ERROR_CODE_TYPE}/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+export function batchDeleteOneSideErrorCodeIgnores(ids) {
+  return request(`${PREFIX}/${ONE_SIDE_ERROR_CODE_TYPE}/batch-delete`, {
+    method: 'POST',
+    body: JSON.stringify({ ids }),
+  })
+}
+
+export function exportReviewedOneSideErrorCodeIgnores() {
+  return download(`${PREFIX}/${ONE_SIDE_ERROR_CODE_TYPE}/export`, '单边失败错误码忽略.txt')
 }

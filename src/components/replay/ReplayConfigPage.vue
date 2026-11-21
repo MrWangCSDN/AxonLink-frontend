@@ -85,6 +85,7 @@
           批量删除{{ selectedIds.length ? `（${selectedIds.length}）` : '' }}
         </button>
         <button class="replay-button replay-button-primary" type="button" data-testid="create-config" @click="openCreate">新增</button>
+        <button v-if="reasonImportColumns" class="replay-button" type="button" data-testid="import-empty-reasons" @click="openReasonImport">忽略原因为空数据导入</button>
         <button class="replay-button" type="button" :data-testid="isMessageSequenceTab ? 'export-message-sequences' : isOneSideTab ? 'export-one-side-error-codes' : 'export-excel'" :disabled="exporting" @click="exportConfigs">
           {{ exporting ? '导出中...' : isMessageSequenceTab ? '导出流水号忽略' : isOneSideTab ? '导出单边失败错误码' : '导出Excel' }}
         </button>
@@ -218,7 +219,7 @@
         <ol v-else class="replay-history-list">
           <li v-for="operation in historyItems" :key="operation.id" class="replay-history-item">
             <div class="replay-history-head">
-              <span class="replay-history-type" :class="`replay-history-${operation.operationType.toLowerCase()}`">{{ operationLabel(operation.operationType) }}</span>
+              <span class="replay-history-type" :class="`replay-history-${operation.operationType.toLowerCase()}`">{{ operationLabel(operation) }}</span>
               <span>{{ operation.operatorRealName || operation.operatorUsername || '-' }}</span>
               <time>{{ formatTime(operation.createdAt) }}</time>
             </div>
@@ -235,6 +236,28 @@
           </li>
         </ol>
       </aside>
+    </div>
+
+    <div v-if="reasonImportTab" class="replay-modal-mask" @click.self="closeReasonImport">
+      <form class="replay-confirm-modal replay-reason-import" role="dialog" aria-modal="true" aria-label="忽略原因为空数据导入"
+            data-testid="reason-import-dialog" @submit.prevent="submitReasonImport" @keydown.esc="closeReasonImport">
+        <p class="replay-confirm-text">忽略原因为空数据导入 · {{ SCHEMAS[reasonImportTab].title }}</p>
+        <p>选择 .xlsx 或 .xls 文件。只读取第一个工作表，第一行直接填写数据，不要加表头。</p>
+        <ol>
+          <li v-for="label in REASON_IMPORT_COLUMNS[reasonImportTab]" :key="label">{{ label }}</li>
+        </ol>
+        <p v-if="reasonImportTab === 'error-code-ignores'">老核心、新核心错误码至少填一列，空的一侧保留空单元格。</p>
+        <p>只补充已有记录的空原因，保留审核状态。</p>
+        <input aria-label="选择 Excel 文件" type="file" accept=".xlsx,.xls" :disabled="importingReasons"
+               @change="reasonImportFile = $event.target.files?.[0] ?? null" />
+        <p v-if="reasonImportError" class="replay-message replay-error" role="alert">{{ reasonImportError }}</p>
+        <div class="replay-confirm-actions">
+          <button class="replay-button" type="button" :disabled="importingReasons" @click="closeReasonImport">取消</button>
+          <button class="replay-button replay-button-primary" type="submit" :disabled="!reasonImportFile || importingReasons">
+            {{ importingReasons ? '导入中...' : '导入' }}
+          </button>
+        </div>
+      </form>
     </div>
 
     <div v-if="confirmOpen" class="replay-modal-mask" @click.self="!confirming && closeConfirm()">
@@ -306,6 +329,7 @@ import {
   exportReviewedMessageSequenceIgnores,
   exportReviewedOneSideErrorCodeIgnores,
   exportReviewedReplayConfigs,
+  importReplayConfigReasons,
   listReplayConfigDomains,
   listReplayConfigOperations,
   listReplayConfigs,
@@ -599,6 +623,17 @@ const reviewerMappingWarningCodes = ref([])
 const reviewerHelp = reactive({ visible: false, style: {} })
 const domainOptions = ref([])
 const exporting = ref(false)
+const REASON_IMPORT_COLUMNS = {
+  'unconditional-ignores': ['服务码', '忽略字段', '忽略原因'],
+  'conditional-ignores': ['服务码', '忽略字段', '字段索引', '忽略原因'],
+  'sort-fields': ['服务码', '对象/数组名称', '排序字段', '排序原因'],
+  'error-code-ignores': ['服务码', '老核心错误码', '新核心错误码', '忽略原因'],
+}
+const reasonImportColumns = computed(() => REASON_IMPORT_COLUMNS[activeTab.value])
+const reasonImportTab = ref('')
+const reasonImportFile = ref(null)
+const reasonImportError = ref('')
+const importingReasons = ref(false)
 
 const editOpen = ref(false)
 const editingRow = ref(null)
@@ -686,7 +721,8 @@ function formatTime(value) {
   return String(value).replace('T', ' ').slice(0, 19)
 }
 
-function operationLabel(type) {
+function operationLabel({ operationType: type, operationSource }) {
+  if (type === 'UPDATE' && operationSource === 'EXCEL') return '导入'
   return { CREATE: '新增', UPDATE: '修改', DELETE: '删除', REVIEW: '审核' }[type] || type
 }
 
@@ -792,6 +828,38 @@ function goNext() {
 function changePageSize() {
   page.value = 0
   return load()
+}
+
+function openReasonImport() {
+  reasonImportFile.value = null
+  reasonImportError.value = ''
+  reasonImportTab.value = activeTab.value
+}
+
+function closeReasonImport() {
+  if (!importingReasons.value) reasonImportTab.value = ''
+}
+
+async function submitReasonImport() {
+  const type = reasonImportTab.value
+  const file = reasonImportFile.value
+  if (!type || !file || importingReasons.value) return
+  reasonImportError.value = ''
+  if (!/\.xlsx?$/i.test(file.name)) {
+    reasonImportError.value = '请选择 .xlsx 或 .xls 文件'
+    return
+  }
+  importingReasons.value = true
+  try {
+    const result = await importReplayConfigReasons(type, file)
+    reasonImportTab.value = ''
+    showToast(`补充 ${result.updatedRows} 条，已有原因 ${result.skippedExistingReasonRows} 条，未匹配 ${result.unmatchedRows} 条，匹配到多条 ${result.ambiguousRows ?? 0} 条`)
+    if (activeTab.value === type) await load()
+  } catch (cause) {
+    reasonImportError.value = `导入失败：${cause?.message || cause}`
+  } finally {
+    importingReasons.value = false
+  }
 }
 
 async function exportConfigs() {
@@ -1263,6 +1331,10 @@ onUnmounted(() => {
 .replay-warning-title{margin:0;font-size:15px}
 .replay-warning-codes{max-height:160px;margin:0;padding-left:20px;overflow:auto;word-break:break-all}
 .replay-confirm-text{margin:0;font-size:14px;color:var(--text-primary,#1f2937)}
+.replay-reason-import{box-sizing:border-box;max-height:calc(100dvh - 32px);overflow:auto;gap:12px}
+.replay-reason-import p,.replay-reason-import ol{margin:0}
+.replay-reason-import ol{padding-left:24px;list-style:decimal}
+.replay-reason-import input{min-width:0;max-width:100%}
 .replay-confirm-detail{margin:0;display:grid;gap:6px}
 .replay-confirm-row{display:grid;grid-template-columns:88px 1fr;gap:8px;font-size:13px}
 .replay-confirm-row dt{color:var(--text-muted,#6b7280)}

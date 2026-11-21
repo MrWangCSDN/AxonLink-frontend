@@ -14,6 +14,7 @@ import {
   deleteReplayConfig,
   exportReviewedMessageSequenceIgnores,
   exportReviewedReplayConfigs,
+  importReplayConfigReasons,
   listReplayConfigDomains,
   listReplayConfigOperations,
   listReplayConfigs,
@@ -36,6 +37,7 @@ vi.mock('../../api/replayConfigs.js', () => ({
   reviewReplayConfig: vi.fn(),
   listReplayConfigDomains: vi.fn(),
   exportReviewedReplayConfigs: vi.fn(),
+  importReplayConfigReasons: vi.fn(),
   createMessageSequenceIgnores: vi.fn(),
   createOneSideErrorCodeIgnores: vi.fn(),
   updateOneSideErrorCodeIgnore: vi.fn(),
@@ -90,6 +92,44 @@ describe('ReplayConfigPage（忽略清单）', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
+  })
+
+  it.each([
+    ['unconditional-ignores', ['服务码', '忽略字段', '忽略原因']],
+    ['conditional-ignores', ['服务码', '忽略字段', '字段索引', '忽略原因']],
+    ['sort-fields', ['服务码', '对象/数组名称', '排序字段', '排序原因']],
+    ['error-code-ignores', ['服务码', '老核心错误码', '新核心错误码', '忽略原因']],
+  ])('shows the import format for %s', async (tab, columns) => {
+    const wrapper = mount(ReplayConfigPage)
+    await flushPromises()
+    await wrapper.get(`[data-testid="tab-${tab}"]`).trigger('click')
+    const button = wrapper.get('[data-testid="import-empty-reasons"]')
+    expect(button.text()).toBe('忽略原因为空数据导入')
+    await button.trigger('click')
+    const dialog = wrapper.get('[data-testid="reason-import-dialog"]')
+    expect(dialog.text()).toContain('第一行直接填写数据')
+    expect(dialog.findAll('li').map(row => row.text())).toEqual(columns)
+    wrapper.unmount()
+  })
+
+  it('imports an Excel file for the selected tab and reports the outcome', async () => {
+    importReplayConfigReasons.mockResolvedValue({
+      updatedRows: 2, skippedExistingReasonRows: 1, unmatchedRows: 3, ambiguousRows: 1,
+    })
+    const wrapper = mount(ReplayConfigPage)
+    await flushPromises()
+    await wrapper.get('[data-testid="tab-error-code-ignores"]').trigger('click')
+    await wrapper.get('[data-testid="import-empty-reasons"]').trigger('click')
+    const input = wrapper.get('input[type="file"]')
+    const file = new File(['workbook'], 'reasons.xlsx')
+    Object.defineProperty(input.element, 'files', { value: [file] })
+    await input.trigger('change')
+    await wrapper.get('[data-testid="reason-import-dialog"]').trigger('submit')
+    await flushPromises()
+    expect(importReplayConfigReasons).toHaveBeenCalledWith('error-code-ignores', file)
+    expect(wrapper.get('[data-testid="toast"]').text()).toContain('补充 2 条')
+    expect(wrapper.find('[data-testid="reason-import-dialog"]').exists()).toBe(false)
+    wrapper.unmount()
   })
 
   it('exports the reviewed configs through the toolbar button', async () => {
@@ -804,6 +844,31 @@ describe('ReplayConfigPage（忽略清单）', () => {
     expect(drawer.text()).toContain('服务码')
     expect(drawer.text()).toContain('未审核')
     expect(drawer.text()).toContain('已审核')
+  })
+
+  it('distinguishes Excel imports from manual edits in operation history', async () => {
+    const update = {
+      operationType: 'UPDATE',
+      operatorUsername: 'zhangs3',
+      operatorRealName: '张三',
+      createdAt: '2026-09-11T10:20:30',
+      changes: [{ field: 'ignore_reason', label: '忽略原因', oldValue: null, newValue: '补充原因' }],
+    }
+    listReplayConfigOperations.mockResolvedValueOnce({
+      total: 2,
+      items: [
+        { ...update, id: 2, operationSource: 'EXCEL' },
+        { ...update, id: 1, operationSource: 'MANUAL' },
+      ],
+    })
+    const wrapper = mount(ReplayConfigPage)
+    await flushPromises()
+    await wrapper.get('[data-testid="history-1"]').trigger('click')
+    await flushPromises()
+
+    const drawer = wrapper.get('[data-testid="history-drawer"]')
+    expect(drawer.findAll('.replay-history-type').map(label => label.text())).toEqual(['导入', '修改'])
+    wrapper.unmount()
   })
 
   it('creates message sequence ignores from the fifth tab', async () => {

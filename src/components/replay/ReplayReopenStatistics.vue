@@ -14,7 +14,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="person in data.people || []" :key="person.username || 'unassigned'">
+          <tr v-for="person in people" :key="person.username || 'unassigned'">
             <td>
               {{ person.realName || person.username || '待归属' }}
               <small v-if="person.username">{{ person.username }}</small>
@@ -34,25 +34,6 @@
         </tbody>
       </table>
     </div>
-    <h3>发生批次 × 当前负责人</h3>
-    <div class="reopen-table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>发生批次</th>
-            <th>重开总次数</th>
-            <th v-for="person in people" :key="person.username || 'unassigned'">{{ person.realName || person.username || '待归属' }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="batch in data.batches || []" :key="batch.batchName">
-            <td>{{ batch.batchName || '未记录批次' }}</td>
-            <td>{{ batch.totalEvents }}</td>
-            <td v-for="person in people" :key="person.username || 'unassigned'">{{ (batch.people || []).find(p => p.username === person.username)?.currentCount || 0 }}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
   </section>
 </template>
 
@@ -60,9 +41,6 @@
 import { computed } from 'vue'
 const props = defineProps({ data: { type: Object, required: true }, canTransferCounts: { type: Boolean, default: false } })
 defineEmits(['transfer'])
-const people = computed(() => {
-  const result = new Map()
-  for (const person of [...(props.data.people || []), ...(props.data.batches || []).flatMap(b => b.people || [])]) result.set(person.username, person)
-  return [...result.values()]
-})
+const people = computed(() => [...(props.data.people || [])]
+  .sort((left, right) => (Number(right.currentCount) || 0) - (Number(left.currentCount) || 0)))
 </script>

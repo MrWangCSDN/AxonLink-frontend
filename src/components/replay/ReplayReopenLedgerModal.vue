@@ -36,10 +36,18 @@
                   全部发生批次
                 </label>
                 <p v-if="optionsLoading" role="status">正在读取发生批次…</p>
-                <label v-for="batch in batchOptions" :key="batch" class="reopen-checkbox">
-                  <input v-model="filters.batchNames" type="checkbox" :value="batch" :data-batch="batch" :disabled="countTransferBusy" />
-                  {{ batch }}
-                </label>
+                <div class="reopen-batch-columns" :class="{ 'single-family': filters.replayType !== 'ALL' }">
+                  <section v-for="family in batchFamilies" :key="family.key" class="reopen-batch-family" :class="{ 'other-family': family.key === 'OTHER' }" role="group" :aria-label="family.label">
+                    <h4>{{ family.label }}</h4>
+                    <div class="reopen-batch-family-list">
+                      <label v-for="batch in family.batches" :key="batch" class="reopen-checkbox">
+                        <input v-model="filters.batchNames" type="checkbox" :value="batch" :data-batch="batch" :disabled="countTransferBusy" />
+                        <span>{{ batch }}</span>
+                      </label>
+                      <p v-if="!optionsLoading && !family.batches.length">暂无批次</p>
+                    </div>
+                  </section>
+                </div>
                 <p v-if="!optionsLoading && !batchOptions.length">当前交易类型暂无发生批次</p>
               </div>
             </details>
@@ -88,11 +96,36 @@ const transferPanel = ref(null)
 const filters = reactive({ replayType: props.replayType, batchNames: [], onlyMine: false })
 const applied = ref({ ...filters, batchNames: [] })
 const typeLabels = { ALL: '全部交易类型', QUERY: '查询', DZ: '动账' }
-const batchOptions = computed(() => batchNames.value.filter(batchMatchesType))
+const batchOptions = computed(() => batchNames.value.filter(batchMatchesType)
+  .map((batch, index) => ({ batch, index, chronology: batchChronologyKey(batch) }))
+  .sort((left, right) => right.chronology.localeCompare(left.chronology) || left.index - right.index)
+  .map(item => item.batch))
+const batchFamilies = computed(() => {
+  const families = [
+    { key: 'RPT', label: 'RPT 查询' },
+    { key: 'DZ', label: 'DZ 动账' },
+  ].filter(family => filters.replayType === 'ALL' || family.key === (filters.replayType === 'QUERY' ? 'RPT' : 'DZ'))
+    .map(family => ({ ...family, batches: batchOptions.value.filter(batch => batch.startsWith(family.key)) }))
+  const other = batchOptions.value.filter(batch => !batch.startsWith('RPT') && !batch.startsWith('DZ'))
+  if (filters.replayType === 'ALL' && other.length) families.push({ key: 'OTHER', label: '其他批次', batches: other })
+  return families
+})
 let listSerial = 0
 let optionsSerial = 0
 let permissionsSerial = 0
 let alive = true
+
+function batchChronologyKey(batch) {
+  const match = batch.match(/^(?:RPT|DZ)(\d{8})(?:-(.*))?$/)
+  if (!match) return ''
+  const year = Number(match[1].slice(0, 4)), month = Number(match[1].slice(4, 6)), day = Number(match[1].slice(6, 8))
+  const date = new Date(Date.UTC(year, month - 1, day))
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return ''
+  const time = match[2]?.match(/^(\d{2})(\d{2})(\d{2})(?:-|$)/)
+  if (time && (Number(time[1]) > 23 || Number(time[2]) > 59 || Number(time[3]) > 59)) return ''
+  const clock = time ? time[1] + time[2] + time[3] : '000000'
+  return match[1] + clock
+}
 
 function batchMatchesType(batch) {
   if (filters.replayType === 'QUERY') return batch.startsWith('RPT')

@@ -23,6 +23,7 @@ const statistics = totalEvents => ({
   batches: [],
 })
 const batch = (wrapper, name) => wrapper.get(`input[data-batch="${name}"]`)
+const visibleBatches = wrapper => wrapper.findAll('input[data-batch]').map(input => input.element.value)
 const apply = async wrapper => {
   await wrapper.get('[data-testid="apply-reopen-filters"]').trigger('submit')
   await flushPromises()
@@ -60,11 +61,79 @@ describe('reopen personnel and batch statistics', () => {
     w.unmount()
   })
 
+  it('groups all transaction batches into separate query and accounting columns ordered newest first', async () => {
+    const names = [
+      'RPT20261120-235959-9000', 'DZ20261121-080000-0002', 'RPT20261121-000247-2239',
+      'RPT20261121-150000-0001', 'DZ20261119-120000-0001', 'RPT20261120-01',
+      'DZ20261121-180000-0001', 'RPT20261121-150000-0002', 'RPT-legacy', 'DZ-legacy',
+    ]
+    const original = [...names]
+    api.getReopenFilters.mockResolvedValue({ batchNames: names, issueDomains: [] })
+    const w = mount(Ledger)
+    await flushPromises()
+
+    const query = w.get('[role="group"][aria-label="RPT 查询"]')
+    const accounting = w.get('[role="group"][aria-label="DZ 动账"]')
+    expect(query.find('h4').text()).toBe('RPT 查询')
+    expect(accounting.find('h4').text()).toBe('DZ 动账')
+    expect(visibleBatches(query)).toEqual([
+      'RPT20261121-150000-0001', 'RPT20261121-150000-0002', 'RPT20261121-000247-2239', 'RPT20261120-235959-9000', 'RPT20261120-01', 'RPT-legacy',
+    ])
+    expect(visibleBatches(accounting)).toEqual([
+      'DZ20261121-180000-0001', 'DZ20261121-080000-0002', 'DZ20261119-120000-0001', 'DZ-legacy',
+    ])
+    expect(names).toEqual(original)
+    expect(w.get('[data-testid="all-batches-option"]').element.checked).toBe(true)
+    w.unmount()
+  })
+
+  it.each([
+    ['QUERY', 'RPT 查询', ['RPT20261121-150000-0001', 'RPT20261120-235959-9000', 'RPT20261120-01']],
+    ['DZ', 'DZ 动账', ['DZ20261121-180000-0001', 'DZ20261121-080000-0002', 'DZ20261119-120000-0001']],
+  ])('keeps %s batches in one family column sorted by embedded date and time', async (replayType, label, expected) => {
+    api.getReopenFilters.mockResolvedValue({ batchNames: [
+      'DZ20261121-080000-0002', 'RPT20261120-01', 'DZ20261119-120000-0001',
+      'RPT20261121-150000-0001', 'RPT20261120-235959-9000', 'OTHER-1', 'DZ20261121-180000-0001',
+    ] })
+    const w = mount(Ledger, { props: { replayType } })
+    await flushPromises()
+
+    expect(visibleBatches(w.get(`[role="group"][aria-label="${label}"]`))).toEqual(expected)
+    expect(w.findAll('.reopen-batch-family')).toHaveLength(1)
+    expect(visibleBatches(w)).toEqual(expected)
+    expect(w.find('[role="group"][aria-label="其他批次"]').exists()).toBe(false)
+    w.unmount()
+  })
+
+  it('keeps unknown and malformed historical names selectable in stable order without interpreting their text as attributes', async () => {
+    const escapedName = 'OTHER-1" data-injected="true'
+    api.getReopenFilters.mockResolvedValue({ batchNames: [
+      'RPT-legacy-b', 'OTHER-1', 'RPT20260230-120000-0001', 'RPT20261122-246000-0001', escapedName,
+      'RPT20261121-01', 'RPT-legacy-a',
+    ] })
+    const w = mount(Ledger)
+    await flushPromises()
+
+    const other = w.get('[role="group"][aria-label="其他批次"]')
+    expect(visibleBatches(other)).toEqual(['OTHER-1', escapedName])
+    expect(visibleBatches(w.get('[role="group"][aria-label="RPT 查询"]'))).toEqual([
+      'RPT20261121-01', 'RPT-legacy-b', 'RPT20260230-120000-0001', 'RPT20261122-246000-0001', 'RPT-legacy-a',
+    ])
+    const escapedOption = other.findAll('input[data-batch]')[1]
+    expect(escapedOption.attributes('data-batch')).toBe(escapedName)
+    expect(w.find('[data-injected]').exists()).toBe(false)
+    await escapedOption.setValue(true)
+    await batch(other, 'OTHER-1').setValue(true)
+    await apply(w)
+    expect(api.getReopenStatistics).toHaveBeenLastCalledWith({ replayType: 'ALL', batchNames: [escapedName, 'OTHER-1'], onlyMine: false })
+    w.unmount()
+  })
+
   it('selects multiple batches across transaction types and keeps applied arrays independent from drafts', async () => {
     const w = mount(Ledger)
     await flushPromises()
-    await batch(w, 'RPT-1').setValue(true)
-    await batch(w, 'DZ-1').setValue(true)
+    await batch(w.get('[role="group"][aria-label="RPT 查询"]'), 'RPT-1').setValue(true)
+    await batch(w.get('[role="group"][aria-label="DZ 动账"]'), 'DZ-1').setValue(true)
     await apply(w)
 
     expect(api.getReopenStatistics).toHaveBeenLastCalledWith({ replayType: 'ALL', batchNames: ['RPT-1', 'DZ-1'], onlyMine: false })

@@ -15,6 +15,7 @@ import {
   exportReviewedMessageSequenceIgnores,
   exportReviewedReplayConfigs,
   importReplayConfigReasons,
+  importReplayConfigChineseNames,
   listReplayConfigDomains,
   listReplayConfigOperations,
   listReplayConfigs,
@@ -38,6 +39,7 @@ vi.mock('../../api/replayConfigs.js', () => ({
   listReplayConfigDomains: vi.fn(),
   exportReviewedReplayConfigs: vi.fn(),
   importReplayConfigReasons: vi.fn(),
+  importReplayConfigChineseNames: vi.fn(),
   createMessageSequenceIgnores: vi.fn(),
   createOneSideErrorCodeIgnores: vi.fn(),
   updateOneSideErrorCodeIgnore: vi.fn(),
@@ -109,6 +111,32 @@ describe('ReplayConfigPage（忽略清单）', () => {
     const dialog = wrapper.get('[data-testid="reason-import-dialog"]')
     expect(dialog.text()).toContain('第一行直接填写数据')
     expect(dialog.findAll('li').map(row => row.text())).toEqual(columns)
+    wrapper.unmount()
+  })
+
+  it('imports missing Chinese names using the current tab match columns', async () => {
+    importReplayConfigChineseNames.mockResolvedValue({
+      updatedRows: 2, skippedExistingNameRows: 1, unmatchedRows: 0, ambiguousRows: 0,
+    })
+    const wrapper = mount(ReplayConfigPage)
+    await flushPromises()
+    await wrapper.get('[data-testid="tab-conditional-ignores"]').trigger('click')
+    await wrapper.get('[data-testid="import-empty-chinese-names"]').trigger('click')
+    const dialog = wrapper.get('[data-testid="reason-import-dialog"]')
+    expect(dialog.text()).toContain('第一行直接填写数据')
+    expect(dialog.findAll('li').map(row => row.text()))
+      .toEqual(['服务码', '忽略字段', '字段索引', '忽略字段中文名称'])
+    const input = dialog.get('input[type="file"]')
+    const file = new File(['workbook'], 'names.xlsx')
+    Object.defineProperty(input.element, 'files', { value: [file] })
+    await input.trigger('change')
+    await dialog.trigger('submit')
+    await flushPromises()
+    expect(importReplayConfigChineseNames).toHaveBeenCalledWith('conditional-ignores', file)
+    expect(importReplayConfigReasons).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-testid="toast"]').text()).toContain('已有中文名称 1 条')
+    await wrapper.get('[data-testid="tab-error-code-ignores"]').trigger('click')
+    expect(wrapper.find('[data-testid="import-empty-chinese-names"]').exists()).toBe(false)
     wrapper.unmount()
   })
 
@@ -278,6 +306,59 @@ describe('ReplayConfigPage（忽略清单）', () => {
       reviewableByMe: 'true',
       reasonEmpty: 'true',
     })
+  })
+
+  it('combines an empty field Chinese name with empty reason and developer filters', async () => {
+    const wrapper = mount(ReplayConfigPage)
+    await flushPromises()
+
+    const checkbox = wrapper.get('[data-testid="filter-field-chinese-name-empty"]')
+    expect(checkbox.element.checked).toBe(false)
+    const callsBeforeSelection = listReplayConfigs.mock.calls.length
+    await checkbox.setValue(true)
+    await wrapper.get('[data-testid="filter-reason-empty"]').setValue(true)
+    await wrapper.get('[data-testid="filter-developed-by-me"]').setValue(true)
+    expect(listReplayConfigs).toHaveBeenCalledTimes(callsBeforeSelection)
+    await wrapper.get('form.replay-filters').trigger('submit')
+    await flushPromises()
+
+    expect(listReplayConfigs).toHaveBeenLastCalledWith('unconditional-ignores', {
+      limit: 10,
+      offset: 0,
+      developedByMe: 'true',
+      reasonEmpty: 'true',
+      fieldChineseNameEmpty: 'true',
+    })
+
+    await wrapper.get('[data-testid="reset"]').trigger('click')
+    await flushPromises()
+    expect(checkbox.element.checked).toBe(false)
+    expect(listReplayConfigs).toHaveBeenLastCalledWith('unconditional-ignores', { limit: 10, offset: 0 })
+  })
+
+  it('only shows the empty field Chinese name filter on tabs with that column', async () => {
+    const wrapper = mount(ReplayConfigPage)
+    await flushPromises()
+    const selector = '[data-testid="filter-field-chinese-name-empty"]'
+    await wrapper.get(selector).setValue(true)
+
+    for (const tab of ['conditional-ignores', 'sort-fields']) {
+      await wrapper.get(`[data-testid="tab-${tab}"]`).trigger('click')
+      await flushPromises()
+      expect(wrapper.get(selector).element.checked).toBe(false)
+      expect(listReplayConfigs).toHaveBeenLastCalledWith(tab, { limit: 10, offset: 0 })
+      await wrapper.get(selector).setValue(true)
+      await wrapper.get('form.replay-filters').trigger('submit')
+      await flushPromises()
+      expect(listReplayConfigs).toHaveBeenLastCalledWith(tab, { limit: 10, offset: 0, fieldChineseNameEmpty: 'true' })
+    }
+
+    for (const tab of ['error-code-ignores', 'message-sequence-ignores', 'one-side-error-code-ignores']) {
+      await wrapper.get(`[data-testid="tab-${tab}"]`).trigger('click')
+      await flushPromises()
+      expect(wrapper.find(selector).exists()).toBe(false)
+      expect(listReplayConfigs).toHaveBeenLastCalledWith(tab, { limit: 10, offset: 0 })
+    }
   })
 
   it('uses the sorting reason label on the sort field tab', async () => {

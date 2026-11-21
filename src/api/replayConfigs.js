@@ -3,9 +3,17 @@ import { download, request } from './index.js'
 const PREFIX = '/ai/parallel-replay/config'
 
 export function importReplayConfigReasons(type, file) {
+  return importReplayConfigFile(type, 'import-ignore-reasons', file)
+}
+
+export function importReplayConfigChineseNames(type, file) {
+  return importReplayConfigFile(type, 'import-field-chinese-names', file)
+}
+
+function importReplayConfigFile(type, endpoint, file) {
   const form = new FormData()
   form.append('file', file)
-  return request(`${PREFIX}/${encodeURIComponent(type)}/import-ignore-reasons`, { method: 'POST', body: form })
+  return request(`${PREFIX}/${encodeURIComponent(type)}/${endpoint}`, { method: 'POST', body: form })
 }
 
 function queryString(params) {

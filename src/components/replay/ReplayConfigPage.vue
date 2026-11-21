@@ -74,6 +74,10 @@
           <input v-model="reasonEmpty" type="checkbox" data-testid="filter-reason-empty" />
           <span data-testid="filter-reason-empty-label">{{ reasonEmptyLabel }}</span>
         </label>
+        <label v-if="CHINESE_NAME_COLUMNS[activeTab]" class="replay-checkbox">
+          <input v-model="fieldChineseNameEmpty" type="checkbox" data-testid="filter-field-chinese-name-empty" />
+          <span>仅看中文字段为空</span>
+        </label>
       </div>
       <div class="replay-filter-actions">
         <button class="replay-button replay-button-primary" type="submit" data-testid="search">查询</button>
@@ -86,6 +90,7 @@
         </button>
         <button class="replay-button replay-button-primary" type="button" data-testid="create-config" @click="openCreate">新增</button>
         <button v-if="reasonImportColumns" class="replay-button" type="button" data-testid="import-empty-reasons" @click="openReasonImport">忽略原因为空数据导入</button>
+        <button v-if="CHINESE_NAME_COLUMNS[activeTab]" class="replay-button" type="button" data-testid="import-empty-chinese-names" @click="openReasonImport(true)">字段中文名称为空数据导入</button>
         <button class="replay-button" type="button" :data-testid="isMessageSequenceTab ? 'export-message-sequences' : isOneSideTab ? 'export-one-side-error-codes' : 'export-excel'" :disabled="exporting" @click="exportConfigs">
           {{ exporting ? '导出中...' : isMessageSequenceTab ? '导出流水号忽略' : isOneSideTab ? '导出单边失败错误码' : '导出Excel' }}
         </button>
@@ -239,15 +244,15 @@
     </div>
 
     <div v-if="reasonImportTab" class="replay-modal-mask" @click.self="closeReasonImport">
-      <form class="replay-confirm-modal replay-reason-import" role="dialog" aria-modal="true" aria-label="忽略原因为空数据导入"
+      <form class="replay-confirm-modal replay-reason-import" role="dialog" aria-modal="true" :aria-label="importTitle"
             data-testid="reason-import-dialog" @submit.prevent="submitReasonImport" @keydown.esc="closeReasonImport">
-        <p class="replay-confirm-text">忽略原因为空数据导入 · {{ SCHEMAS[reasonImportTab].title }}</p>
+        <p class="replay-confirm-text">{{ importTitle }} · {{ SCHEMAS[reasonImportTab].title }}</p>
         <p>选择 .xlsx 或 .xls 文件。只读取第一个工作表，第一行直接填写数据，不要加表头。</p>
         <ol>
-          <li v-for="label in REASON_IMPORT_COLUMNS[reasonImportTab]" :key="label">{{ label }}</li>
+          <li v-for="label in importColumns" :key="label">{{ label }}</li>
         </ol>
         <p v-if="reasonImportTab === 'error-code-ignores'">老核心、新核心错误码至少填一列，空的一侧保留空单元格。</p>
-        <p>只补充已有记录的空原因，保留审核状态。</p>
+        <p>只补充已有记录的{{ importingChineseNames ? '空中文名称' : '空原因' }}，保留审核状态。</p>
         <input aria-label="选择 Excel 文件" type="file" accept=".xlsx,.xls" :disabled="importingReasons"
                @change="reasonImportFile = $event.target.files?.[0] ?? null" />
         <p v-if="reasonImportError" class="replay-message replay-error" role="alert">{{ reasonImportError }}</p>
@@ -330,6 +335,7 @@ import {
   exportReviewedOneSideErrorCodeIgnores,
   exportReviewedReplayConfigs,
   importReplayConfigReasons,
+  importReplayConfigChineseNames,
   listReplayConfigDomains,
   listReplayConfigOperations,
   listReplayConfigs,
@@ -617,6 +623,7 @@ const internalTransactionCode = ref('')
 const reviewableByMe = ref(false)
 const developedByMe = ref(false)
 const reasonEmpty = ref(false)
+const fieldChineseNameEmpty = ref(false)
 const filters = reactive({})
 const selectedIds = ref([])
 const reviewerMappingWarningCodes = ref([])
@@ -631,6 +638,17 @@ const REASON_IMPORT_COLUMNS = {
 }
 const reasonImportColumns = computed(() => REASON_IMPORT_COLUMNS[activeTab.value])
 const reasonImportTab = ref('')
+const CHINESE_NAME_COLUMNS = {
+  'unconditional-ignores': '忽略字段中文名称',
+  'conditional-ignores': '忽略字段中文名称',
+  'sort-fields': '排序字段中文名称',
+}
+const importingChineseNames = ref(false)
+const importTitle = computed(() => importingChineseNames.value ? '字段中文名称为空数据导入' : '忽略原因为空数据导入')
+const importColumns = computed(() => {
+  const columns = REASON_IMPORT_COLUMNS[reasonImportTab.value] ?? []
+  return importingChineseNames.value ? [...columns.slice(0, -1), CHINESE_NAME_COLUMNS[reasonImportTab.value]] : columns
+})
 const reasonImportFile = ref(null)
 const reasonImportError = ref('')
 const importingReasons = ref(false)
@@ -750,6 +768,7 @@ function resetFilters() {
   reviewableByMe.value = false
   developedByMe.value = false
   reasonEmpty.value = false
+  fieldChineseNameEmpty.value = false
 }
 
 function requestParams() {
@@ -762,6 +781,7 @@ function requestParams() {
   if (reviewableByMe.value) params.reviewableByMe = 'true'
   if (developedByMe.value) params.developedByMe = 'true'
   if (reasonEmpty.value) params.reasonEmpty = 'true'
+  if (CHINESE_NAME_COLUMNS[activeTab.value] && fieldChineseNameEmpty.value) params.fieldChineseNameEmpty = 'true'
   for (const filter of schema.value.filters) {
     const value = filters[filter.key]
     if (value !== undefined && value !== null && value !== '') params[filter.key] = value
@@ -830,7 +850,8 @@ function changePageSize() {
   return load()
 }
 
-function openReasonImport() {
+function openReasonImport(chineseNames = false) {
+  importingChineseNames.value = chineseNames === true
   reasonImportFile.value = null
   reasonImportError.value = ''
   reasonImportTab.value = activeTab.value
@@ -851,9 +872,11 @@ async function submitReasonImport() {
   }
   importingReasons.value = true
   try {
-    const result = await importReplayConfigReasons(type, file)
+    const names = importingChineseNames.value
+    const result = await (names ? importReplayConfigChineseNames(type, file) : importReplayConfigReasons(type, file))
     reasonImportTab.value = ''
-    showToast(`补充 ${result.updatedRows} 条，已有原因 ${result.skippedExistingReasonRows} 条，未匹配 ${result.unmatchedRows} 条，匹配到多条 ${result.ambiguousRows ?? 0} 条`)
+    const existing = names ? `已有中文名称 ${result.skippedExistingNameRows}` : `已有原因 ${result.skippedExistingReasonRows}`
+    showToast(`补充 ${result.updatedRows} 条，${existing} 条，未匹配 ${result.unmatchedRows} 条，匹配到多条 ${result.ambiguousRows ?? 0} 条`)
     if (activeTab.value === type) await load()
   } catch (cause) {
     reasonImportError.value = `导入失败：${cause?.message || cause}`

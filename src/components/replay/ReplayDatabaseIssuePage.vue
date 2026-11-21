@@ -570,10 +570,10 @@ async function submitImport(){
   }
 }
 const editRow=ref(null),saving=ref(false),editError=ref(''),draft=reactive({version:0,issueStatus:'',issueType:'',cooperationPersonUsername:'',initialAnalysis:'',finalSolution:'',remark:''})
-const manualStatuses=['打开','无需处理','延后修复','修复待验证'],noActionTypes=['不参与比对','规则性差异']
+const manualStatuses=['打开','无需处理','延后修复','修复待验证'],noActionTypes=['不参与比对','规则性差异','合理差异']
 const editableStatuses=computed(()=>editRow.value?.issueStatus==='重新打开'?manualStatuses.filter(s=>s!=='打开'):manualStatuses)
 const editableTypes=computed(()=>draft.issueStatus==='无需处理'?noActionTypes:options.issueTypes.filter(value=>!noActionTypes.includes(value)))
-const typeSelectionMessage=computed(()=>draft.issueStatus==='无需处理'?'无需处理的问题类型请选择：不参与比对、规则性差异':'请选择问题类型')
+const typeSelectionMessage=computed(()=>draft.issueStatus==='无需处理'?`无需处理的问题类型请选择：${noActionTypes.join('、')}`:'请选择问题类型')
 const collaboratorText=ref(''),selectedCollaboratorText=ref(''),collaborators=ref([]),collaboratorLoading=ref(false)
 const editMailStatus = ref({ recipients: [] })
 const mailStatusLoading = ref(false)

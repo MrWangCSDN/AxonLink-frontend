@@ -19,7 +19,8 @@ vi.mock('../../api/replayIssues.js', () => ({
   getReplayCompletionIssues: vi.fn(),
 }))
 
-vi.mock('./completionSnapshot.js', () => ({
+vi.mock('./completionSnapshot.js', async importOriginal => ({
+  ...await importOriginal(),
   buildCompletionSnapshotFilename: vi.fn(),
   createCompletionSnapshotBlob: vi.fn(),
   downloadAndCopyCompletionSnapshot: vi.fn(),
@@ -39,8 +40,10 @@ function createGroup(groupName, matchedDeveloper, plannedTotal = 6) {
     plannedTotal,
     onTimeFixedCount: 2,
     lateFixedCount: 1,
+    averageLateFixedDays: 2.5,
     unfinishedCount: 2,
     overdueUnfinishedCount: 1,
+    averageOverdueUnfinishedDays: 4.25,
     completionRate: 50,
     pendingVerificationCount: 1,
     developers: [{
@@ -48,8 +51,10 @@ function createGroup(groupName, matchedDeveloper, plannedTotal = 6) {
       plannedTotal,
       onTimeFixedCount: 2,
       lateFixedCount: 1,
+      averageLateFixedDays: 1.5,
       unfinishedCount: 2,
       overdueUnfinishedCount: 1,
+      averageOverdueUnfinishedDays: 3.5,
       completionRate: 50,
       pendingVerificationCount: 1,
     }],
@@ -242,14 +247,65 @@ describe('ReplayPlannedCompletionModal', () => {
     const developerRows = wrapper.findAll('[data-testid="completion-developer-row"]')
     expect(developerRows).toHaveLength(4)
     expect(wrapper.findAll('.replay-completion-table thead th').map(cell => cell.text())).toEqual([
-      '领域 / 开发负责人', '计划问题数', '已修复', '延期修复', '未完成', '延期未完成', '完成率', '修复待验证',
+      '领域 / 开发负责人', '计划问题数', '已修复', '延期修复', '平均延期修复天数', '未完成', '延期未完成', '平均延期未完成天数', '完成率', '修复待验证',
     ])
     expect(developerRows.map(row => row.find('th').text())).toEqual(['D负责人', 'A负责人', 'B负责人', 'C负责人'])
-    expect(developerRows.map(row => row.findAll('td')[5].text())).toEqual(['10.00%', '20.00%', '20.00%', '20.00%'])
-    expect(developerRows.map(row => row.findAll('td')[6].text())).toEqual(['1', '1', '1', '1'])
-    expect(wrapper.get('[data-testid="completion-group-row"]').findAll('td')[6].text()).toBe('1')
+    expect(developerRows.map(row => row.findAll('td')[7].text())).toEqual(['10.00%', '20.00%', '20.00%', '20.00%'])
+    expect(developerRows.map(row => row.findAll('td')[8].text())).toEqual(['1', '1', '1', '1'])
+    expect(wrapper.get('[data-testid="completion-group-row"]').findAll('td')[8].text()).toBe('1')
     expect(wrapper.find('[data-testid="completion-issue-drawer"]').exists()).toBe(false)
     expect(wrapper.get('.replay-completion-table-wrap').classes()).toContain('replay-completion-table-wrap')
+  })
+
+  it('shows server-provided average days in domain and developer rows without replacing count drilldowns', async () => {
+    const wrapper = mount(ReplayPlannedCompletionModal, { props: { windowState: 'open' } })
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="completion-group-row"]').findAll('td').map(cell => cell.text())).toEqual([
+      '29', '2', '1', '2.50', '2', '1', '4.25', '50.00%', '1',
+    ])
+    expect(wrapper.findAll('[data-testid="completion-developer-row"]')[0].findAll('td').map(cell => cell.text())).toEqual([
+      '3', '2', '1', '1.50', '2', '1', '3.50', '10.00%', '1',
+    ])
+    expect(wrapper.get('[data-testid="completion-group-row"]').findAll('button')).toHaveLength(4)
+    await wrapper.get('[data-testid="developer-LATE_FIXED-D负责人"]').trigger('click')
+    await flushPromises()
+    expect(getReplayCompletionIssues).toHaveBeenLastCalledWith(expect.objectContaining({
+      groupName: '存款组', matchedDeveloper: 'D负责人', category: 'LATE_FIXED',
+    }))
+    wrapper.unmount()
+  })
+
+  it.each([
+    [null, undefined, '-', '-'],
+    ['', Number.NaN, '-', '-'],
+    [Number.POSITIVE_INFINITY, 'not-a-number', '-', '-'],
+    [0, 0, '0.00', '0.00'],
+    ['2.5', 3, '2.50', '3.00'],
+  ])('formats average day values %s and %s consistently for totals and developers', async (late, overdue, expectedLate, expectedOverdue) => {
+    const group = createGroup('存款组', '负责人甲')
+    Object.assign(group, { averageLateFixedDays: late, averageOverdueUnfinishedDays: overdue })
+    Object.assign(group.developers[0], { averageLateFixedDays: late, averageOverdueUnfinishedDays: overdue })
+    getReplayCompletionDashboard.mockResolvedValueOnce({ ...dashboard, groups: [group] })
+    const wrapper = mount(ReplayPlannedCompletionModal, { props: { windowState: 'open' } })
+    await flushPromises()
+
+    for (const row of wrapper.findAll('[data-testid="completion-group-row"], [data-testid="completion-developer-row"]')) {
+      const cells = row.findAll('td')
+      expect(cells[3].text()).toBe(expectedLate)
+      expect(cells[6].text()).toBe(expectedOverdue)
+    }
+    wrapper.unmount()
+  })
+
+  it('spans all ten columns when the selected domain has no rows', async () => {
+    getReplayCompletionDashboard.mockResolvedValueOnce({ ...dashboard, groups: [createGroup('贷款组', '负责人甲')] })
+    const wrapper = mount(ReplayPlannedCompletionModal, { props: { windowState: 'open' } })
+    await flushPromises()
+
+    expect(wrapper.get('.replay-completion-empty-group').attributes('colspan')).toBe('10')
+    expect(wrapper.get('.replay-completion-empty-group').text()).toContain('当前时间范围暂无该领域数据')
+    wrapper.unmount()
   })
 
   it('captures the effective date range, current group total, and every sorted developer', async () => {

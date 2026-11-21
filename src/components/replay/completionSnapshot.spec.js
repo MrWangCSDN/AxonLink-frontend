@@ -7,6 +7,7 @@ import {
 
 function createCanvasEnvironment() {
   const writtenTexts = []
+  const textRuns = []
   const context = {
     fillStyle: '',
     font: '',
@@ -21,7 +22,10 @@ function createCanvasEnvironment() {
     moveTo: vi.fn(),
     lineTo: vi.fn(),
     stroke: vi.fn(),
-    fillText: vi.fn(text => writtenTexts.push(String(text))),
+    fillText: vi.fn((text, x, y) => {
+      writtenTexts.push(String(text))
+      textRuns.push({ text: String(text), x, y, align: context.textAlign, width: String(text).length * 12 })
+    }),
     measureText: vi.fn(text => ({ width: String(text).length * 12 })),
   }
   const blob = new Blob(['snapshot'], { type: 'image/png' })
@@ -32,7 +36,7 @@ function createCanvasEnvironment() {
     toBlob: vi.fn(callback => callback(blob)),
   }
   const documentRef = { createElement: vi.fn(() => canvas) }
-  return { blob, canvas, context, documentRef, writtenTexts }
+  return { blob, canvas, context, documentRef, writtenTexts, textRuns }
 }
 
 function completionRow(name, plannedTotal) {
@@ -98,6 +102,44 @@ describe('completionSnapshot', () => {
     ]))
     expect(environment.canvas.height).toBeGreaterThan(500)
     expect(environment.canvas.toBlob).toHaveBeenCalledWith(expect.any(Function), 'image/png')
+  })
+
+  it('renders ten columns with both averages and keeps every header and row inside the PNG', async () => {
+    const environment = createCanvasEnvironment()
+    const group = { ...completionRow('unused', 8), groupName: '存款组', averageLateFixedDays: 7.75, averageOverdueUnfinishedDays: 4.5 }
+    const developers = [{ ...completionRow('负责人甲', 8), averageLateFixedDays: 1.5, averageOverdueUnfinishedDays: 0 }]
+    await createCompletionSnapshotBlob({ group, developers, startDate: '2026-08-28', endDate: '2026-08-30' }, { documentRef: environment.documentRef, pixelRatio: 2 })
+
+    const headers = environment.writtenTexts.indexOf('领域 / 开发负责人')
+    expect(environment.writtenTexts.slice(headers, headers + 10)).toEqual([
+      '领域 / 开发负责人', '计划问题数', '已修复', '延期修复', '平均延期修复天数', '未完成', '延期未完成', '平均延期未完成天数', '完成率', '修复待验证',
+    ])
+    const total = environment.writtenTexts.lastIndexOf('存款组')
+    expect(environment.writtenTexts.slice(total, total + 10)).toEqual(['存款组', '8', '1', '2', '7.75', '3', '4', '4.50', '60.00%', '7'])
+    const developer = environment.writtenTexts.indexOf('负责人甲')
+    expect(environment.writtenTexts.slice(developer, developer + 10)).toEqual(['负责人甲', '8', '1', '2', '1.50', '3', '4', '0.00', '60.00%', '7'])
+    for (const run of environment.textRuns) {
+      const left = run.align === 'left' ? run.x : run.align === 'center' ? run.x - run.width / 2 : run.x - run.width
+      const right = left + run.width
+      expect(left, run.text).toBeGreaterThanOrEqual(0)
+      expect(right, run.text).toBeLessThanOrEqual(environment.canvas.width / 2)
+      expect(run.y, run.text).toBeLessThan(environment.canvas.height / 2)
+    }
+  })
+
+  it.each([
+    [null, undefined, '-', '-'],
+    ['', Number.NaN, '-', '-'],
+    [Number.POSITIVE_INFINITY, 'not-a-number', '-', '-'],
+    [0, 0, '0.00', '0.00'],
+    ['2.5', 3, '2.50', '3.00'],
+  ])('renders average days %s and %s as %s and %s in the PNG', async (late, overdue, expectedLate, expectedOverdue) => {
+    const environment = createCanvasEnvironment()
+    const group = { ...completionRow('unused', 8), groupName: '存款组', averageLateFixedDays: late, averageOverdueUnfinishedDays: overdue }
+    await createCompletionSnapshotBlob({ group, startDate: '2026-08-28', endDate: '2026-08-30' }, { documentRef: environment.documentRef })
+    const index = environment.writtenTexts.lastIndexOf('存款组')
+    expect(environment.writtenTexts[index + 4]).toBe(expectedLate)
+    expect(environment.writtenTexts[index + 7]).toBe(expectedOverdue)
   })
 
   it('downloads and copies the same PNG blob', async () => {

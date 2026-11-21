@@ -1,11 +1,17 @@
-const logicalWidth = 1530
 const horizontalPadding = 48
 const tableTop = 132
 const tableHeaderHeight = 52
 const tableRowHeight = 48
 const bottomPadding = 36
-const columnWidths = [404, 150, 150, 150, 150, 170, 130, 130]
-const tableHeaders = ['领域 / 开发负责人', '计划问题数', '已修复', '延期修复', '未完成', '延期未完成', '完成率', '修复待验证']
+const columnWidths = [404, 150, 150, 150, 190, 150, 170, 190, 130, 130]
+const logicalWidth = columnWidths.reduce((sum, width) => sum + width, 0) + horizontalPadding * 2
+const tableHeaders = ['领域 / 开发负责人', '计划问题数', '已修复', '延期修复', '平均延期修复天数', '未完成', '延期未完成', '平均延期未完成天数', '完成率', '修复待验证']
+
+export function formatAverageDays(value) {
+  if (value === undefined || value === null || (typeof value === 'string' && !value.trim())) return '-'
+  const number = Number(value)
+  return Number.isFinite(number) ? number.toFixed(2) : '-'
+}
 
 function safeSegment(value) {
   return String(value || '').trim().replace(/[\\/:*?"<>|]/g, '_') || '未命名'
@@ -39,8 +45,10 @@ function rowValues(row, label) {
     numberLabel(row.plannedTotal),
     numberLabel(row.onTimeFixedCount),
     numberLabel(row.lateFixedCount),
+    formatAverageDays(row.averageLateFixedDays),
     numberLabel(row.unfinishedCount),
     numberLabel(row.overdueUnfinishedCount),
+    formatAverageDays(row.averageOverdueUnfinishedDays),
     rateLabel(row.completionRate),
     numberLabel(row.pendingVerificationCount),
   ]

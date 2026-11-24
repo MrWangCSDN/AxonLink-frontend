@@ -1,6 +1,7 @@
 import { download, request } from './index.js'
 
 const PREFIX = '/ai/parallel-replay/database-comparison-fields'
+const SCRIPT_CONFIGS = `${PREFIX}/script-configs`
 
 const json = (method, body) => ({
   method,
@@ -89,6 +90,20 @@ export function downloadVersionConfigScript(versionNo, targetVersion = 'LEGACY')
     configScriptFileName(versionNo).replace(/\.sql$/, targetVersion === 'NEW' ? '-new.sql' : '.sql'),
   )
 }
+
+export const listScriptConfigurations = () => request(SCRIPT_CONFIGS)
+export const getScriptConfiguration = id => request(`${SCRIPT_CONFIGS}/${encodeURIComponent(id)}`)
+export const createScriptConfiguration = body => request(SCRIPT_CONFIGS, json('POST', body))
+export const updateScriptConfiguration = (id, body) => request(`${SCRIPT_CONFIGS}/${encodeURIComponent(id)}`, json('PUT', body))
+export function importScriptConfigurationTables(file) {
+  const form = new FormData()
+  form.append('file', file)
+  return request(`${SCRIPT_CONFIGS}/import-tables`, { method: 'POST', body: form })
+}
+export const downloadScriptConfiguration = (id, revision) => download(
+  `${SCRIPT_CONFIGS}/${encodeURIComponent(id)}/download${query({ revision })}`,
+  `replay-db-compare-script-config-${encodeURIComponent(id)}-r${revision}.sql`,
+)
 
 export async function generateVersion(token = '') {
   const response = await fetch(`/api${PREFIX}/versions/generate`, {

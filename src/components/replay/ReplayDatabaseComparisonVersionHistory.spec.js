@@ -12,6 +12,8 @@ vi.mock('../../api/replayDatabaseComparison.js', () => ({
   loadVersions: vi.fn(),
   searchVersionSnapshot: vi.fn(),
   loadVersionHeaderFilterOptions: vi.fn(),
+  listScriptConfigurations: vi.fn(), getScriptConfiguration: vi.fn(), createScriptConfiguration: vi.fn(),
+  updateScriptConfiguration: vi.fn(), importScriptConfigurationTables: vi.fn(), downloadScriptConfiguration: vi.fn(),
 }))
 
 import * as comparisonApi from '../../api/replayDatabaseComparison.js'
@@ -21,6 +23,7 @@ describe('ReplayDatabaseComparisonVersionHistory', () => {
   beforeEach(() => {
     workbook.exportVersionDetails.mockReset().mockResolvedValue(undefined)
     Object.values(comparisonApi).forEach(value => value.mockReset())
+    comparisonApi.listScriptConfigurations.mockResolvedValue({ items: [] })
     comparisonApi.loadVersions.mockResolvedValue({
       items: [
         { versionNo: '20260914-150101', generatedName: '张三', generatedAt: '2026-09-14T15:01:01', tableCount: 2, fieldCount: 4, latest: true },
@@ -62,6 +65,91 @@ describe('ReplayDatabaseComparisonVersionHistory', () => {
     comparisonApi.downloadVersionConfigScript.mockResolvedValue({
       fileName: 'replay-db-compare-config-20260914-150101.sql',
     })
+  })
+
+  it('offers independent named scripts and management even when there are no historical versions', async () => {
+    comparisonApi.loadVersions.mockResolvedValue({ items: [] })
+    comparisonApi.listScriptConfigurations.mockResolvedValue({ items: [{ id: 7, name: '平台全量', revision: 3, tableCount: 2, fieldCount: 8 }] })
+    const wrapper = mount(ReplayDatabaseComparisonVersionHistory, { props: { open: true } })
+    await flushPromises()
+    const picker = wrapper.get('[data-testid="config-script-target"]')
+    expect(picker.findAll('option').map(option => [option.element.value, option.text()])).toEqual([
+      ['LEGACY', '旧版本（原表）'], ['NEW', '新版本（_new 表）'], ['profile:7', '平台全量'],
+    ])
+    expect(wrapper.get('[data-testid="config-script-action"]').attributes('disabled')).toBeDefined()
+    await picker.setValue('profile:7')
+    expect(wrapper.get('[data-testid="config-script-action"]').attributes('disabled')).toBeUndefined()
+    await wrapper.get('[data-testid="config-script-action"]').trigger('click')
+    await flushPromises()
+    expect(comparisonApi.downloadScriptConfiguration).toHaveBeenCalledWith(7, 3)
+    expect(comparisonApi.generateVersionConfigScript).not.toHaveBeenCalled()
+    expect(comparisonApi.downloadVersionConfigScript).not.toHaveBeenCalled()
+    await wrapper.get('[data-testid="open-script-manager"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[aria-label="脚本管理"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('downloads named configurations independently of builtin status and history search filters', async () => {
+    comparisonApi.loadVersionConfigScriptStatus.mockReturnValue(new Promise(() => {}))
+    comparisonApi.listScriptConfigurations.mockResolvedValue({ items: [{ id: 7, name: '平台全量', revision: 3 }] })
+    const wrapper = mount(ReplayDatabaseComparisonVersionHistory, { props: { open: true } })
+    await flushPromises()
+    await wrapper.get('[data-testid="history-domain"]').setValue('存款组')
+    await wrapper.get('[data-testid="apply-history-filters"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="config-script-target"]').setValue('profile:7')
+    await wrapper.get('[data-testid="config-script-action"]').trigger('click')
+    await flushPromises()
+    expect(comparisonApi.downloadScriptConfiguration).toHaveBeenCalledExactlyOnceWith(7, 3)
+    wrapper.unmount()
+  })
+
+  it('refreshes and selects a newly saved named configuration without requiring a historical version', async () => {
+    let profiles = []
+    comparisonApi.loadVersions.mockResolvedValue({ items: [] })
+    comparisonApi.listScriptConfigurations.mockImplementation(async () => ({ items: profiles }))
+    comparisonApi.importScriptConfigurationTables.mockResolvedValue({ tables: [{ tableName: 'acct', tableComment: '账户', domainName: '平台组', ownerName: '负责人文字', maxPartitionNum: 64, ignoredFields: [], fields: [{ columnName: 'id', primaryKey: true }] }] })
+    comparisonApi.createScriptConfiguration.mockImplementation(async () => {
+      const saved = { id: 8, name: '新增方案', revision: 1, tableCount: 1, fieldCount: 1 }
+      profiles = [saved]
+      return saved
+    })
+    const wrapper = mount(ReplayDatabaseComparisonVersionHistory, { props: { open: true } })
+    await flushPromises()
+    await wrapper.get('[data-testid="open-script-manager"]').trigger('click'); await flushPromises()
+    await wrapper.get('[data-testid="script-config-name"]').setValue('新增方案')
+    const input = wrapper.get('[data-testid="script-tables-file"]')
+    Object.defineProperty(input.element, 'files', { value: [new File(['tables'], 'tables.xlsx')] })
+    await input.trigger('change')
+    await wrapper.get('[data-testid="preview-script-tables"]').trigger('click'); await flushPromises()
+    await wrapper.get('[data-testid="save-script-config"]').trigger('click'); await flushPromises()
+    expect(wrapper.find('[aria-label="脚本管理"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="config-script-target"]').element.value).toBe('profile:8')
+    expect(wrapper.get('[data-testid="config-script-target"]').text()).toContain('新增方案')
+    await wrapper.get('[data-testid="config-script-action"]').trigger('click'); await flushPromises()
+    expect(comparisonApi.downloadScriptConfiguration).toHaveBeenCalledWith(8, 1)
+    wrapper.unmount()
+  })
+
+  it('locks named downloads against duplicate clicks and shows revision conflicts without a legacy fallback', async () => {
+    let rejectDownload
+    comparisonApi.downloadScriptConfiguration.mockReturnValue(new Promise((_, reject) => { rejectDownload = reject }))
+    comparisonApi.listScriptConfigurations.mockResolvedValue({ items: [{ id: 7, name: '平台全量', revision: 3 }] })
+    const wrapper = mount(ReplayDatabaseComparisonVersionHistory, { props: { open: true } })
+    await flushPromises()
+    await wrapper.get('[data-testid="config-script-target"]').setValue('profile:7')
+    const action = wrapper.get('[data-testid="config-script-action"]')
+    await action.trigger('click'); await action.trigger('click')
+    expect(comparisonApi.downloadScriptConfiguration).toHaveBeenCalledTimes(1)
+    expect(wrapper.get('[data-testid="config-script-target"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-testid="close-version-history"]').attributes('disabled')).toBeDefined()
+    rejectDownload(new Error('配置修订已更新，请重新选择'))
+    await flushPromises()
+    expect(wrapper.get('[data-testid="config-script-errors"]').text()).toContain('配置修订已更新')
+    expect(comparisonApi.downloadVersionConfigScript).not.toHaveBeenCalled()
+    expect(action.attributes('disabled')).toBeUndefined()
+    wrapper.unmount()
   })
 
   it('shows frozen custom SQL, source, result keys and separate registration counts', async () => {

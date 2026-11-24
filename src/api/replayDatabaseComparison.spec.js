@@ -40,6 +40,33 @@ describe('replayDatabaseComparison api', () => {
     global.fetch = vi.fn()
   })
 
+  it('manages named configurations through independent routes and downloads a fixed revision', async () => {
+    for (const name of ['listScriptConfigurations', 'getScriptConfiguration', 'createScriptConfiguration', 'updateScriptConfiguration', 'importScriptConfigurationTables', 'downloadScriptConfiguration']) {
+      expect(comparisonApi[name], name).toBeTypeOf('function')
+    }
+    const body = { name: '平台全量', revision: 3, globalIgnoredFields: ['updated_at'], tables: [] }
+    await comparisonApi.listScriptConfigurations()
+    await comparisonApi.getScriptConfiguration('id/1')
+    await comparisonApi.createScriptConfiguration(body)
+    await comparisonApi.updateScriptConfiguration('id/1', body)
+    const file = new File(['tables'], 'tables.xlsx')
+    await comparisonApi.importScriptConfigurationTables(file)
+    const prefix = '/ai/parallel-replay/database-comparison-fields/script-configs'
+    expect(request.mock.calls.slice(0, 4)).toEqual([
+      [prefix], [`${prefix}/id%2F1`],
+      [prefix, { method: 'POST', body: JSON.stringify(body) }],
+      [`${prefix}/id%2F1`, { method: 'PUT', body: JSON.stringify(body) }],
+    ])
+    const [url, options] = request.mock.calls[4]
+    expect(url).toBe(`${prefix}/import-tables`)
+    expect(options.method).toBe('POST')
+    expect(options.body).toBeInstanceOf(FormData)
+    expect(options.body.get('file')).toBe(file)
+    expect(options.headers).toBeUndefined()
+    await comparisonApi.downloadScriptConfiguration('id/1', 3)
+    expect(download).toHaveBeenCalledWith(`${prefix}/id%2F1/download?revision=3`, expect.stringMatching(/\.sql$/))
+  })
+
   it('analyzes and saves custom SQL registrations through their dedicated routes', async () => {
     expect(comparisonApi.analyzeCustomSql).toBeTypeOf('function')
     const sql = 'select account_id, sum(amount) as total_amt from account group by account_id'

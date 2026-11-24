@@ -11,7 +11,8 @@
           class="icon-button"
           aria-label="关闭版本历史"
           data-testid="close-version-history"
-          @click="emit('close')"
+          :disabled="scriptBusy"
+          @click="requestClose"
         >×</button>
       </header>
 
@@ -29,6 +30,7 @@
               class="version-item"
               :class="{ active: version.versionNo === selectedVersionNo }"
               :data-testid="`version-item-${version.versionNo}`"
+              :disabled="scriptBusy"
               @click="selectVersion(version.versionNo)"
             >
               <span class="version-number">{{ version.versionNo }}</span>
@@ -82,11 +84,13 @@
             <div class="filter-actions">
               <button type="button" class="outlined" @click="resetFilters">重置</button>
               <button type="button" class="primary" data-testid="apply-history-filters" @click="applyFilters">查询</button>
+              <button type="button" class="outlined" data-testid="open-script-manager" :disabled="scriptBusy" @click="scriptManagerOpen = true">脚本管理</button>
               <label class="script-target">
                 <span>SQL 配置版本</span>
-                <select v-model="scriptTargetVersion" :disabled="generatingScript" data-testid="config-script-target">
+                <select v-model="scriptTargetVersion" :disabled="scriptBusy" data-testid="config-script-target" @change="scriptSelectionChanged">
                   <option value="LEGACY">旧版本（原表）</option>
                   <option value="NEW">新版本（_new 表）</option>
+                  <option v-for="profile in scriptProfiles" :key="profile.id" :value="`profile:${profile.id}`">{{ profile.name }}</option>
                 </select>
               </label>
               <button
@@ -99,12 +103,12 @@
               <button
                 type="button"
                 class="primary script-action"
-                :class="{ generated: scriptStatus.generated }"
-                :disabled="!selectedVersionNo || loadingScriptStatus || generatingScript"
+                :class="{ generated: scriptActionGenerated }"
+                :disabled="scriptActionDisabled"
                 data-testid="config-script-action"
                 @click="handleConfigScript"
               >
-                <span v-if="scriptStatus.generated && !generatingScript" aria-hidden="true">↓</span>
+                <span v-if="scriptActionGenerated && !scriptBusy" aria-hidden="true">↓</span>
                 {{ configScriptActionText }}
               </button>
             </div>
@@ -121,6 +125,7 @@
           <div v-if="exportError" class="script-error" data-testid="export-details-errors" role="alert">
             {{ exportError }}
           </div>
+          <div v-if="scriptProfilesError" class="script-error" role="alert">{{ scriptProfilesError }} <button type="button" :disabled="scriptProfilesLoading" @click="loadScriptProfiles">重试读取命名配置</button></div>
           </div>
 
           <div class="snapshot-table-shell">
@@ -181,12 +186,14 @@
         </main>
       </div>
     </section>
+    <ReplayDatabaseComparisonScriptManager :open="scriptManagerOpen" @close="scriptManagerOpen = false" @saved="scriptConfigurationSaved" />
   </div>
 </template>
 
 <script setup>
 import { computed, reactive, ref, watch } from 'vue'
 import DiiSqlPre from '../daoindex/widgets/DiiSqlPre.vue'
+import ReplayDatabaseComparisonScriptManager from './ReplayDatabaseComparisonScriptManager.vue'
 import { exportVersionDetails } from './versionDetailWorkbook.js'
 import {
   displayTableName,
@@ -201,6 +208,8 @@ import {
   loadVersionConfigScriptStatus,
   loadVersionHeaderFilterOptions,
   loadVersions,
+  listScriptConfigurations,
+  downloadScriptConfiguration,
   searchVersionSnapshot,
 } from '../../api/replayDatabaseComparison.js'
 
@@ -213,7 +222,17 @@ const loadingVersions = ref(false)
 const loadingSnapshot = ref(false)
 const loadingScriptStatus = ref(false)
 const generatingScript = ref(false)
+const downloadingScript = ref(false)
+const scriptBusy = computed(() => generatingScript.value || downloadingScript.value)
+const scriptProfiles = ref([])
+const scriptProfilesLoading = ref(false)
+const scriptProfilesError = ref('')
+const scriptManagerOpen = ref(false)
+let scriptProfilesRequest = 0
+let scriptActionRequest = 0
 const scriptTargetVersion = ref('LEGACY')
+const isNamedSelection = computed(() => scriptTargetVersion.value.startsWith('profile:'))
+const selectedScriptProfile = computed(() => scriptProfiles.value.find(profile => `profile:${profile.id}` === scriptTargetVersion.value))
 const scriptStatus = ref({ generated: false })
 const scriptError = ref('')
 const scriptValidationErrors = ref([])
@@ -243,10 +262,36 @@ const selectedIndexFieldLabel = (row, field) => {
 }
 
 const configScriptActionText = computed(() => {
+  if (downloadingScript.value) return '下载中…'
   if (generatingScript.value) return '生成中…'
+  if (isNamedSelection.value) return '下载配置脚本'
   if (loadingScriptStatus.value) return '状态加载中…'
   return scriptStatus.value.generated ? '下载配置脚本' : '生成配置脚本'
 })
+const scriptActionGenerated = computed(() => isNamedSelection.value ? !!selectedScriptProfile.value : scriptStatus.value.generated)
+const scriptActionDisabled = computed(() => scriptBusy.value || (isNamedSelection.value
+  ? !selectedScriptProfile.value : !selectedVersionNo.value || loadingScriptStatus.value))
+
+function requestClose() { if (!scriptBusy.value) emit('close') }
+function scriptSelectionChanged() { scriptActionRequest++; scriptError.value = ''; scriptValidationErrors.value = [] }
+async function loadScriptProfiles() {
+  const requestId = ++scriptProfilesRequest
+  scriptProfilesLoading.value = true
+  scriptProfilesError.value = ''
+  try {
+    const result = await listScriptConfigurations()
+    if (props.open && requestId === scriptProfilesRequest) scriptProfiles.value = result?.items || []
+  } catch (error) {
+    if (props.open && requestId === scriptProfilesRequest) scriptProfilesError.value = error?.message || '命名配置读取失败'
+  } finally { if (requestId === scriptProfilesRequest) scriptProfilesLoading.value = false }
+}
+async function scriptConfigurationSaved(profile) {
+  scriptProfiles.value = [...scriptProfiles.value.filter(item => item.id !== profile.id), profile]
+  scriptTargetVersion.value = `profile:${profile.id}`
+  scriptSelectionChanged()
+  scriptManagerOpen.value = false
+  await loadScriptProfiles()
+}
 
 const criteria = page => ({
   ...appliedFilters,
@@ -327,7 +372,7 @@ const loadHistory = async () => {
 }
 
 const selectVersion = async versionNo => {
-  if (versionNo === selectedVersionNo.value) return
+  if (scriptBusy.value || versionNo === selectedVersionNo.value) return
   ++exportContext
   exportError.value = ''
   selectedVersionNo.value = versionNo
@@ -356,25 +401,35 @@ const handleExportDetails = async () => {
 }
 
 const handleConfigScript = async () => {
-  if (!selectedVersionNo.value || generatingScript.value || loadingScriptStatus.value) return
+  if (scriptActionDisabled.value) return
+  const target = scriptTargetVersion.value
+  const profile = selectedScriptProfile.value
+  const versionNo = selectedVersionNo.value
+  const requestId = ++scriptActionRequest
   scriptError.value = ''
   scriptValidationErrors.value = []
   try {
+    if (isNamedSelection.value) {
+      downloadingScript.value = true
+      await downloadScriptConfiguration(profile.id, profile.revision)
+      return
+    }
     if (scriptStatus.value.generated) {
-      await downloadVersionConfigScript(selectedVersionNo.value, scriptTargetVersion.value)
+      downloadingScript.value = true
+      await downloadVersionConfigScript(versionNo, target)
       return
     }
     generatingScript.value = true
-    const versionNo = selectedVersionNo.value
-    await generateVersionConfigScript(versionNo, scriptTargetVersion.value)
+    await generateVersionConfigScript(versionNo, target)
     if (versionNo === selectedVersionNo.value) await loadScriptStatus(versionNo)
   } catch (error) {
+    if (!props.open || requestId !== scriptActionRequest || target !== scriptTargetVersion.value) return
     scriptError.value = error?.message || '配置脚本处理失败'
-    scriptValidationErrors.value = error?.code === 'CONFIG_SCRIPT_VALIDATION_FAILED'
+    scriptValidationErrors.value = profile || error?.code === 'CONFIG_SCRIPT_VALIDATION_FAILED'
       ? [...(error?.data?.errors || [])]
       : []
   } finally {
-    generatingScript.value = false
+    if (requestId === scriptActionRequest) { generatingScript.value = false; downloadingScript.value = false }
   }
 }
 
@@ -404,8 +459,11 @@ const goToPage = async page => {
 const changePageSize = async () => { await loadSnapshot(0) }
 
 watch(() => props.open, value => {
-  if (value) loadHistory()
+  if (value) { loadHistory(); loadScriptProfiles() }
   else {
+    scriptProfilesRequest++; scriptActionRequest++
+    scriptManagerOpen.value = false
+    downloadingScript.value = false; generatingScript.value = false
     ++exportContext
     exportError.value = ''
   }

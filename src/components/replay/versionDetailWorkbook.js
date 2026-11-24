@@ -7,9 +7,9 @@ import {
   queryConditionText,
 } from './versionSnapshotFormatters.js'
 
-const headers = ['领域', '表英文名 / 中文名', '比对字段', '选择索引', '查询条件', '科技负责人']
+const headers = ['领域', '表英文名 / 中文名', '比对字段', '选择索引', '查询条件', '最大hash分区数', '科技负责人']
 const pageSize = 200
-const mergedColumns = [0, 1, 3, 4, 5]
+const mergedColumns = [0, 1, 3, 4, 5, 6]
 const queryDetailSheetName = '查询条件明细'
 
 const splitQueryText = text => {
@@ -78,6 +78,7 @@ export const exportVersionDetails = async (versionNo, criteria = {}) => {
       field ? formatField(field) : '',
       index ? '' : formatComparisonKey(table.comparisonKey),
       index ? '' : condition,
+      index ? '' : table.maxPartitionNum ?? 64,
       index ? '' : personLabel(table.groupOwnerName, table.groupOwnerUsername, table.groupOwnerEmpNo),
     ]))
     if (fields.length > 1) mergedColumns.forEach(column => merges.push({
@@ -86,7 +87,7 @@ export const exportVersionDetails = async (versionNo, criteria = {}) => {
   }
   const worksheet = XLSX.utils.aoa_to_sheet(rows)
   worksheet['!merges'] = merges
-  worksheet['!cols'] = [16, 44, 48, 68, 90, 28].map(wch => ({ wch }))
+  worksheet['!cols'] = [16, 44, 48, 68, 90, 20, 28].map(wch => ({ wch }))
   queryLinks.forEach(({ row, target }) => {
     worksheet[XLSX.utils.encode_cell({ r: row, c: 4 })].l = { Target: target }
   })

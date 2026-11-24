@@ -30,11 +30,11 @@ const downloadedSheet = () => {
 beforeEach(() => vi.resetAllMocks())
 
 describe('version detail Excel export', () => {
-  it('writes every field in comparison order and merges only each table’s other five columns', async () => {
-    const first = table()
+  it('writes every field in comparison order and merges table-level maximum partitions', async () => {
+    const first = table({ maxPartitionNum: 100 })
     searchVersionSnapshot.mockResolvedValue(page([
       first,
-      table({ sourceRegistrationId: 2, tableName: 'acct_detail', tableComment: '账户明细', fields: [field('id', 1)] }),
+      table({ sourceRegistrationId: 2, tableName: 'acct_detail', tableComment: '账户明细', fields: [field('id', 1)], maxPartitionNum: 256 }),
     ]))
 
     await exportVersionDetails(versionNo, {})
@@ -42,10 +42,10 @@ describe('version detail Excel export', () => {
     expect(XLSX.writeFile.mock.calls[0][1]).toBe('replay-db-compare-details-20261119-093432.xlsx')
     const sheet = downloadedSheet()
     expect(XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' })).toEqual([
-      ['领域', '表英文名 / 中文名', '比对字段', '选择索引', '查询条件', '科技负责人'],
-      ['存款组', 'acct_master / 账户主表', 'acct_no(账号)', '唯一索引 · uk_acct · acct_no', "WHERE status = 'A' ORDER BY acct_no LIMIT 100", '张三(zhangsan)'],
-      ['', '', 'balance(余额)', '', '', ''],
-      ['存款组', 'acct_detail / 账户明细', 'id', '唯一索引 · uk_acct · acct_no', "WHERE status = 'A' ORDER BY acct_no LIMIT 100", '张三(zhangsan)'],
+      ['领域', '表英文名 / 中文名', '比对字段', '选择索引', '查询条件', '最大hash分区数', '科技负责人'],
+      ['存款组', 'acct_master / 账户主表', 'acct_no(账号)', '唯一索引 · uk_acct · acct_no', "WHERE status = 'A' ORDER BY acct_no LIMIT 100", 100, '张三(zhangsan)'],
+      ['', '', 'balance(余额)', '', '', '', ''],
+      ['存款组', 'acct_detail / 账户明细', 'id', '唯一索引 · uk_acct · acct_no', "WHERE status = 'A' ORDER BY acct_no LIMIT 100", 256, '张三(zhangsan)'],
     ])
     expect(sheet['!merges']).toEqual([
       { s: { r: 1, c: 0 }, e: { r: 2, c: 0 } },
@@ -53,6 +53,7 @@ describe('version detail Excel export', () => {
       { s: { r: 1, c: 3 }, e: { r: 2, c: 3 } },
       { s: { r: 1, c: 4 }, e: { r: 2, c: 4 } },
       { s: { r: 1, c: 5 }, e: { r: 2, c: 5 } },
+      { s: { r: 1, c: 6 }, e: { r: 2, c: 6 } },
     ])
     expect(first.fields.map(item => item.columnName)).toEqual(['balance', 'acct_no'])
   })
@@ -74,7 +75,7 @@ describe('version detail Excel export', () => {
       [versionNo, { page: 1, size: 200, domains: ['存款组'], fieldNames: ['acct_no'], tableKeyword: 'acct' }],
     ])
     const sheet = downloadedSheet()
-    expect(sheet['!ref']).toBe('A1:F202')
+    expect(sheet['!ref']).toBe('A1:G202')
     expect(sheet.C202.v).toBe('last_field')
     expect(XLSX.writeFile).toHaveBeenCalledTimes(1)
   })
@@ -89,7 +90,7 @@ describe('version detail Excel export', () => {
 
     const sheet = downloadedSheet()
     expect(XLSX.utils.sheet_to_json(sheet, { header: 1 })[1]).toEqual([
-      '-', 'acct_master / -', '', '历史默认主键', '全表', '0007',
+      '-', 'acct_master / -', '', '历史默认主键', '全表', 64, '0007',
     ])
     expect(sheet['!merges'] || []).toEqual([])
   })
@@ -120,7 +121,7 @@ describe('version detail Excel export', () => {
     const sheet = downloadedSheet()
     expect(sheet.C2).toMatchObject({ t: 's', v: '=1+1' })
     expect(sheet.C2.f).toBeUndefined()
-    expect(sheet.F2).toMatchObject({ t: 's', v: '0007' })
+    expect(sheet.G2).toMatchObject({ t: 's', v: '0007' })
   })
 
   it('keeps long supported SQL intact in linked chunks instead of exceeding Excel’s cell limit', async () => {
@@ -137,6 +138,7 @@ describe('version detail Excel export', () => {
     const main = reloaded.Sheets['表清单明细']
     expect(main.E2.v).toContain('完整查询条件见「查询条件明细」')
     expect(main.E2.l.Target).toBe("#'查询条件明细'!A2")
+    expect(main.F2).toMatchObject({ t: 'n', v: 64 })
     const chunks = XLSX.utils.sheet_to_json(reloaded.Sheets['查询条件明细'], { header: 1 }).slice(1)
     expect(chunks.map(row => row[1])).toEqual(['1/2', '2/2'])
     expect(chunks.map(row => row[2]).join('')).toBe(sql)

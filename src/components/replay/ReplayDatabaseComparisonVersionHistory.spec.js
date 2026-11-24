@@ -74,8 +74,9 @@ describe('ReplayDatabaseComparisonVersionHistory', () => {
     await flushPromises()
     const picker = wrapper.get('[data-testid="config-script-target"]')
     expect(picker.findAll('option').map(option => [option.element.value, option.text()])).toEqual([
-      ['LEGACY', '旧版本（原表）'], ['NEW', '新版本（_new 表）'], ['profile:7', '平台全量'],
+      ['NEW', '新版本（_new 表）'], ['profile:7', '平台全量'],
     ])
+    expect(picker.element.value).toBe('NEW')
     expect(wrapper.get('[data-testid="config-script-action"]').attributes('disabled')).toBeDefined()
     await picker.setValue('profile:7')
     expect(wrapper.get('[data-testid="config-script-action"]').attributes('disabled')).toBeUndefined()
@@ -191,7 +192,7 @@ describe('ReplayDatabaseComparisonVersionHistory', () => {
 
   it('displays each selected version sample limit without the legacy partition count', async () => {
     comparisonApi.searchVersionSnapshot.mockImplementation(async versionNo => ({
-      items: [{ sourceRegistrationId: 7, tableName: 'acct_master', partitionNum: versionNo === '20260914-150101' ? 16 : 4, sampleLimit: versionNo === '20260914-150101' ? 2500 : 0, fields: [] }],
+      items: [{ sourceRegistrationId: 7, tableName: 'acct_master', partitionNum: versionNo === '20260914-150101' ? 16 : 4, sampleLimit: versionNo === '20260914-150101' ? 2500 : 0, maxPartitionNum: versionNo === '20260914-150101' ? 100 : 256, fields: [] }],
       page: 0, size: 50, total: 1,
     }))
     const wrapper = mount(ReplayDatabaseComparisonVersionHistory, { props: { open: true } })
@@ -199,22 +200,26 @@ describe('ReplayDatabaseComparisonVersionHistory', () => {
     const headers = wrapper.findAll('thead th').map(header => header.text())
     expect(headers.indexOf('分区数')).toBe(-1)
     expect(headers[headers.indexOf('查询条件') + 1]).toBe('样本数')
+    expect(headers[headers.indexOf('样本数') + 1]).toBe('最大hash分区数')
     expect(wrapper.get('[data-testid="history-sample-limit-acct_master"]').text()).toBe('2500')
+    expect(wrapper.get('[data-testid="history-max-partition-num-acct_master"]').text()).toBe('100')
     expect(wrapper.get('[data-testid="version-snapshot-table"]').find('input').exists()).toBe(false)
     await wrapper.get('[data-testid="version-item-20260913-120000"]').trigger('click')
     await flushPromises()
     expect(wrapper.get('[data-testid="history-sample-limit-acct_master"]').text()).toBe('0')
+    expect(wrapper.get('[data-testid="history-max-partition-num-acct_master"]').text()).toBe('256')
     wrapper.unmount()
   })
 
   it.each([undefined, null])('defaults missing legacy snapshot sample limit to 100 (%s)', async sampleLimit => {
     comparisonApi.searchVersionSnapshot.mockResolvedValue({
-      items: [{ sourceRegistrationId: 7, tableName: 'legacy_table', sampleLimit, fields: [] }],
+      items: [{ sourceRegistrationId: 7, tableName: 'legacy_table', sampleLimit, maxPartitionNum: sampleLimit, fields: [] }],
       page: 0, size: 50, total: 1,
     })
     const wrapper = mount(ReplayDatabaseComparisonVersionHistory, { props: { open: true } })
     await flushPromises()
     expect(wrapper.get('[data-testid="history-sample-limit-legacy_table"]').text()).toBe('100')
+    expect(wrapper.get('[data-testid="history-max-partition-num-legacy_table"]').text()).toBe('64')
     wrapper.unmount()
   })
 
@@ -488,12 +493,12 @@ describe('ReplayDatabaseComparisonVersionHistory', () => {
     await wrapper.get('[data-testid="config-script-action"]').trigger('click')
     await flushPromises()
 
-    expect(comparisonApi.generateVersionConfigScript).toHaveBeenCalledWith('20260914-150101', 'LEGACY')
+    expect(comparisonApi.generateVersionConfigScript).toHaveBeenCalledWith('20260914-150101', 'NEW')
     expect(wrapper.get('[data-testid="config-script-action"]').text()).toContain('下载配置脚本')
 
     await wrapper.get('[data-testid="config-script-action"]').trigger('click')
     await flushPromises()
-    expect(comparisonApi.downloadVersionConfigScript).toHaveBeenCalledWith('20260914-150101', 'LEGACY')
+    expect(comparisonApi.downloadVersionConfigScript).toHaveBeenCalledWith('20260914-150101', 'NEW')
   })
 
   it('downloads new table configuration when the new version is selected', async () => {

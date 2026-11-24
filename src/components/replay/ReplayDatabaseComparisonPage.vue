@@ -148,6 +148,7 @@
               </div>
             </td>
             <td :data-testid="`sample-limit-${row.tableName}`">{{ row.sampleLimit ?? 100 }}</td>
+            <td :data-testid="`max-partition-num-${row.tableName}`">{{ row.maxPartitionNum ?? 64 }}</td>
             <td
               class="compact-copy-cell"
               :data-testid="`reviser-${row.tableName}`"
@@ -314,6 +315,7 @@
             <pre v-if="detailRegistration.whereSql">{{ detailRegistration.whereSql }}</pre>
           </dd>
           <dt>样本数</dt><dd data-testid="detail-sample-limit">{{ detailRegistration.sampleLimit ?? 100 }}</dd>
+          <dt>最大hash分区数</dt><dd data-testid="detail-max-partition-num">{{ detailRegistration.maxPartitionNum ?? 64 }}</dd>
           <dt>开发负责人</dt><dd>{{ detailRegistration.reviser }}</dd>
           <dt>科技负责人</dt><dd>{{ detailRegistration.groupOwner }}</dd>
           <dt>登记日期</dt><dd>{{ detailRegistration.date }}</dd>
@@ -404,6 +406,7 @@ const filterColumns = [
   { key: 'fields', label: '比对字段', width: '250px' },
   { key: 'queryCondition', label: '查询条件', width: '90px' },
   { key: 'sampleLimit', label: '样本数', width: '75px' },
+  { key: 'maxPartitionNum', label: '最大hash分区数', width: '130px' },
   { key: 'reviser', label: '开发负责人', width: '90px' },
   { key: 'groupOwner', label: '科技负责人', width: '90px' },
   { key: 'date', label: '登记日期', width: '51px' },
@@ -635,6 +638,7 @@ const mapRegistration = registration => ({
   version: registration.version,
   deleted: Boolean(registration.deleted),
   sampleLimit: registration.sampleLimit ?? 100,
+  maxPartitionNum: registration.maxPartitionNum ?? 64,
   partitionNum: registration.partitionNum ?? 1,
   customSql: registration.customSql || null,
   registrationType: registration.customSql ? 'CUSTOM_SQL' : 'TABLE',
@@ -852,6 +856,7 @@ const saveRegistration = async payload => {
     deleteWhenNoFields: false,
     whereCondition: payload.whereCondition,
     compareLimit: payload.compareLimit,
+    ...(payload.maxPartitionNum !== undefined ? { maxPartitionNum: payload.maxPartitionNum } : {}),
     ...(canConfigureSampleLimit.value && payload.sampleLimit !== undefined ? { sampleLimit: payload.sampleLimit } : {}),
   }
   try {
@@ -985,6 +990,7 @@ const goToPage = async nextPage => {
 const filterKeyMap = {
   tableName: 'tableName', domain: 'domainName', fields: 'fieldName',
   queryCondition: 'whereCondition',
+  maxPartitionNum: 'maxPartitionNum',
   reviser: 'reviser', groupOwner: 'groupOwner', date: 'registeredDate',
 }
 const criteria = () => {
@@ -1000,6 +1006,7 @@ const criteria = () => {
     tableNames: tableFilters.filter(value => !METADATA_STATUS_BY_LABEL[value]),
     fieldNames: filters.fields || [],
     whereConditionValues: filters.queryCondition || [],
+    ...(filters.maxPartitionNum?.length ? { maxPartitionNums: filters.maxPartitionNum.map(Number) } : {}),
     domains: filters.domain || [],
     reviserEmpNos: filters.reviser || [],
     groupOwnerEmpNos: filters.groupOwner || [],

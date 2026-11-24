@@ -155,13 +155,13 @@ describe('replayDatabaseComparison api', () => {
 
     expect(download.mock.calls).toEqual([
       [
-        '/ai/parallel-replay/database-comparison-fields/versions/20260914-172637/config-script',
-        'replay-db-compare-config-20260914-172637.sql',
+        '/ai/parallel-replay/database-comparison-fields/versions/20260914-172637/config-script?targetVersion=NEW',
+        'replay-db-compare-config-20260914-172637-new.sql',
         { method: 'POST' },
       ],
       [
-        '/ai/parallel-replay/database-comparison-fields/versions/20260914-172637/config-script/download',
-        'replay-db-compare-config-20260914-172637.sql',
+        '/ai/parallel-replay/database-comparison-fields/versions/20260914-172637/config-script/download?targetVersion=NEW',
+        'replay-db-compare-config-20260914-172637-new.sql',
       ],
     ])
   })
@@ -173,6 +173,21 @@ describe('replayDatabaseComparison api', () => {
       ['/ai/parallel-replay/database-comparison-fields/versions/V1/config-script?targetVersion=NEW', 'replay-db-compare-config-V1-new.sql', { method: 'POST' }],
       ['/ai/parallel-replay/database-comparison-fields/versions/V1/config-script/download?targetVersion=NEW', 'replay-db-compare-config-V1-new.sql'],
     ])
+  })
+
+  it('keeps explicit legacy requests distinct from the new backend default', async () => {
+    await generateVersionConfigScript('V1', 'LEGACY')
+    await downloadVersionConfigScript('V1', 'LEGACY')
+    expect(download.mock.calls).toEqual([
+      ['/ai/parallel-replay/database-comparison-fields/versions/V1/config-script?targetVersion=LEGACY', 'replay-db-compare-config-V1.sql', { method: 'POST' }],
+      ['/ai/parallel-replay/database-comparison-fields/versions/V1/config-script/download?targetVersion=LEGACY', 'replay-db-compare-config-V1.sql'],
+    ])
+  })
+
+  it.each(['', 'profile:7', 'new', null])('rejects unknown script targets without downloading (%s)', target => {
+    expect(() => generateVersionConfigScript('V1', target)).toThrow()
+    expect(() => downloadVersionConfigScript('V1', target)).toThrow()
+    expect(download).not.toHaveBeenCalled()
   })
 
   it('generates a version with the trigger token and preserves gate details', async () => {

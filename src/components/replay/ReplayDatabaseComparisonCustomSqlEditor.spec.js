@@ -32,7 +32,7 @@ describe('custom SQL registration editor', () => {
     expect(wrapper.get('[data-testid="sql-select-currency"]').element.disabled).toBe(true)
     await wrapper.get('[data-testid="sql-move-up-total_amt"]').trigger('click')
     await wrapper.get('[data-testid="save-custom-sql"]').trigger('click')
-    expect(wrapper.emitted('save')[0][0]).toEqual({ sourceTableName: 'acct', sql, fieldNames: ['total_amt', 'currency'], resultKeyColumns: ['currency'], compareLimit: null })
+    expect(wrapper.emitted('save')[0][0]).toEqual({ sourceTableName: 'acct', sql, fieldNames: ['total_amt', 'currency'], resultKeyColumns: ['currency'], compareLimit: null, maxPartitionNum: 64 })
   })
 
   it('invalidates parsed fields when SQL changes and ignores stale analysis responses', async () => {
@@ -110,7 +110,7 @@ describe('custom SQL registration editor', () => {
     await wrapper.get('[data-testid="sql-select-total_amt"]').setValue(true)
     await wrapper.get('[data-testid="save-custom-sql"]').trigger('click')
     expect(wrapper.emitted('save')[0][0]).toEqual({ id: 18, version: 6, sourceTableName: 'acct', sql,
-      fieldNames: ['currency', 'total_amt'], resultKeyColumns: ['currency'], compareLimit: null })
+      fieldNames: ['currency', 'total_amt'], resultKeyColumns: ['currency'], compareLimit: null, maxPartitionNum: 64 })
     analyze.mockResolvedValue({ ...analysis, sourceTableName: 'another_table' })
     await wrapper.get('[data-testid="custom-sql-text"]').setValue('select currency from another_table')
     await wrapper.get('[data-testid="analyze-custom-sql"]').trigger('click')
@@ -141,5 +141,30 @@ describe('custom SQL registration editor', () => {
     expect(wrapper.get('[data-testid="save-custom-sql"]').element.disabled).toBe(true)
     expect(wrapper.get('[data-testid="custom-sql-text"]').element.disabled).toBe(true)
     expect(wrapper.get('[data-testid="close-custom-sql"]').element.disabled).toBe(true)
+    expect(wrapper.get('[data-testid="custom-sql-max-partition"]').element.disabled).toBe(true)
+  })
+
+  it.each([false, true])('allows maximum partitions without elevated sample permission (%s)', async allowed => {
+    const wrapper = mount(CustomSqlEditor, { props: { analyzeSql: analyze, canConfigurePartitions: allowed } })
+    await parse(wrapper)
+    const input = wrapper.get('[data-testid="custom-sql-max-partition"]')
+    expect(input.element.value).toBe('64')
+    expect(input.element.disabled).toBe(false)
+    for (const value of ['100', '1', '256']) {
+      await input.setValue(value)
+      await wrapper.get('[data-testid="save-custom-sql"]').trigger('click')
+      expect(wrapper.emitted('save').at(-1)[0].maxPartitionNum).toBe(Number(value))
+    }
+    if (!allowed) expect(wrapper.emitted('save')[0][0]).not.toHaveProperty('partitionNum')
+    for (const value of ['', '0', '257', '1.5']) {
+      await input.setValue(value)
+      expect(wrapper.get('[data-testid="save-custom-sql"]').element.disabled).toBe(true)
+      expect(wrapper.get('.validation-message').text()).toContain('最大hash分区数')
+    }
+  })
+
+  it.each([100, undefined, null])('restores maximum partitions while editing (%s)', value => {
+    const wrapper = mount(CustomSqlEditor, { props: { initialRegistration: { maxPartitionNum: value } } })
+    expect(wrapper.get('[data-testid="custom-sql-max-partition"]').element.value).toBe(value === 100 ? '100' : '64')
   })
 })

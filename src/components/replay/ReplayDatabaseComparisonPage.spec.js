@@ -84,7 +84,7 @@ describe('ReplayDatabaseComparisonPage', () => {
   })
 
   const registrationRow = { id: 3, tableName: 'acct', tableComment: '账户表', version: 7,
-    domainName: '存款组', partitionNum: 16, sampleLimit: 0, fieldPreview: ['id(编号)'], fieldCount: 1 }
+    domainName: '存款组', partitionNum: 16, sampleLimit: 0, maxPartitionNum: 100, fieldPreview: ['id(编号)'], fieldCount: 1 }
 
   it.each(['add', 'edit', 'reregister'])('passes the comparison key name through the %s save route', async mode => {
     useRealMode()
@@ -93,11 +93,11 @@ describe('ReplayDatabaseComparisonPage', () => {
     await wrapper.get('[data-testid="add-registration"]').trigger('click')
     wrapper.getComponent(ReplayDatabaseComparisonEditor).vm.$emit('save', {
       mode, id: 3, tableName: 'acct', comparisonKeyName: 'acct_uq', fieldNames: ['code', 'tenant'],
-      domain: '存款组', groupOwnerUsername: '101',
+      domain: '存款组', groupOwnerUsername: '101', maxPartitionNum: 100,
     })
     await flushPromises()
     const api = mode === 'add' ? comparisonApi.createRegistration : mode === 'edit' ? comparisonApi.updateRegistration : comparisonApi.reregisterRegistration
-    expect(api.mock.calls.at(-1).at(-1)).toMatchObject({ comparisonKeyName: 'acct_uq', fieldNames: ['code', 'tenant'] })
+    expect(api.mock.calls.at(-1).at(-1)).toMatchObject({ comparisonKeyName: 'acct_uq', fieldNames: ['code', 'tenant'], maxPartitionNum: 100 })
   })
 
   it('displays the saved comparison index and uses its ordered columns in the scope preview', async () => {
@@ -336,11 +336,42 @@ describe('ReplayDatabaseComparisonPage', () => {
     const headers = wrapper.findAll('thead th').map(h => h.text())
     expect(headers.indexOf('分区数')).toBe(-1)
     expect(headers.indexOf('样本数')).toBe(headers.indexOf('查询条件') + 1)
+    expect(headers.indexOf('最大hash分区数')).toBe(headers.indexOf('样本数') + 1)
     expect(wrapper.get('[data-testid="sample-limit-acct"]').text()).toBe('0')
+    expect(wrapper.get('[data-testid="max-partition-num-acct"]').text()).toBe('100')
     await wrapper.get('[data-testid="view-registration-acct"]').trigger('click')
     await flushPromises()
     expect(wrapper.get('[data-testid="detail-sample-limit"]').text()).toBe('0')
+    expect(wrapper.get('[data-testid="detail-max-partition-num"]').text()).toBe('100')
     wrapper.unmount()
+  })
+
+  it.each([undefined, null])('shows a maximum of 64 for old registrations (%s)', async maxPartitionNum => {
+    const row = { ...registrationRow, maxPartitionNum }
+    useRealMode([row])
+    comparisonApi.loadRegistration.mockResolvedValue({ ...row, fields: [] })
+    const wrapper = mount(ReplayDatabaseComparisonPage)
+    await flushPromises()
+    expect(wrapper.get('[data-testid="max-partition-num-acct"]').text()).toBe('64')
+    await wrapper.get('[data-testid="view-registration-acct"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="detail-max-partition-num"]').text()).toBe('64')
+  })
+
+  it('filters maximum partitions with numeric values and the matching facet target', async () => {
+    useRealMode([registrationRow])
+    comparisonApi.loadHeaderFilterOptions.mockResolvedValue({
+      options: [{ value: '100', label: '100', count: 1 }], matchedRegistrationCount: 1,
+    })
+    const wrapper = mount(ReplayDatabaseComparisonPage)
+    await flushPromises()
+    await wrapper.get('[data-filter-key="maxPartitionNum"]').trigger('click')
+    await flushPromises()
+    expect(comparisonApi.loadHeaderFilterOptions).toHaveBeenLastCalledWith(expect.objectContaining({ targetColumn: 'maxPartitionNum' }))
+    await wrapper.get('[data-testid="header-filter-option"] input').setValue(true)
+    await wrapper.get('[data-testid="apply-header-filter"]').trigger('click')
+    await flushPromises()
+    expect(comparisonApi.searchRegistrations).toHaveBeenLastCalledWith(expect.objectContaining({ maxPartitionNums: [100] }))
   })
 
   it.each([false, true])('maps the existing permission to sample limit editing and ignores partition input (%s)', async allowed => {
@@ -355,10 +386,12 @@ describe('ReplayDatabaseComparisonPage', () => {
     const editor = wrapper.findComponent(ReplayDatabaseComparisonEditor)
     expect(editor.props('canConfigureSampleLimit')).toBe(allowed)
     expect(editor.find('[data-testid="editor-partition-count"]').exists()).toBe(false)
-    editor.vm.$emit('save', { mode: 'edit', id: 3, version: 7, tableName: 'acct', fieldNames: ['id'], domain: '存款组', groupOwnerEmpNo: '101', partitionNum: 32, sampleLimit: 500 })
+    expect(editor.props('initialRegistration').maxPartitionNum).toBe(100)
+    editor.vm.$emit('save', { mode: 'edit', id: 3, version: 7, tableName: 'acct', fieldNames: ['id'], domain: '存款组', groupOwnerEmpNo: '101', partitionNum: 32, sampleLimit: 500, maxPartitionNum: 100 })
     await flushPromises()
     const body = comparisonApi.updateRegistration.mock.calls[0][1]
     expect(body).not.toHaveProperty('partitionNum')
+    expect(body.maxPartitionNum).toBe(100)
     if (allowed) expect(body.sampleLimit).toBe(500)
     else expect(body).not.toHaveProperty('sampleLimit')
     wrapper.unmount()
@@ -740,7 +773,7 @@ describe('ReplayDatabaseComparisonPage', () => {
     expect(comparisonApi.updateCustomSqlRegistration).not.toHaveBeenCalled()
     await wrapper.get('[data-testid="save-custom-sql"]').trigger('click')
     await flushPromises()
-    expect(comparisonApi.createCustomSqlRegistration).toHaveBeenLastCalledWith({ sourceTableName: 'acct', sql: 'select id from acct', fieldNames: ['id'], resultKeyColumns: ['id'], compareLimit: null })
+    expect(comparisonApi.createCustomSqlRegistration).toHaveBeenLastCalledWith({ sourceTableName: 'acct', sql: 'select id from acct', fieldNames: ['id'], resultKeyColumns: ['id'], compareLimit: null, maxPartitionNum: 64 })
     expect(wrapper.find('[data-testid="custom-sql-dialog"]').exists()).toBe(false)
   })
 
@@ -835,7 +868,7 @@ describe('ReplayDatabaseComparisonPage', () => {
   it('updates custom SQL by registration ID and version without using the physical-table save route', async () => {
     const registration = { id: 21, version: 5, tableName: 'sql_saved', tableComment: '原汇总名称',
       customSql: { sql: 'select id from acct', sourceTableName: 'acct', resultColumns: [{ columnName: 'id', ordinalPosition: 1, dataType: 'VARCHAR' }] },
-      fields: [{ columnName: 'id' }], comparisonKey: { indexType: 'RESULT_KEY', columnNames: ['id'] }, partitionNum: 4, sampleLimit: 500 }
+      fields: [{ columnName: 'id' }], comparisonKey: { indexType: 'RESULT_KEY', columnNames: ['id'] }, partitionNum: 4, sampleLimit: 500, maxPartitionNum: 100 }
     useRealMode([{ ...registration, fieldPreview: ['id'] }])
     comparisonApi.loadRegistration.mockResolvedValue(registration)
     comparisonApi.updateCustomSqlRegistration.mockResolvedValue(registration)
@@ -845,11 +878,12 @@ describe('ReplayDatabaseComparisonPage', () => {
     await flushPromises()
     expect(wrapper.get('[data-testid="custom-sql-sample"]').element.disabled).toBe(true)
     expect(wrapper.get('[data-testid="custom-sql-partition"]').element.disabled).toBe(true)
+    expect(wrapper.get('[data-testid="custom-sql-max-partition"]').element.disabled).toBe(false)
     await wrapper.get('[data-testid="save-custom-sql"]').trigger('click')
     await flushPromises()
     expect(comparisonApi.updateCustomSqlRegistration).toHaveBeenCalledWith(21, {
       version: 5, sourceTableName: 'acct', sql: 'select id from acct',
-      fieldNames: ['id'], resultKeyColumns: ['id'], compareLimit: null,
+      fieldNames: ['id'], resultKeyColumns: ['id'], compareLimit: null, maxPartitionNum: 100,
     })
     expect(comparisonApi.updateRegistration).not.toHaveBeenCalled()
     expect(wrapper.find('[data-testid="custom-sql-dialog"]').exists()).toBe(false)
@@ -878,7 +912,7 @@ describe('ReplayDatabaseComparisonPage', () => {
 
     expect(comparisonApi.updateCustomSqlRegistration).toHaveBeenCalledWith(21, {
       version: 5, sourceTableName: 'acct', sql: 'select id from acct', fieldNames: ['id'],
-      resultKeyColumns: ['id'], compareLimit: null,
+      resultKeyColumns: ['id'], compareLimit: null, maxPartitionNum: 64,
     })
     expect(comparisonApi.createCustomSqlRegistration).not.toHaveBeenCalled()
     expect(comparisonApi.updateRegistration).not.toHaveBeenCalled()

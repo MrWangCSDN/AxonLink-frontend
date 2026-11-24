@@ -35,9 +35,10 @@
         <div class="limits">
           <label>比对条数<input v-model="compareLimit" type="number" min="1" max="10000000" data-testid="custom-sql-limit" :disabled="saving" placeholder="留空表示全部结果" /></label>
           <label>样本数<input v-model.number="sampleLimit" type="number" min="0" max="10000" data-testid="custom-sql-sample" :disabled="saving || !canConfigurePartitions" /></label>
+          <label>最大hash分区数<input v-model.number="maxPartitionNum" type="number" min="1" max="256" step="1" data-testid="custom-sql-max-partition" :disabled="saving" /></label>
           <label>读取分区数<input v-model.number="partitionNum" type="number" min="1" max="256" data-testid="custom-sql-partition" :disabled="saving || !canConfigurePartitions" /></label>
         </div>
-        <p class="help">比对条数在聚合查询外层按结果键排序后截取。样本数 0 表示仅汇总，样本数与分区数由有配置权限的人员修改。</p>
+        <p class="help">比对条数在聚合查询外层按结果键排序后截取。最大hash分区数为 1–256 的整数，默认 64。样本数 0 表示仅汇总，样本数与读取分区数由有配置权限的人员修改。</p>
         <p v-if="validationMessage" class="validation-message" role="status">{{ validationMessage }}</p>
         <div v-if="errorMessage" class="sql-error" data-testid="custom-sql-error" role="alert"><p>{{ errorMessage }}</p><ul v-if="saveError?.data?.errors?.length"><li v-for="(item, index) in saveError.data.errors" :key="index">{{ item.fieldName || item.path || '' }} {{ item.reason }}</li></ul><button v-if="canOpenExistingRegistration" type="button" data-testid="open-existing-custom-sql" :disabled="saving || loadingExisting" @click="emit('open-existing', saveError.data.existingId)">{{ loadingExisting ? '加载中…' : '进入原登记' }}</button></div>
       </div>
@@ -66,6 +67,7 @@ const sql = ref(initial?.customSql?.sql || '')
 const compareLimit = ref(initial?.compareLimit ?? '')
 const sampleLimit = ref(initial?.sampleLimit ?? 100)
 const partitionNum = ref(initial?.partitionNum ?? 1)
+const maxPartitionNum = ref(initial?.maxPartitionNum ?? 64)
 const analysis = ref(initial?.customSql ? { ...initial.customSql } : null)
 const registeredTableName = computed(() => analysis.value?.sourceTableName || lockedSource)
 const registeredTableComment = computed(() => analysis.value?.sourceTableComment !== undefined
@@ -95,6 +97,7 @@ const validationMessage = computed(() => {
   if (!keyNames.value.length) return '请选择非空且唯一的结果比对键'
   const scopeError = validateScopeDraft(null, compareLimit.value)[0]
   if (scopeError) return scopeError.reason
+  if (!Number.isInteger(maxPartitionNum.value) || maxPartitionNum.value < 1 || maxPartitionNum.value > 256) return '最大hash分区数必须为 1 至 256 的整数'
   if (props.canConfigurePartitions && (!Number.isInteger(sampleLimit.value) || sampleLimit.value < 0 || sampleLimit.value > 10000)) return '样本数必须为 0 至 10000 的整数'
   if (props.canConfigurePartitions && (!Number.isInteger(partitionNum.value) || partitionNum.value < 1 || partitionNum.value > 256)) return '读取分区数必须为 1 至 256 的整数'
   return ''
@@ -154,6 +157,7 @@ const save = () => {
     fieldNames: [...selectedNames.value],
     resultKeyColumns: selectedNames.value.filter(name => keyNames.value.includes(name)),
     compareLimit: compareLimit.value === '' ? null : Number(compareLimit.value),
+    maxPartitionNum: maxPartitionNum.value,
     ...(props.canConfigurePartitions ? { sampleLimit: sampleLimit.value, partitionNum: partitionNum.value } : {}),
   })
 }
@@ -187,7 +191,7 @@ th { position: sticky; top: 0; background: var(--code-header-bg); }
 .output-order li { display: flex; align-items: center; gap: 8px; }
 .output-order span { flex: 1; overflow-wrap: anywhere; }
 .output-order b { color: var(--text-muted); font-size: 12px; }
-.limits { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.limits { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 .limits input { min-width: 0; }
 .validation-message { font-size: 12px; color: var(--text-muted); }
 .sql-error { padding: 10px; border: 1px solid var(--c-error-code-text); color: var(--c-error-code-text); background: var(--bg-card); }

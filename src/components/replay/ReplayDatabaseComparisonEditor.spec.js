@@ -114,12 +114,42 @@ describe('ReplayDatabaseComparisonEditor', () => {
     wrapper.unmount()
   })
 
-  it('shows only the sample limit control for authorized users', () => {
+  it.each([false, true])('edits maximum partitions independently of sample permission (%s)', async allowed => {
+    const registration = { ...registrations[0], maxPartitionNum: 100 }
+    const wrapper = mount(ReplayDatabaseComparisonEditor, { props: {
+      initialRegistration: registration, registrations: [registration], canConfigureSampleLimit: allowed,
+    } })
+    const input = wrapper.get('[data-testid="editor-max-partition-num"]')
+    expect(input.element.value).toBe('100')
+    expect(input.element.disabled).toBe(false)
+    for (const value of ['100', '1', '256']) {
+      await input.setValue(value)
+      await wrapper.get('[data-testid="submit-registration"]').trigger('click')
+      expect(wrapper.emitted('save').at(-1)[0].maxPartitionNum).toBe(Number(value))
+    }
+    for (const value of ['', '0', '257', '1.5']) {
+      await input.setValue(value)
+      expect(wrapper.get('[data-testid="submit-registration"]').element.disabled).toBe(true)
+      expect(wrapper.get('[data-testid="registration-save-hint"]').text()).toContain('最大hash分区数')
+    }
+    wrapper.unmount()
+  })
+
+  it.each([undefined, null])('defaults missing maximum partitions to 64 (%s)', value => {
+    const wrapper = mount(ReplayDatabaseComparisonEditor, { props: {
+      initialRegistration: { ...registrations[0], maxPartitionNum: value },
+    } })
+    expect(wrapper.get('[data-testid="editor-max-partition-num"]').element.value).toBe('64')
+    wrapper.unmount()
+  })
+
+  it('keeps the reading partition control absent while showing sample and maximum settings', () => {
     const wrapper = mount(ReplayDatabaseComparisonEditor, { props: {
       initialRegistration: registrations[0], canConfigureSampleLimit: true,
     } })
     expect(wrapper.find('[data-testid="editor-partition-count"]').exists()).toBe(false)
     expect(wrapper.get('[data-testid="editor-sample-limit"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="editor-max-partition-num"]').exists()).toBe(true)
     wrapper.unmount()
   })
 

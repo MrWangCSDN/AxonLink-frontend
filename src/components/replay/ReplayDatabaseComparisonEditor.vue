@@ -159,6 +159,15 @@
           <p v-if="sampleLimitError" class="registration-error" role="alert">{{ sampleLimitError }}</p>
         </section>
 
+        <section v-if="selectedTable" class="editor-block sample-limit-block">
+          <label for="editor-max-partition-num">最大hash分区数</label>
+          <input ref="maxPartitionNumInputRef" id="editor-max-partition-num" v-model.number="maxPartitionNum" data-testid="editor-max-partition-num"
+            type="number" min="1" max="256" step="1" :disabled="isFieldMaintenanceDisabled"
+            :aria-invalid="Boolean(maxPartitionNumError)" aria-describedby="editor-max-partition-help" />
+          <span id="editor-max-partition-help">1–256 的整数，默认 64；用于控制比对最大hash分区数。</span>
+          <p v-if="maxPartitionNumError" class="registration-error" role="alert">{{ maxPartitionNumError }}</p>
+        </section>
+
 
       </div>
 
@@ -250,10 +259,15 @@ const groupOwnerInputRef = ref(null)
 const fieldsBlockRef = ref(null)
 const scopeBlockRef = ref(null)
 const sampleLimitInputRef = ref(null)
+const maxPartitionNumInputRef = ref(null)
 const reconciledPrimaryKeySignature = ref('')
 const whereCondition = ref(null)
 const compareLimit = ref(null)
 const sampleLimit = ref(100)
+const maxPartitionNum = ref(64)
+const maxPartitionNumError = computed(() =>
+  !Number.isInteger(maxPartitionNum.value) || maxPartitionNum.value < 1 || maxPartitionNum.value > 256
+    ? '最大hash分区数必须为 1 至 256 的整数' : '')
 const sampleLimitError = computed(() => props.canConfigureSampleLimit
   && (!Number.isInteger(sampleLimit.value) || sampleLimit.value < 0 || sampleLimit.value > 10000)
   ? '样本数必须为 0 至 10000 的整数' : '')
@@ -298,7 +312,7 @@ const canSubmit = computed(() => {
   if (isPrimaryKeyMissing.value || keySelectionError.value || !comparisonKey.value) return false
   if (isDeleteMode.value) return true
   if (hasMissingSelectedColumns.value) return false
-  if (scopeDraftErrors.value.length || sampleLimitError.value) return false
+  if (scopeDraftErrors.value.length || sampleLimitError.value || maxPartitionNumError.value) return false
   return selectedColumns.value.length > 0
 })
 const saveBlockers = computed(() => {
@@ -311,6 +325,7 @@ const saveBlockers = computed(() => {
   if (!selectedColumns.value.length) blockers.push({ key: 'fields', label: '选择比对字段' })
   if (scopeDraftErrors.value.length) blockers.push({ key: 'scope', label: '补全或修正比对范围' })
   if (sampleLimitError.value) blockers.push({ key: 'sample', label: '修正样本数' })
+  if (maxPartitionNumError.value) blockers.push({ key: 'maxPartition', label: '修正最大hash分区数' })
   return blockers
 })
 const saveHintText = computed(() => saveBlockers.value[0]?.standalone
@@ -321,7 +336,7 @@ const goToSaveBlocker = async () => {
   if (!blocker) return
   showRequiredErrors.value = !isFieldMaintenanceDisabled.value
   await nextTick()
-  const target = { fields: fieldsBlockRef.value, domain: domainInputRef.value, owner: groupOwnerInputRef.value, scope: scopeBlockRef.value, sample: sampleLimitInputRef.value }[blocker.key]
+  const target = { fields: fieldsBlockRef.value, domain: domainInputRef.value, owner: groupOwnerInputRef.value, scope: scopeBlockRef.value, sample: sampleLimitInputRef.value, maxPartition: maxPartitionNumInputRef.value }[blocker.key]
   target?.scrollIntoView?.({ behavior: 'smooth', block: 'center' })
   target?.focus?.({ preventScroll: true })
 }
@@ -596,6 +611,7 @@ const selectTable = table => {
     whereCondition.value = normalizeConditionTree(registration?.whereCondition)
     compareLimit.value = registration?.compareLimit ?? null
     sampleLimit.value = registration?.sampleLimit ?? 100
+    maxPartitionNum.value = registration?.maxPartitionNum ?? 64
     groupOwnerOptions.value = []
     groupOwnerError.value = ''
     showRequiredErrors.value = false
@@ -771,6 +787,7 @@ const submitRegistration = () => {
     groupOwnerName: form.groupOwnerName,
     whereCondition: normalizeConditionTree(whereCondition.value),
     compareLimit: compareLimit.value,
+    maxPartitionNum: maxPartitionNum.value,
     ...(props.canConfigureSampleLimit ? { sampleLimit: sampleLimit.value } : {}),
     })
   }

@@ -75,18 +75,22 @@ export function loadVersionConfigScriptStatus(versionNo) {
 }
 
 const configScriptFileName = versionNo => `replay-db-compare-config-${versionNo}.sql`
+const configScriptTargetQuery = targetVersion => {
+  if (!['NEW', 'LEGACY'].includes(targetVersion)) throw new Error('不支持的 SQL 配置版本')
+  return `?targetVersion=${targetVersion}`
+}
 
-export function generateVersionConfigScript(versionNo, targetVersion = 'LEGACY') {
+export function generateVersionConfigScript(versionNo, targetVersion = 'NEW') {
   return download(
-    `${PREFIX}/versions/${encodeURIComponent(versionNo)}/config-script${targetVersion === 'NEW' ? '?targetVersion=NEW' : ''}`,
+    `${PREFIX}/versions/${encodeURIComponent(versionNo)}/config-script${configScriptTargetQuery(targetVersion)}`,
     configScriptFileName(versionNo).replace(/\.sql$/, targetVersion === 'NEW' ? '-new.sql' : '.sql'),
     { method: 'POST' },
   )
 }
 
-export function downloadVersionConfigScript(versionNo, targetVersion = 'LEGACY') {
+export function downloadVersionConfigScript(versionNo, targetVersion = 'NEW') {
   return download(
-    `${PREFIX}/versions/${encodeURIComponent(versionNo)}/config-script/download${targetVersion === 'NEW' ? '?targetVersion=NEW' : ''}`,
+    `${PREFIX}/versions/${encodeURIComponent(versionNo)}/config-script/download${configScriptTargetQuery(targetVersion)}`,
     configScriptFileName(versionNo).replace(/\.sql$/, targetVersion === 'NEW' ? '-new.sql' : '.sql'),
   )
 }

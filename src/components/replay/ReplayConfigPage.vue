@@ -1,13 +1,6 @@
 ﻿<template>
   <section class="replay-page replay-config-page" aria-label="忽略清单" data-testid="replay-ignore-list">
-    <header class="replay-toolbar">
-      <div class="replay-toolbar-title">
-        <div>
-          <h2>忽略清单</h2>
-          <p>无条件忽略 / 有条件忽略 / 错误码忽略 / 排序字段 / 流水号忽略</p>
-        </div>
-      </div>
-    </header>
+    <header class="replay-toolbar"><h2>忽略清单</h2></header>
 
     <nav class="replay-tabs" role="tablist" aria-label="忽略清单分类">
       <button
@@ -26,42 +19,7 @@
     </nav>
 
     <form class="replay-filters" @submit.prevent="search">
-      <div v-if="!isServiceSequenceTab" class="replay-filter-group">
-        <span class="replay-filter-group-label">老核心交易码</span>
-        <input v-model.trim="internalTransactionCode" class="replay-control" data-testid="internal-transaction-code" type="search" placeholder="精确匹配" />
-      </div>
-      <div v-if="!isServiceSequenceTab" class="replay-filter-group">
-        <span class="replay-filter-group-label">领域</span>
-        <select v-model="filters.domain" class="replay-control" data-testid="filter-domain">
-          <option value="">全部</option>
-          <option v-for="domain in domainOptions" :key="domain" :value="domain">{{ domain }}</option>
-        </select>
-      </div>
       <div class="replay-filter-group">
-        <span class="replay-filter-group-label">配置字段</span>
-        <template v-for="filter in schema.filters" :key="filter.key">
-          <select v-if="filter.kind === 'flag'" v-model="filters[filter.key]" class="replay-control" :data-testid="`filter-${filter.key}`">
-            <option value="">全部</option>
-            <option value="1">普通字段</option>
-            <option value="2">对象或数组</option>
-          </select>
-          <select v-else-if="filter.kind === 'review'" v-model="filters[filter.key]" class="replay-control" :data-testid="`filter-${filter.key}`">
-            <option value="">全部</option>
-            <option value="0">未审核</option>
-            <option value="1">已审核</option>
-          </select>
-          <select v-else-if="filter.kind === 'category'" v-model="filters[filter.key]" class="replay-control" :data-testid="`filter-${filter.key}`">
-            <option value="">全部领域</option>
-            <option value="QUERY">查询</option>
-            <option value="ACCOUNTING">账务</option>
-          </select>
-          <select v-else-if="filter.kind === 'ownership'" v-model="filters[filter.key]" class="replay-control" :data-testid="`filter-${filter.key}`">
-            <option value="">全部归属</option>
-            <option value="528">528</option>
-            <option value="ccbs">ccbs</option>
-          </select>
-          <input v-else v-model.trim="filters[filter.key]" class="replay-control" :data-testid="`filter-${filter.key}`" type="search" :placeholder="filter.label" />
-        </template>
         <label class="replay-checkbox">
           <input v-model="reviewableByMe" type="checkbox" data-testid="filter-reviewable-by-me" />
           <span data-testid="filter-reviewable-by-me-label">仅我可以审核</span>
@@ -81,7 +39,7 @@
       </div>
       <div class="replay-filter-actions">
         <button class="replay-button replay-button-primary" type="submit" data-testid="search">查询</button>
-        <button class="replay-button" type="button" data-testid="reset" @click="reset">重置</button>
+        <button class="replay-button" type="button" data-testid="reset" @click="reset">重置筛选条件</button>
         <button class="replay-button replay-button-primary" type="button" data-testid="batch-review" :disabled="!selectedIds.length || loading" @click="batchReview">
           批量审核{{ selectedIds.length ? `（${selectedIds.length}）` : '' }}
         </button>
@@ -106,6 +64,17 @@
               <span class="replay-column-heading">
                 <span>{{ column.label }}</span>
                 <button
+                  v-if="headerFilterFor(column)"
+                  class="replay-header-filter-button"
+                  type="button"
+                  :class="{ active: isHeaderFilterActive(column.key) }"
+                  :data-testid="`column-filter-${column.key}`"
+                  :title="`筛选${column.label}`"
+                  :aria-label="`筛选${column.label}`"
+                  :aria-expanded="headerFilterKey === column.key"
+                  @click.stop="openHeaderFilter(column, $event)"
+                ><i aria-hidden="true"></i></button>
+                <button
                   v-if="column.help"
                   class="replay-column-help"
                   type="button"
@@ -129,7 +98,14 @@
           <tr v-for="row in items" :key="row.id">
             <td class="replay-select-column"><input type="checkbox" :value="row.id" v-model="selectedIds" :data-testid="`select-${row.id}`" /></td>
             <td v-for="column in schema.columns" :key="column.key" :class="{ 'replay-cell-long': column.long, 'replay-cell-ellipsis': column.ellipsis }" :title="displayValue(column, row)">
-              {{ displayValue(column, row) }}
+              <template v-if="column.condition && row[column.key]?.trim()">
+                <div class="replay-condition" :class="{ 'is-expanded': expandedConditions.has(conditionKey(row, column)) }">{{ row[column.key] }}</div>
+                <div class="replay-condition-actions">
+                  <button type="button" @click="toggleCondition(row, column)">{{ expandedConditions.has(conditionKey(row, column)) ? '收起' : '展开' }}</button>
+                  <button v-if="expandedConditions.has(conditionKey(row, column))" type="button" @click="copyCondition(row, column)">{{ copiedCondition === conditionKey(row, column) ? '已复制' : '复制全部条件' }}</button>
+                </div>
+              </template>
+              <template v-else>{{ displayValue(column, row) }}</template>
             </td>
             <td class="replay-operation-column">
               <div class="replay-operation-buttons">
@@ -156,6 +132,39 @@
         </tbody>
       </table>
     </div>
+
+    <form
+      v-if="headerFilterKey"
+      class="replay-header-filter-panel"
+      :class="{ 'is-developer-filter': activeHeaderFilter.kind === 'person' }"
+      :style="headerFilterPanelStyle"
+      data-testid="header-filter-panel"
+      ref="headerFilterPanel"
+      :aria-label="`筛选${headerFilterLabel}`"
+      @submit.prevent="applyHeaderFilter"
+      @keydown.esc.stop.prevent="closeHeaderFilter"
+    >
+      <header><strong>筛选 {{ headerFilterLabel }}</strong></header>
+      <div class="replay-header-filter-content">
+        <input v-if="activeHeaderFilter.kind === 'text'" v-model.trim="headerFilterDraft" type="search" :placeholder="activeHeaderFilter.placeholder || '模糊搜索'" :aria-label="headerFilterLabel" />
+        <template v-else>
+              <input v-if="['person', 'domain'].includes(activeHeaderFilter.kind)" v-model.trim="headerFilterSearch" type="search" placeholder="模糊搜索" aria-label="搜索筛选选项" @keydown.enter.prevent />
+          <div class="replay-header-filter-options">
+            <label v-for="option in headerFilterOptions" :key="option.value">
+                  <input v-model="headerFilterDraft" type="radio" name="header-filter-value" :value="option.value" />
+                  <span>{{ option.label }}</span>
+            </label>
+            <p v-if="!headerFilterOptions.length">暂无选项</p>
+          </div>
+        </template>
+      </div>
+      <footer>
+        <button class="replay-button replay-button-compact replay-header-filter-clear" type="button" @click="clearHeaderFilter">清空筛选</button>
+        <span class="replay-header-filter-footer-spacer"></span>
+        <button class="replay-button replay-button-compact" type="button" @click="closeHeaderFilter">取消</button>
+        <button class="replay-button replay-button-primary replay-button-compact" type="submit">确定</button>
+      </footer>
+    </form>
 
     <div
       v-if="reviewerHelp.visible"
@@ -315,8 +324,9 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { CircleHelp } from 'lucide-vue-next'
+import { copyText } from '../../utils/clipboard.js'
 import {
   batchDeleteMessageSequenceIgnores,
   batchDeleteOneSideErrorCodeIgnores,
@@ -337,6 +347,7 @@ import {
   importReplayConfigReasons,
   importReplayConfigChineseNames,
   listReplayConfigDomains,
+  listReplayConfigDevelopers,
   listReplayConfigOperations,
   listReplayConfigs,
   reviewMessageSequenceIgnore,
@@ -348,6 +359,14 @@ import {
 } from '../../api/replayConfigs.js'
 
 const REVIEWER_HELP_TEXT = '未找到行方负责人时，该条记录不可审核，请联系敬恒杰维护清单。'
+const EMPTY_FILTER = '__EMPTY__'
+const TRANSACTION_CATEGORY_LABEL = '交易类别'
+const HEADER_FILTER_CHOICES = {
+  flag: [['1', '普通字段'], ['2', '对象或数组']],
+  review: [['0', '未审核'], ['1', '已审核']],
+  category: [['QUERY', '查询'], ['ACCOUNTING', '账务']],
+  ownership: [['528', '528'], ['ccbs', 'ccbs']],
+}
 
 const REVIEW_COLUMNS = [
   { key: 'oldTransactionCode', label: '老核心交易码' },
@@ -369,7 +388,7 @@ const TABS = [
 
 const MESSAGE_SEQUENCE_CREATE_FORM = [
   { key: 'serviceCode', label: '服务码', kind: 'serviceCode', required: true, placeholder: '如 S120034071CorpInfoQryTrdCrclr&sop' },
-  { key: 'category', label: '领域', kind: 'select', required: true, options: [
+  { key: 'category', label: TRANSACTION_CATEGORY_LABEL, kind: 'select', required: true, options: [
     { value: 'QUERY', label: '查询' },
     { value: 'ACCOUNTING', label: '账务' },
   ] },
@@ -379,7 +398,7 @@ const MESSAGE_SEQUENCE_CREATE_FORM = [
 
 const ONE_SIDE_ERROR_CODE_CREATE_FORM = [
   { key: 'serviceCode', label: '服务码', kind: 'serviceCode', required: true, placeholder: '如 S120034071CorpInfoQryTrdCrclr&sop' },
-  { key: 'category', label: '领域', kind: 'select', required: true, options: [
+  { key: 'category', label: TRANSACTION_CATEGORY_LABEL, kind: 'select', required: true, options: [
     { value: 'QUERY', label: '查询' },
     { value: 'ACCOUNTING', label: '账务' },
   ] },
@@ -443,8 +462,8 @@ const SCHEMAS = {
       { key: 'fieldChineseName', label: '忽略字段中文名称' },
       { key: 'fieldFileIndx', label: '字段索引' },
       { key: 'fieldFileFlag', label: '字段标识', display: 'flag' },
-      { key: 'origFieldCond', label: '主系统字段忽略条件', long: true },
-      { key: 'destFieldCond', label: '备系统字段忽略条件', long: true },
+      { key: 'origFieldCond', label: '主系统字段忽略条件', condition: true },
+      { key: 'destFieldCond', label: '备系统字段忽略条件', condition: true },
       { key: 'ignoreReason', label: '忽略原因', ellipsis: true },
       ...REVIEW_COLUMNS,
     ],
@@ -535,13 +554,13 @@ const SCHEMAS = {
   'message-sequence-ignores': {
     title: '流水号忽略',
     filters: [
-      { key: 'category', label: '领域', kind: 'category' },
+      { key: 'category', label: TRANSACTION_CATEGORY_LABEL, kind: 'category' },
       { key: 'serviceCode', label: '服务码', kind: 'text' },
       { key: 'messageSequence', label: '流水号', kind: 'text' },
       { key: 'reviewStatus', label: '审核状态', kind: 'review' },
     ],
     columns: [
-      { key: 'category', label: '领域', display: 'category' },
+      { key: 'category', label: TRANSACTION_CATEGORY_LABEL, display: 'category' },
       { key: 'serviceCode', label: '服务码' },
       { key: 'messageSequence', label: '流水号', long: true },
       { key: 'ignoreReason', label: '忽略原因', ellipsis: true },
@@ -550,13 +569,13 @@ const SCHEMAS = {
       { key: 'updatedAt', label: '更新时间', display: 'time' },
     ],
     confirmFields: [
-      { key: 'category', label: '领域' },
+      { key: 'category', label: TRANSACTION_CATEGORY_LABEL },
       { key: 'serviceCode', label: '服务码' },
       { key: 'messageSequence', label: '流水号' },
     ],
     form: [
       { key: 'serviceCode', label: '服务码', kind: 'serviceCode', required: true },
-      { key: 'category', label: '领域', kind: 'select', required: true, options: [
+      { key: 'category', label: TRANSACTION_CATEGORY_LABEL, kind: 'select', required: true, options: [
         { value: 'QUERY', label: '查询' },
         { value: 'ACCOUNTING', label: '账务' },
       ] },
@@ -567,14 +586,14 @@ const SCHEMAS = {
   'one-side-error-code-ignores': {
     title: '单边失败错误码忽略',
     filters: [
-      { key: 'category', label: '领域', kind: 'category' },
+      { key: 'category', label: TRANSACTION_CATEGORY_LABEL, kind: 'category' },
       { key: 'serviceCode', label: '服务码', kind: 'text' },
       { key: 'ownership', label: '归属', kind: 'ownership' },
       { key: 'errorCode', label: '忽略错误码', kind: 'text' },
       { key: 'reviewStatus', label: '审核状态', kind: 'review' },
     ],
     columns: [
-      { key: 'category', label: '领域', display: 'category' },
+      { key: 'category', label: TRANSACTION_CATEGORY_LABEL, display: 'category' },
       { key: 'serviceCode', label: '服务码' },
       { key: 'ownership', label: '归属' },
       { key: 'errorCode', label: '忽略错误码', long: true },
@@ -584,14 +603,14 @@ const SCHEMAS = {
       { key: 'updatedAt', label: '更新时间', display: 'time' },
     ],
     confirmFields: [
-      { key: 'category', label: '领域' },
+      { key: 'category', label: TRANSACTION_CATEGORY_LABEL },
       { key: 'serviceCode', label: '服务码' },
       { key: 'ownership', label: '归属' },
       { key: 'errorCode', label: '忽略错误码' },
     ],
     form: [
       { key: 'serviceCode', label: '服务码', kind: 'serviceCode', required: true },
-      { key: 'category', label: '领域', kind: 'select', required: true, options: [
+      { key: 'category', label: TRANSACTION_CATEGORY_LABEL, kind: 'select', required: true, options: [
         { value: 'QUERY', label: '查询' },
         { value: 'ACCOUNTING', label: '账务' },
       ] },
@@ -619,7 +638,6 @@ const total = ref(0)
 const page = ref(0)
 const pageSize = ref(10)
 const loading = ref(false)
-const internalTransactionCode = ref('')
 const reviewableByMe = ref(false)
 const developedByMe = ref(false)
 const reasonEmpty = ref(false)
@@ -629,7 +647,16 @@ const selectedIds = ref([])
 const reviewerMappingWarningCodes = ref([])
 const reviewerHelp = reactive({ visible: false, style: {} })
 const domainOptions = ref([])
+const developerFilterOptions = ref([])
 const exporting = ref(false)
+const headerFilterKey = ref('')
+const headerFilterDraft = ref('')
+const headerFilterSearch = ref('')
+const headerFilterPanelStyle = reactive({ left: '8px', top: '8px' })
+const headerFilterPanel = ref(null)
+const expandedConditions = reactive(new Set())
+const copiedCondition = ref('')
+let requestSequence = 0
 const REASON_IMPORT_COLUMNS = {
   'unconditional-ignores': ['服务码', '忽略字段', '忽略原因'],
   'conditional-ignores': ['服务码', '忽略字段', '字段索引', '忽略原因'],
@@ -677,6 +704,22 @@ let toastTimer = null
 const pageCount = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
 const allSelected = computed(() => items.value.length > 0 && items.value.every((row) => selectedIds.value.includes(row.id)))
 const editTitle = computed(() => `${editingRow.value ? '修改' : '新增'}${schema.value.title}`)
+const activeHeaderFilter = computed(() => headerFilterFor(
+  schema.value.columns.find(column => column.key === headerFilterKey.value),
+))
+const headerFilterLabel = computed(() => activeHeaderFilter.value?.label || '')
+const headerFilterOptions = computed(() => {
+  const choices = activeHeaderFilter.value?.kind === 'person'
+    ? developerFilterOptions.value
+    : activeHeaderFilter.value?.kind === 'domain'
+      ? [...domainOptions.value.map(value => ({ value, label: value })), { value: EMPTY_FILTER, label: '为空' }]
+      : (HEADER_FILTER_CHOICES[activeHeaderFilter.value?.kind] || []).map(([value, label]) => ({ value, label }))
+  const keyword = headerFilterSearch.value.toLocaleLowerCase()
+  const all = activeHeaderFilter.value?.kind === 'person'
+    ? choices
+    : [{ value: '', label: '全部' }, ...choices]
+  return all.filter(option => option.label.toLocaleLowerCase().includes(keyword))
+})
 const isSortCreate = computed(() => isSortTab.value && !editingRow.value)
 const isMessageSequenceCreate = computed(() => isMessageSequenceTab.value && !editingRow.value)
 const isOneSideCreate = computed(() => isOneSideTab.value && !editingRow.value)
@@ -718,6 +761,7 @@ function showToast(text, kind = 'success') {
 
 function displayValue(column, row) {
   const value = row[column.key]
+  if (typeof value === 'string' && !value.trim()) return '-'
   if (column.display === 'flag') {
     if (value === 1) return '普通字段'
     if (value === 2) return '对象或数组'
@@ -732,6 +776,99 @@ function displayValue(column, row) {
   }
   if (column.display === 'time') return formatTime(value)
   return value === null || value === undefined || value === '' ? '-' : value
+}
+
+function headerFilterFor(column) {
+  if (!column) return undefined
+  if (!isServiceSequenceTab.value) {
+    if (column.key === 'oldTransactionCode') {
+      return { ...column, kind: 'text', placeholder: '精确匹配' }
+    }
+    if (column.key === 'domain') {
+      return { ...column, kind: 'domain' }
+    }
+    if (column.key === 'developer') {
+      return { ...column, kind: 'person' }
+    }
+  }
+  return schema.value.filters.find(filter => filter.key === column.key)
+}
+
+function isHeaderFilterActive(key) {
+  return Boolean(filters[key])
+}
+
+async function openHeaderFilter(column, event) {
+  const anchor = event.currentTarget
+  if (headerFilterKey.value === column.key) {
+    closeHeaderFilter()
+    return
+  }
+  headerFilterKey.value = column.key
+  headerFilterDraft.value = filters[column.key] || ''
+  headerFilterSearch.value = ''
+  developerFilterOptions.value = []
+  if (headerFilterFor(column)?.kind === 'person') {
+    try {
+      const developers = (await listReplayConfigDevelopers()) || []
+      developerFilterOptions.value = [
+        ...developers.map(value => ({ value, label: value })),
+        { value: EMPTY_FILTER, label: '为空' },
+      ]
+    } catch (cause) {
+      showToast(`加载开发人员失败：${cause?.message || cause}`, 'error')
+    }
+  }
+  await nextTick()
+  if (!headerFilterPanel.value || headerFilterKey.value !== column.key) return
+  const rect = anchor.getBoundingClientRect()
+  const { width, height } = headerFilterPanel.value.getBoundingClientRect()
+  const margin = 8
+  const gap = 6
+  const left = Math.max(margin, Math.min(rect.left, window.innerWidth - width - margin))
+  const top = rect.bottom + gap + height <= window.innerHeight - margin
+    ? rect.bottom + gap
+    : Math.max(margin, rect.top - height - gap)
+  headerFilterPanelStyle.left = `${Math.round(left)}px`
+  headerFilterPanelStyle.top = `${Math.round(top)}px`
+  headerFilterPanel.value.querySelector('input[type="search"], input:checked')?.focus()
+}
+
+function closeHeaderFilter() {
+  headerFilterKey.value = ''
+}
+
+function dismissHeaderFilter(event) {
+  if (headerFilterPanel.value && !headerFilterPanel.value.contains(event.target)
+      && !event.target.closest('.replay-header-filter-button')) closeHeaderFilter()
+}
+
+function applyHeaderFilter(value) {
+  const key = headerFilterKey.value
+  if (!key) return
+  const selectedValue = typeof value === 'string' ? value : headerFilterDraft.value
+  filters[key] = selectedValue
+  page.value = 0
+  closeHeaderFilter()
+  return load()
+}
+
+function clearHeaderFilter() {
+  return applyHeaderFilter('')
+}
+
+function conditionKey(row, column) {
+  return `${row.id}-${column.key}`
+}
+
+function toggleCondition(row, column) {
+  const key = conditionKey(row, column)
+  if (!expandedConditions.delete(key)) expandedConditions.add(key)
+  if (copiedCondition.value === key) copiedCondition.value = ''
+}
+
+async function copyCondition(row, column) {
+  if (await copyText(row[column.key])) copiedCondition.value = conditionKey(row, column)
 }
 
 function formatTime(value) {
@@ -755,16 +892,19 @@ function formatChangeValue(change, value) {
 
 function changeLabel(change) {
   if (isSortTab.value && change.field === 'ignore_reason') return '排序原因'
+  if (isServiceSequenceTab.value && change.field === 'category') return TRANSACTION_CATEGORY_LABEL
   return change.label
 }
 
 function resetFilters() {
+  closeHeaderFilter()
   for (const key of Object.keys(filters)) delete filters[key]
   for (const filter of schema.value.filters) {
     filters[filter.key] = ''
   }
   filters.domain = ''
-  internalTransactionCode.value = ''
+  filters.developer = ''
+  filters.oldTransactionCode = ''
   reviewableByMe.value = false
   developedByMe.value = false
   reasonEmpty.value = false
@@ -776,8 +916,11 @@ function requestParams() {
     limit: pageSize.value,
     offset: page.value * pageSize.value,
   }
-  if (internalTransactionCode.value) params.internalTransactionCode = internalTransactionCode.value
-  if (filters.domain) params.domain = filters.domain
+  if (filters.oldTransactionCode) params.internalTransactionCode = filters.oldTransactionCode
+  if (filters.domain === EMPTY_FILTER) params.domainEmpty = 'true'
+  else if (filters.domain) params.domain = filters.domain
+  if (filters.developer === EMPTY_FILTER) params.developerEmpty = 'true'
+  else if (filters.developer) params.developer = filters.developer
   if (reviewableByMe.value) params.reviewableByMe = 'true'
   if (developedByMe.value) params.developedByMe = 'true'
   if (reasonEmpty.value) params.reasonEmpty = 'true'
@@ -790,18 +933,23 @@ function requestParams() {
 }
 
 async function load() {
+  const sequence = ++requestSequence
   loading.value = true
   try {
     const result = await listReplayConfigs(activeTab.value, requestParams())
+    if (sequence !== requestSequence) return
     items.value = result?.items || []
     total.value = result?.total || 0
     selectedIds.value = []
+    expandedConditions.clear()
+    copiedCondition.value = ''
   } catch (cause) {
+    if (sequence !== requestSequence) return
     items.value = []
     total.value = 0
     showToast(`加载失败：${cause?.message || cause}`, 'error')
   } finally {
-    loading.value = false
+    if (sequence === requestSequence) loading.value = false
   }
 }
 
@@ -1274,12 +1422,14 @@ function closeHistory() {
 }
 
 onMounted(() => {
+  document.addEventListener('pointerdown', dismissHeaderFilter)
   resetFilters()
   loadDomains()
   return load()
 })
 
 onUnmounted(() => {
+  document.removeEventListener('pointerdown', dismissHeaderFilter)
   if (toastTimer) clearTimeout(toastTimer)
 })
 </script>
@@ -1318,6 +1468,24 @@ onUnmounted(() => {
 .replay-table{width:100%;border-collapse:collapse;background:var(--bg-card,#fff);table-layout:fixed}
 .replay-table th,.replay-table td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--border,#e5e7eb);font-size:13px;word-break:break-all;vertical-align:top}
 .replay-table thead th{position:sticky;top:0;z-index:2;background:#0d6672;color:#fff}
+.replay-header-filter-button{display:inline-grid;place-items:center;width:18px;height:18px;margin-left:3px;padding:0;border:0;background:transparent;cursor:pointer;vertical-align:middle}
+.replay-header-filter-button i{display:block;width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:7px solid #e9fff9;filter:drop-shadow(0 0 1px rgba(0,0,0,.7))}
+.replay-header-filter-button:hover i,.replay-header-filter-button:focus-visible i{border-top-color:#fff}
+.replay-header-filter-button.active i{border-top-color:#ffd166}
+.replay-header-filter-button:focus-visible{outline:1px solid #fff;outline-offset:1px}
+.replay-header-filter-panel{position:fixed;z-index:1500;box-sizing:border-box;display:grid;grid-template-rows:auto minmax(0,1fr) auto;gap:6px;width:250px;padding:8px;overflow:hidden;border:1px solid #8e8e8e;border-radius:3px;color:#222;background:#454545;box-shadow:0 8px 22px rgba(0,0,0,.32)}
+.replay-header-filter-panel.is-developer-filter{width:220px}
+.replay-header-filter-panel>header,.replay-header-filter-panel>footer{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.replay-header-filter-panel>header{padding:0 2px;color:#fff}.replay-header-filter-panel>header strong{font-size:13px}
+.replay-header-filter-content{min-height:0;display:grid;gap:5px;padding:7px;border-radius:4px;background:#454545}
+.replay-header-filter-content>input{height:28px;padding:0 8px;border:1px solid #777;border-radius:3px;color:#eee;background:#555;font:inherit}
+.replay-header-filter-options{min-height:0;max-height:240px;overflow:auto;display:grid;align-content:start;gap:1px;padding:3px;border-radius:3px;background:#555}
+.replay-header-filter-options label{display:flex;align-items:center;gap:6px;min-height:23px;padding:3px 4px;border-radius:3px;color:#eee;font-size:12px;cursor:pointer}
+.replay-header-filter-options label span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.replay-header-filter-options label:hover{background:#666}.replay-header-filter-options input{accent-color:#42d1a5}
+.replay-header-filter-panel>footer{padding-top:5px;border-top:1px solid #666}.replay-header-filter-footer-spacer{flex:1}
+.replay-header-filter-clear{color:#ffcf8a!important}.replay-header-filter-panel .replay-button{min-height:25px;border-color:#777;color:#eee;background:#555}.replay-header-filter-panel .replay-button-primary{border-color:#42b883;color:#fff;background:#42b883}
+.replay-condition{max-height:42px;overflow:hidden;white-space:pre-wrap;word-break:break-word}.replay-condition.is-expanded{max-height:none}.replay-condition-actions{display:flex;gap:6px;margin-top:5px}.replay-condition-actions button{padding:2px 6px;border:1px solid var(--border,#d1d5db);background:var(--bg-card,#fff);font-size:11px}
 .replay-table thead th.replay-column-with-help{z-index:3;width:116px}
 .replay-column-heading{display:inline-flex;align-items:center;gap:4px;white-space:nowrap;word-break:normal}
 .replay-column-help{position:relative;display:inline-flex;flex:0 0 auto;align-items:center;justify-content:center;width:18px;height:18px;padding:0;border:0;background:transparent;color:inherit;cursor:help}

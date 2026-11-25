@@ -36,6 +36,10 @@ export function listReplayConfigDomains() {
   return request(`${PREFIX}/domains`)
 }
 
+export function listReplayConfigDevelopers() {
+  return request(`${PREFIX}/developers`)
+}
+
 /** 导出已审核的忽略清单（固定四个 sheet）。 */
 export function exportReviewedReplayConfigs() {
   return download(`${PREFIX}/export`, '忽略清单.xlsx')

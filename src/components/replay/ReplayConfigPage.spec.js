@@ -17,6 +17,7 @@ import {
   importReplayConfigReasons,
   importReplayConfigChineseNames,
   listReplayConfigDomains,
+  listReplayConfigDevelopers,
   listReplayConfigOperations,
   listReplayConfigs,
   reviewReplayConfig,
@@ -37,6 +38,7 @@ vi.mock('../../api/replayConfigs.js', () => ({
   listReplayConfigOperations: vi.fn(),
   reviewReplayConfig: vi.fn(),
   listReplayConfigDomains: vi.fn(),
+  listReplayConfigDevelopers: vi.fn(),
   exportReviewedReplayConfigs: vi.fn(),
   importReplayConfigReasons: vi.fn(),
   importReplayConfigChineseNames: vi.fn(),
@@ -66,6 +68,7 @@ function arrangeApi() {
   })
   createReplayConfig.mockResolvedValue({ id: 3, version: 0 })
   listReplayConfigDomains.mockResolvedValue(['公共', '贷款'])
+  listReplayConfigDevelopers.mockResolvedValue(['张三', '李四'])
   listReplayConfigOperations.mockResolvedValue({
     total: 1,
     items: [
@@ -83,6 +86,19 @@ function arrangeApi() {
       },
     ],
   })
+}
+
+async function openColumnFilter(wrapper, key) {
+  await wrapper.get(`[data-testid="column-filter-${key}"]`).trigger('click')
+  await flushPromises()
+  return wrapper.get('[data-testid="header-filter-panel"]')
+}
+
+async function selectColumnFilter(wrapper, key, value) {
+  const filter = await openColumnFilter(wrapper, key)
+  await filter.get(`input[type="radio"][value="${value}"]`).setValue(true)
+  await filter.trigger('submit')
+  await flushPromises()
 }
 
 describe('ReplayConfigPage（忽略清单）', () => {
@@ -246,12 +262,11 @@ describe('ReplayConfigPage（忽略清单）', () => {
     // 种子行没有领域映射时按空值显示
     expect(wrapper.findAll('tbody tr')[0].findAll('td')[1].text()).toBe('-')
 
-    const filter = wrapper.find('[data-testid="filter-domain"]')
-    expect(filter.element.tagName).toBe('SELECT')
-    expect(filter.findAll('option').map(option => option.text())).toEqual(['全部', '公共', '贷款'])
+    const filter = await openColumnFilter(wrapper, 'domain')
+    expect(filter.findAll('.replay-header-filter-options label').map(option => option.text())).toEqual(['全部', '公共', '贷款', '为空'])
 
-    await filter.setValue('贷款')
-    await wrapper.find('form.replay-filters').trigger('submit')
+    await filter.get('input[type="radio"][value="贷款"]').setValue(true)
+    await filter.trigger('submit')
     await flushPromises()
 
     expect(listReplayConfigs).toHaveBeenLastCalledWith('unconditional-ignores', {
@@ -293,7 +308,7 @@ describe('ReplayConfigPage（忽略清单）', () => {
     const wrapper = mount(ReplayConfigPage)
     await flushPromises()
 
-    await wrapper.find('[data-testid="filter-domain"]').setValue('贷款')
+    await selectColumnFilter(wrapper, 'domain', '贷款')
     await wrapper.find('[data-testid="filter-reviewable-by-me"]').setValue(true)
     await wrapper.find('[data-testid="filter-reason-empty"]').setValue(true)
     await wrapper.find('form.replay-filters').trigger('submit')
@@ -305,6 +320,16 @@ describe('ReplayConfigPage（忽略清单）', () => {
       domain: '贷款',
       reviewableByMe: 'true',
       reasonEmpty: 'true',
+    })
+  })
+
+  it('filters empty domain and selected developer', async () => {
+    const wrapper = mount(ReplayConfigPage)
+    await flushPromises()
+    await selectColumnFilter(wrapper, 'domain', '__EMPTY__')
+    await selectColumnFilter(wrapper, 'developer', '张三')
+    expect(listReplayConfigs).toHaveBeenLastCalledWith('unconditional-ignores', {
+      limit: 10, offset: 0, domainEmpty: 'true', developer: '张三',
     })
   })
 
@@ -818,9 +843,7 @@ describe('ReplayConfigPage（忽略清单）', () => {
     const wrapper = mount(ReplayConfigPage)
     await flushPromises()
 
-    await wrapper.find('[data-testid="filter-reviewStatus"]').setValue('1')
-    await wrapper.find('form.replay-filters').trigger('submit')
-    await flushPromises()
+    await selectColumnFilter(wrapper, 'reviewStatus', '1')
 
     expect(listReplayConfigs).toHaveBeenLastCalledWith('unconditional-ignores', {
       limit: 10, offset: 0, reviewStatus: '1',
@@ -992,8 +1015,10 @@ describe('ReplayConfigPage（忽略清单）', () => {
     await flushPromises()
     await wrapper.find('[data-testid="tab-message-sequence-ignores"]').trigger('click')
     await flushPromises()
-    await wrapper.find('[data-testid="filter-category"]').setValue('ACCOUNTING')
-    await wrapper.find('[data-testid="filter-messageSequence"]').setValue('seq')
+    await selectColumnFilter(wrapper, 'category', 'ACCOUNTING')
+    const sequenceFilter = await openColumnFilter(wrapper, 'messageSequence')
+    await sequenceFilter.get('input[type="search"]').setValue('seq')
+    await sequenceFilter.trigger('submit')
     await wrapper.find('[data-testid="filter-reviewable-by-me"]').setValue(true)
     await wrapper.find('[data-testid="filter-developed-by-me"]').setValue(true)
     await wrapper.find('[data-testid="filter-reason-empty"]').setValue(true)

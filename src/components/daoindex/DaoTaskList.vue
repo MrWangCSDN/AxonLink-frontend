@@ -107,7 +107,7 @@
         <button class="dii-pager-btn" :disabled="page >= totalPages" @click="goPage(page + 1)">›</button>
         <span class="dii-pager-info">
           每页
-          <select v-model.number="pageSize" @change="onFilterChange" class="dii-pager-size">
+          <select v-model.number="pageSize" @change="refreshFirstPage" class="dii-pager-size">
             <option :value="20">20</option>
             <option :value="50">50</option>
             <option :value="100">100</option>
@@ -188,18 +188,29 @@ const refresh = useSerialPolling(async (signal, isCurrent) => {
   }
 }, { interval: 5000, enabled: () => props.active })
 
-function onFilterChange() {
-  page.value = 1
+function refreshPage() {
+  items.value = []
+  errorMsg.value = ''
+  loading.value = true
   refresh()
+}
+function refreshFirstPage() {
+  page.value = 1
+  refreshPage()
+}
+function onFilterChange() {
+  total.value = 0
+  refreshFirstPage()
 }
 function goPage(p) {
   if (p < 1 || p > totalPages.value || p === page.value) return
   page.value = p
-  refresh()
+  refreshPage()
 }
 function onTriggered() {
   // 触发成功，立即刷一次列表（新任务出现在第一行 RUNNING）
-  onFilterChange()
+  if (page.value === 1) refresh()
+  else goPage(1)
 }
 function onViewSqls(row) {
   emit('goto-sqls', { taskId: row.id, taskNo: row.task_no })

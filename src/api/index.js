@@ -40,12 +40,12 @@ function redirectToLogin() {
 
 // A business endpoint may reject its operator while /auth/me still accepts the session.
 // Probe directly to avoid recursively entering this request interceptor.
-async function verifySessionBeforeRedirect(url) {
-  if (url.split('?')[0].startsWith('/auth/')) return
+async function verifySessionBeforeRedirect(url, signal) {
+  if (signal?.aborted || url.split('?')[0].startsWith('/auth/')) return
   try {
-    const response = await fetch(`${BASE}/auth/me`, { credentials: 'same-origin' })
+    const response = await fetch(`${BASE}/auth/me`, { credentials: 'same-origin', signal })
     const session = response.ok ? await response.json() : null
-    if (response.status === 401 || session?.code === 401) {
+    if (!signal?.aborted && (response.status === 401 || session?.code === 401)) {
       clearCurrentUser()
       redirectToLogin()
     }
@@ -68,7 +68,7 @@ export async function request(url, options = {}) {
 
   // HTTP 层 401：确认会话失效后才跳转，保留业务错误给调用方。
   if (res.status === 401) {
-    await verifySessionBeforeRedirect(url)
+    await verifySessionBeforeRedirect(url, options.signal)
     let msg = '未登录'
     try {
       const json = await res.json()
@@ -99,7 +99,7 @@ export async function request(url, options = {}) {
 
   // 业务层 401（HTTP 200 但 code:401）：等价 HTTP 401 处理
   if (json.code === 401) {
-    await verifySessionBeforeRedirect(url)
+    await verifySessionBeforeRedirect(url, options.signal)
     throw new ApiError(json.message || '未登录', { status: 200, code: 401, url })
   }
 

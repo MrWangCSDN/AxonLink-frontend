@@ -52,11 +52,11 @@ function response(data) {
   return new Response(JSON.stringify({ code: 200, data }))
 }
 
-function tasks(taskNo, status = 'RUNNING') {
+function tasks(taskNo, status = 'RUNNING', { env = 'uat', total = 1 } = {}) {
   return response({
-    total: 1,
+    total,
     items: [{
-      id: 1, task_no: taskNo, env: 'uat', status, created_at: '',
+      id: 1, task_no: taskNo, env, status, created_at: '',
       trigger_type: 'MANUAL', owner: 'tester', total_sqls: 2, pool_count: 3,
       explain_err: 0, llm_done: 0, llm_failed: 0,
     }],
@@ -185,6 +185,56 @@ describe('inspection task polling', () => {
     expect(page.get('tbody').text()).toContain('fresh-task')
     await vi.advanceTimersByTimeAsync(60_000)
     expect(calls(TASKS)).toHaveLength(2)
+  })
+
+  it.each([true, false])('clears task rows after an environment change with active menu %s', async active => {
+    const prod = deferred()
+    handlers[TASKS] = url => url.searchParams.get('env') === 'prod' ? prod.promise : tasks('uat-task', 'DONE')
+    const page = mount(DaoTaskList)
+    await flushPromises()
+    expect(page.get('tbody').text()).toContain('uat-task')
+
+    await page.setProps({ active })
+    await page.setProps({ env: 'prod' })
+    expect(page.find('.dii-action-link').exists()).toBe(false)
+    expect(page.find('.dii-pager').exists()).toBe(false)
+    if (!active) {
+      expect(calls(TASKS)).toHaveLength(1)
+      await page.setProps({ active: true })
+    }
+    await flushPromises()
+    expect(page.find('tbody').exists()).toBe(false)
+
+    prod.resolve(tasks('prod-task', 'DONE', { env: 'prod' }))
+    await flushPromises()
+    expect(page.get('tbody').text()).toContain('prod-task')
+  })
+
+  it('keeps pagination usable while waiting for the latest page and hides the previous rows', async () => {
+    const second = deferred()
+    handlers[TASKS] = url => {
+      const offset = url.searchParams.get('offset')
+      if (offset === '20') return second.promise
+      return tasks(offset === '40' ? 'task-page-3' : 'task-page-1', 'DONE', { total: 60 })
+    }
+    const page = mount(DaoTaskList)
+    await flushPromises()
+    expect(page.get('tbody').text()).toContain('task-page-1')
+
+    const pageButton = number => page.findAll('.dii-pager-btn').find(button => button.text() === number)
+    await pageButton('2').trigger('click')
+    await flushPromises()
+    expect(page.find('.dii-action-link').exists()).toBe(false)
+
+    await pageButton('3').trigger('click')
+    await flushPromises()
+    expect(calls(TASKS)).toHaveLength(2)
+    expect(calls(TASKS)[1].signal.aborted).toBe(true)
+
+    second.resolve(tasks('task-page-2', 'DONE', { total: 60 }))
+    await flushPromises()
+    expect(calls(TASKS)[2].url.searchParams.get('offset')).toBe('40')
+    expect(page.get('tbody').text()).toContain('task-page-3')
   })
 
   it('reloads the first page when its page size changes', async () => {

@@ -132,6 +132,54 @@ describe('401 session verification', () => {
     expect(router.push).toHaveBeenCalledWith({ path: '/login', query: { redirect: '/' } })
   })
 
+  it.each([401, 200])('forwards cancellation to the session probe after a %s response and ignores a late 401', async status => {
+    const controller = new AbortController()
+    let finishProbe
+    const probeBody = new Promise(resolve => { finishProbe = resolve })
+    let readProbeBody
+    const probeBodyStarted = new Promise(resolve => { readProbeBody = resolve })
+    let probeSignal
+    fetch.mockResolvedValueOnce(reply(status, 401))
+      .mockImplementationOnce((_url, { signal }) => {
+        probeSignal = signal
+        return {
+          status: 200,
+          ok: true,
+          json() {
+            readProbeBody()
+            return probeBody
+          },
+        }
+      })
+
+    const result = request('/system/stats', { signal: controller.signal })
+    await probeBodyStarted
+    controller.abort()
+    finishProbe({ code: 401, message: '用户未登录', data: null })
+    await expect(result).rejects.toMatchObject({ status, code: 401 })
+
+    expect(router.push).not.toHaveBeenCalled()
+    expect(clearCurrentUser).not.toHaveBeenCalled()
+    expect(probeSignal).toBe(controller.signal)
+    expect(probeSignal.aborted).toBe(true)
+  })
+
+  it.each([401, 200])('skips session verification when cancellation precedes the %s response', async status => {
+    const controller = new AbortController()
+    let finishRequest
+    const response = new Promise(resolve => { finishRequest = resolve })
+    fetch.mockReturnValueOnce(response).mockResolvedValueOnce(reply(401, 401))
+
+    const result = request('/system/stats', { signal: controller.signal })
+    controller.abort()
+    finishRequest(reply(status, 401))
+    await expect(result).rejects.toMatchObject({ status, code: 401 })
+
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(router.push).not.toHaveBeenCalled()
+    expect(clearCurrentUser).not.toHaveBeenCalled()
+  })
+
   it.each([404, 503])('keeps the route when the session probe returns %s', async status => {
     fetch.mockResolvedValueOnce(reply(401, 401)).mockResolvedValueOnce(reply(status, status))
     await expect(request('/ai/test')).rejects.toMatchObject({ code: 401 })

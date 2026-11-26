@@ -282,6 +282,41 @@ describe('script source database', () => {
     wrapper.unmount()
   })
 
+  it.each([false, true])('preserves credentials when the same IPv6 address is bracketed (replacement entered: %s)', async replacementEntered => {
+    const password = replacementEntered ? '  replacement password  ' : ''
+    const source = { ...customSource, host: '2001:db8::1' }
+    api.getScriptConfiguration.mockResolvedValueOnce({ ...detail(), connection: { ...source, passwordConfigured: true } })
+    const wrapper = mount(Manager, { props: { open: true } })
+    await flushPromises()
+    await selectProfile(wrapper, 1)
+    await flushPromises()
+    await setConnection(wrapper, { password, host: '  [2001:DB8::1]  ' })
+
+    expect(connectionInput(wrapper, 'password').element.value).toBe(password)
+    expect(wrapper.text()).toContain('已设置密码')
+    await saveConfig(wrapper)
+    await flushPromises()
+    const connection = password ? { ...source, password } : source
+    expect(api.updateScriptConfiguration).toHaveBeenCalledExactlyOnceWith(1, expect.objectContaining({ connection, revision: 3 }))
+    wrapper.unmount()
+  })
+
+  it('requires a new password after changing the IPv6 address', async () => {
+    const source = { ...customSource, host: '2001:db8::1' }
+    api.getScriptConfiguration.mockResolvedValueOnce({ ...detail(), connection: { ...source, passwordConfigured: true } })
+    const wrapper = mount(Manager, { props: { open: true } })
+    await flushPromises()
+    await selectProfile(wrapper, 1)
+    await flushPromises()
+    await setConnection(wrapper, { password: 'typed for the previous address', host: '[2001:db8::2]' })
+
+    expect(connectionInput(wrapper, 'password').element.value).toBe('')
+    await saveConfig(wrapper)
+    expect(api.updateScriptConfiguration).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-testid="script-manager-errors"]').text()).toContain('请输入当前连接的密码')
+    wrapper.unmount()
+  })
+
   it.each([
     ['host', 'other.example.test'],
     ['port', '5544'],

@@ -119,8 +119,9 @@ const invalidIgnoredFields = computed(() => {
 let session = 0, detailSerial = 0, alive = true
 
 function connectionProperties(source) {
+  const host = source.host.trim().toLowerCase().replace(/^\[([^[\]]+)\]$/, '$1')
   return {
-    mode: 'CUSTOM', host: source.host.trim().toLowerCase(), port: Number(source.port),
+    mode: 'CUSTOM', host, port: Number(source.port),
     database: source.database.trim(), schema: source.schema.trim(), username: source.username.trim(),
   }
 }

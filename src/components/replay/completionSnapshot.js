@@ -3,9 +3,9 @@ const tableTop = 132
 const tableHeaderHeight = 52
 const tableRowHeight = 48
 const bottomPadding = 36
-const columnWidths = [404, 150, 150, 150, 190, 150, 170, 190, 130, 130]
+const columnWidths = [404, 150, 150, 150, 250, 150, 170, 250, 130, 130]
 const logicalWidth = columnWidths.reduce((sum, width) => sum + width, 0) + horizontalPadding * 2
-const tableHeaders = ['领域 / 开发负责人', '计划问题数', '已修复', '延期修复', '平均延期修复天数', '未完成', '延期未完成', '平均延期未完成天数', '完成率', '修复待验证']
+const tableHeaders = ['领域 / 开发负责人', '计划问题数', '已修复', '延期修复', '平均延期天数(延期修复部分)', '未完成', '延期未完成', '平均延期天数(延期未完成部分)', '完成率', '修复待验证']
 
 export function formatAverageDays(value) {
   if (value === undefined || value === null || (typeof value === 'string' && !value.trim())) return '-'

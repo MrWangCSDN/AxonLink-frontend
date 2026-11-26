@@ -112,7 +112,7 @@ describe('completionSnapshot', () => {
 
     const headers = environment.writtenTexts.indexOf('领域 / 开发负责人')
     expect(environment.writtenTexts.slice(headers, headers + 10)).toEqual([
-      '领域 / 开发负责人', '计划问题数', '已修复', '延期修复', '平均延期修复天数', '未完成', '延期未完成', '平均延期未完成天数', '完成率', '修复待验证',
+      '领域 / 开发负责人', '计划问题数', '已修复', '延期修复', '平均延期天数(延期修复部分)', '未完成', '延期未完成', '平均延期天数(延期未完成部分)', '完成率', '修复待验证',
     ])
     const total = environment.writtenTexts.lastIndexOf('存款组')
     expect(environment.writtenTexts.slice(total, total + 10)).toEqual(['存款组', '8', '1', '2', '7.75', '3', '4', '4.50', '60.00%', '7'])

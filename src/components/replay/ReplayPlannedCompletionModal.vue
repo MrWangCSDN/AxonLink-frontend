@@ -196,7 +196,7 @@
               >{{ snapshotMessage }}</span>
               <div class="replay-completion-table-wrap">
                 <table class="replay-completion-table">
-                  <thead><tr><th>领域 / 开发负责人</th><th>计划问题数</th><th>已修复</th><th>延期修复</th><th>平均延期修复天数</th><th>未完成</th><th>延期未完成</th><th>平均延期未完成天数</th><th>完成率</th><th>修复待验证</th></tr></thead>
+                  <thead><tr><th>领域 / 开发负责人</th><th>计划问题数</th><th>已修复</th><th>延期修复</th><th>平均延期天数(延期修复部分)</th><th>未完成</th><th>延期未完成</th><th>平均延期天数(延期未完成部分)</th><th>完成率</th><th>修复待验证</th></tr></thead>
                   <tbody v-if="activeGroup">
                     <tr data-testid="completion-group-row" class="replay-completion-group-row">
                       <th>{{ activeGroup.groupName }}</th>

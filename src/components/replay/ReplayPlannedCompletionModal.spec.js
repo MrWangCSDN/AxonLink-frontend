@@ -247,7 +247,7 @@ describe('ReplayPlannedCompletionModal', () => {
     const developerRows = wrapper.findAll('[data-testid="completion-developer-row"]')
     expect(developerRows).toHaveLength(4)
     expect(wrapper.findAll('.replay-completion-table thead th').map(cell => cell.text())).toEqual([
-      '领域 / 开发负责人', '计划问题数', '已修复', '延期修复', '平均延期修复天数', '未完成', '延期未完成', '平均延期未完成天数', '完成率', '修复待验证',
+      '领域 / 开发负责人', '计划问题数', '已修复', '延期修复', '平均延期天数(延期修复部分)', '未完成', '延期未完成', '平均延期天数(延期未完成部分)', '完成率', '修复待验证',
     ])
     expect(developerRows.map(row => row.find('th').text())).toEqual(['D负责人', 'A负责人', 'B负责人', 'C负责人'])
     expect(developerRows.map(row => row.findAll('td')[7].text())).toEqual(['10.00%', '20.00%', '20.00%', '20.00%'])

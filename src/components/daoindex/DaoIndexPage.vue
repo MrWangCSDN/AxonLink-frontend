@@ -31,6 +31,7 @@
     />
     <DaoTaskList
       v-show="currentPage === 'dii-tasks'"
+      :active="currentPage === 'dii-tasks'"
       :env="env"
       @update:env="env = $event"
       @goto-sqls="handleGotoSqlsFromTask"

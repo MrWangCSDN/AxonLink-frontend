@@ -35,8 +35,8 @@ export function logout() {
  * 未登录：抛出异常（HTTP 401，message="未登录"）
  * 鉴权未启用（enabled=false）：抛出异常（HTTP 404，由 guard 视为放行）
  */
-export function getCurrentUser() {
-  return request('/auth/me')
+export function getCurrentUser({ signal } = {}) {
+  return request('/auth/me', { signal })
 }
 
 /**

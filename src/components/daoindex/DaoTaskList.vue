@@ -37,7 +37,7 @@
       <div v-if="loading && items.length === 0" class="dii-loading">加载中...</div>
       <div v-else-if="errorMsg" class="dii-error">
         {{ errorMsg }}
-        <button class="dii-retry-btn" @click="doLoad">重试</button>
+        <button class="dii-retry-btn" @click="refresh">重试</button>
       </div>
       <div v-else-if="items.length === 0" class="dii-empty">
         暂无巡检任务
@@ -107,7 +107,7 @@
         <button class="dii-pager-btn" :disabled="page >= totalPages" @click="goPage(page + 1)">›</button>
         <span class="dii-pager-info">
           每页
-          <select v-model.number="pageSize" @change="goPage(1)" class="dii-pager-size">
+          <select v-model.number="pageSize" @change="onFilterChange" class="dii-pager-size">
             <option :value="20">20</option>
             <option :value="50">50</option>
             <option :value="100">100</option>
@@ -127,12 +127,16 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, watch } from 'vue'
 import DiiEnvSwitcher from './widgets/DiiEnvSwitcher.vue'
 import DiiTaskTriggerModal from './widgets/DiiTaskTriggerModal.vue'
 import { listDiiTasks } from '../../api/daoIndex.js'
+import { useSerialPolling } from '../../composables/useSerialPolling.js'
 
-const props = defineProps({ env: { type: String, default: 'uat' } })
+const props = defineProps({
+  env: { type: String, default: 'uat' },
+  active: { type: Boolean, default: true },
+})
 const emit = defineEmits(['update:env', 'goto-sqls'])
 
 const items = ref([])
@@ -143,8 +147,6 @@ const page = ref(1)
 const pageSize = ref(20)
 const statusFilter = ref('')
 const triggerOpen = ref(false)
-
-let pollTimer = null
 
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
 
@@ -161,7 +163,7 @@ const pagerNumbers = computed(() => {
   return arr
 })
 
-async function doLoad() {
+const refresh = useSerialPolling(async (signal, isCurrent) => {
   loading.value = true
   errorMsg.value = ''
   try {
@@ -170,47 +172,34 @@ async function doLoad() {
       status: statusFilter.value || undefined,
       limit: pageSize.value,
       offset: (page.value - 1) * pageSize.value,
-    })
+    }, { signal })
+    if (!isCurrent()) return
     items.value = data.items
     total.value = data.total
-    schedulePoll()
+    return items.value.some(isRunning)
   } catch (e) {
+    if (!isCurrent()) return
     errorMsg.value = `加载失败：${e?.message || e}`
     items.value = []
     total.value = 0
+    throw e
   } finally {
-    loading.value = false
+    if (isCurrent()) loading.value = false
   }
-}
-
-// 当前页有 PENDING/RUNNING 行 → 启 5s 轮询；否则停
-function schedulePoll() {
-  const needPoll = items.value.some(r => isRunning(r))
-  clearPoll()
-  if (needPoll) {
-    pollTimer = setInterval(() => doLoad(), 5000)
-  }
-}
-function clearPoll() {
-  if (pollTimer) {
-    clearInterval(pollTimer)
-    pollTimer = null
-  }
-}
+}, { interval: 5000, enabled: () => props.active })
 
 function onFilterChange() {
   page.value = 1
-  doLoad()
+  refresh()
 }
 function goPage(p) {
   if (p < 1 || p > totalPages.value || p === page.value) return
   page.value = p
-  doLoad()
+  refresh()
 }
-function onTriggered(payload) {
+function onTriggered() {
   // 触发成功，立即刷一次列表（新任务出现在第一行 RUNNING）
-  page.value = 1
-  doLoad()
+  onFilterChange()
 }
 function onViewSqls(row) {
   emit('goto-sqls', { taskId: row.id, taskNo: row.task_no })
@@ -281,9 +270,7 @@ function shortTime(s) {
 }
 
 /* ─────── 生命周期 ─────── */
-onMounted(doLoad)
-onBeforeUnmount(clearPoll)
-watch(() => props.env, () => { page.value = 1; doLoad() })
+watch(() => props.env, onFilterChange)
 </script>
 
 <style scoped>

@@ -348,6 +348,7 @@
 <script setup>
 import { ref, computed, reactive, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import AppHeader from '../components/AppHeader.vue'
+import { useSerialPolling } from '../composables/useSerialPolling.js'
 import ChainImpactSidebar from '../components/ChainImpactSidebar.vue'
 import TransactionCard from '../components/TransactionCard.vue'
 import ImpactAnalysisPage from '../components/impact/ImpactAnalysisPage.vue'
@@ -414,7 +415,7 @@ function onNavigateSlowTodo() {
 const domains      = ref([])
 const activeDomain = ref(null)
 const systemStats  = ref({ totalDomains: 0, totalTransactions: 0, status: 'normal', statusText: '系统运行正常' })
-const buildSyncInfo = ref({
+const defaultBuildSyncInfo = {
   project: 'axon-link-server',
   branch: 'Master',
   versionNo: '--',
@@ -422,7 +423,8 @@ const buildSyncInfo = ref({
   statusType: 'running',
   message: '正在等待异步构建完成',
   refreshedAt: '',
-})
+}
+const buildSyncInfo = ref(defaultBuildSyncInfo)
 
 // 启动页支持从 URL hash 读取（如 #dii-sqls 直接打开 SQL 分析页）
 const currentPage = ref(
@@ -520,12 +522,16 @@ const sortedTransactions = computed(() =>
 )
 
 // ── 系统健康检查（同时更新统计数字） ──
-let healthTimer = null
-const checkHealth = async () => {
+const healthReady = ref(false)
+const domainRequest = new AbortController()
+let prefetchImpact = true
+
+useSerialPolling(async (signal, isCurrent) => {
   const [statsResult, buildResult] = await Promise.allSettled([
-    getSystemStats(),
-    getBuildSyncStatus(),
+    getSystemStats({ signal }),
+    getBuildSyncStatus({ signal }),
   ])
+  if (!isCurrent()) return
 
   if (statsResult.status === 'fulfilled') {
     systemStats.value = statsResult.value
@@ -537,29 +543,19 @@ const checkHealth = async () => {
     }
   }
 
-  if (buildResult.status === 'fulfilled') {
-    buildSyncInfo.value = {
-      project: 'axon-link-server',
-      branch: 'Master',
-      versionNo: '--',
-      statusText: '构建中',
-      statusType: 'running',
-      message: '正在等待异步构建完成',
-      refreshedAt: '',
-      ...buildResult.value,
-    }
-  } else {
-    buildSyncInfo.value = {
-      project: 'axon-link-server',
-      branch: 'Master',
-      versionNo: '--',
-      statusText: '构建中',
-      statusType: 'running',
-      message: '正在等待异步构建完成',
-      refreshedAt: '',
-    }
+  buildSyncInfo.value = {
+    ...defaultBuildSyncInfo,
+    ...(buildResult.status === 'fulfilled' ? buildResult.value : {}),
   }
-}
+
+  if (prefetchImpact) {
+    prefetchImpact = false
+    void Promise.all([loadImpactTableCatalog(), loadImpactStats()])
+  }
+
+  const failure = [statsResult, buildResult].find(result => result.status === 'rejected')
+  if (failure) throw failure.reason
+}, { interval: 30_000, enabled: () => healthReady.value })
 
 /**
  * 领域名「展示」兜底：后端 getDomains() 偶发返回原始码（comm/DEPT/sett，无中文 longname）。
@@ -583,15 +579,17 @@ function domainDisplayName(raw) {
 // ── 初始化：加载领域列表 ──
 const initDomains = async () => {
   try {
-    const data = await getDomains()
+    const data = await getDomains({ signal: domainRequest.signal })
+    if (domainRequest.signal.aborted) return
     // 给每个领域补 displayName（展示用），name 保持后端原值供匹配
     domains.value = (Array.isArray(data) ? data : [])
       .map(d => ({ ...d, displayName: domainDisplayName(d?.name) }))
     if (domains.value.length) activeDomain.value = domains.value[0]
   } catch (e) {
-    loadError.value = '加载领域失败：' + (e.message || '请检查后端服务是否启动')
+    if (!domainRequest.signal.aborted) {
+      loadError.value = '加载领域失败：' + (e.message || '请检查后端服务是否启动')
+    }
   }
-  await checkHealth()
 }
 
 const loadImpactTableCatalog = async () => {
@@ -794,12 +792,11 @@ watch(localSearch, () => {
 onMounted(async () => {
   applyTheme(isDark.value)
   await initDomains()
-  void Promise.all([loadImpactTableCatalog(), loadImpactStats()])
-  healthTimer = setInterval(checkHealth, 30_000)
+  if (!domainRequest.signal.aborted) healthReady.value = true
 })
 onBeforeUnmount(() => {
+  domainRequest.abort()
   dismissImpactNotice()
-  clearInterval(healthTimer)
   clearTimeout(searchTimer)
 })
 

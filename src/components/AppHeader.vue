@@ -106,6 +106,7 @@ import { useRouter } from 'vue-router'
 import { getCurrentUser, logout as apiLogout } from '../api/auth.js'
 import { clearCurrentUser } from '../router/index.js'
 import { getWhitelistTodoCount } from '../api/daoIndex.js'
+import { useSerialPolling } from '../composables/useSerialPolling.js'
 
 const props = defineProps({
   isDark: { type: Boolean, default: false }
@@ -176,20 +177,18 @@ const slowSqlTodoCount = ref(0)
 const sqlInspectTodoCount = ref(0)
 const todoCountText = computed(() => (todoCount.value > 99 ? '99+' : String(todoCount.value)))
 const bellOpen = ref(false)   // 有慢SQL待办时点铃铛弹出分流菜单
-let todoPollTimer = null
+const todoReady = ref(false)
+const userRequest = new AbortController()
 
-async function refreshTodoCount() {
-  try {
-    const data = await getWhitelistTodoCount({
-      currentUser: currentUsername.value || undefined,
-    })
-    todoCount.value = Number(data?.count) || 0
-    slowSqlTodoCount.value = Number(data?.slowSqlCount) || 0
-    sqlInspectTodoCount.value = Number(data?.sqlInspectCount) || 0
-  } catch (_) {
-    // 鉴权未启用 / 网络错误：保持原数字不变（不闪烁清零）
-  }
-}
+useSerialPolling(async (signal, isCurrent) => {
+  const data = await getWhitelistTodoCount({
+    currentUser: currentUsername.value || undefined,
+  }, { signal })
+  if (!isCurrent()) return
+  todoCount.value = Number(data?.count) || 0
+  slowSqlTodoCount.value = Number(data?.slowSqlCount) || 0
+  sqlInspectTodoCount.value = Number(data?.sqlInspectCount) || 0
+}, { interval: 30_000, enabled: () => todoReady.value })
 
 function onClickBell() {
   // 只有 SQL 巡检待办（无慢SQL）→ 老行为直接跳；含慢SQL → 弹菜单选去哪
@@ -207,7 +206,8 @@ function goTodo(kind) {
 onMounted(async () => {
   // 接入登录用户名显示：成功就更新；失败（未启用/未登录/网络异常）不显示虚构身份
   try {
-    const user = await getCurrentUser()
+    const user = await getCurrentUser({ signal: userRequest.signal })
+    if (userRequest.signal.aborted) return
     if (user?.username) {
       currentUsername.value = user.username
       // 关键：后端 /me 返回 realName（中文真实姓名），优先用它展示在右上角
@@ -221,17 +221,10 @@ onMounted(async () => {
   } catch (_) {
     // 静默：未登录会被 axios 拦截器跳 /login，账号不可用时显示未获取状态
   }
-  // 启动计数轮询：每 30s 拉一次
-  refreshTodoCount()
-  todoPollTimer = setInterval(refreshTodoCount, 30_000)
+  if (!userRequest.signal.aborted) todoReady.value = true
 })
 
-onBeforeUnmount(() => {
-  if (todoPollTimer) {
-    clearInterval(todoPollTimer)
-    todoPollTimer = null
-  }
-})
+onBeforeUnmount(() => userRequest.abort())
 
 defineExpose({ setResult })
 </script>

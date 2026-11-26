@@ -166,13 +166,13 @@ function triggerBrowserDownload(blob, fileName) {
 }
 
 /** 获取系统统计 */
-export function getSystemStats() {
-  return request('/system/stats')
+export function getSystemStats({ signal } = {}) {
+  return request('/system/stats', { signal })
 }
 
 /** 获取最近一次全量拉取+编译状态 */
-export function getBuildSyncStatus() {
-  return request('/system/build-sync-status')
+export function getBuildSyncStatus({ signal } = {}) {
+  return request('/system/build-sync-status', { signal })
 }
 
 // ── flowtran 数据驱动接口（替代 getDomains / getTransactions） ──────────────
@@ -180,8 +180,8 @@ export function getBuildSyncStatus() {
 /**
  * 获取所有业务领域列表（来自 Neo4j 交易图，实时查询）
  */
-export function getFlowtranDomains() {
-  return request('/flowtran/domains')
+export function getFlowtranDomains({ signal } = {}) {
+  return request('/flowtran/domains', { signal })
 }
 
 /**

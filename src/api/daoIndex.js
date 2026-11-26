@@ -197,9 +197,9 @@ export function runDiiLlmEnrich(params = {}) {
  *   offset: 默认 0
  * @returns {Promise<{total: number, items: Array<Object>}>}
  */
-export async function listDiiTasks(params = {}) {
+export async function listDiiTasks(params = {}, { signal } = {}) {
   const qs = toQuery(params)
-  const res = await request(`${PREFIX}/batch-tasks${qs}`)
+  const res = await request(`${PREFIX}/batch-tasks${qs}`, { signal })
   // request() 已脱壳 R 包装，res 直接是 {total, items}
   // 兼容旧返回（直接是数组）：包装一层
   if (Array.isArray(res)) {
@@ -497,9 +497,9 @@ export function listWhitelistTodo(params = {}) {
  * 我的待办计数（铃铛红点用）
  * @returns {Promise<{currentUser: string, count: number}>}
  */
-export function getWhitelistTodoCount(params = {}) {
+export function getWhitelistTodoCount(params = {}, { signal } = {}) {
   const qs = toQuery(params)
-  return request(`${PREFIX}/whitelist-applications/todo-count${qs}`)
+  return request(`${PREFIX}/whitelist-applications/todo-count${qs}`, { signal })
 }
 
 function postAction(path, body) {

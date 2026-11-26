@@ -318,6 +318,105 @@ describe('ReplayDatabaseIssuePage',()=>{
     await w.get('[data-testid="clear-header-filter"]').trigger('click');await flushPromises()
     expect(api.listDatabaseIssues).toHaveBeenLastCalledWith({domains:['贷款组'],differenceCountOrder:'ASC',offset:0,limit:50});w.unmount()
   })
+  it('searches technology owner candidates by name and account fragments and applies full display values or blanks', async () => {
+    const owner = '科技甲(100001)、科技乙(100002)'
+    const named = { value: owner, count: 3 }
+    const blank = { value: '', count: 1 }
+    api.getDatabaseIssueFilterOptions
+      .mockResolvedValueOnce({ items: [blank, named], candidateCount: 2, matchedIssueCount: 4, truncated: false })
+      .mockResolvedValue({ items: [named], candidateCount: 1, matchedIssueCount: 3, truncated: false })
+    const wrapper = mount(ReplayDatabaseIssuePage)
+    await flushPromises()
+    api.listDatabaseIssues.mockClear()
+
+    const header = wrapper.get('[data-testid="header-filter-technologyOwnerDisplay"]')
+    await header.trigger('click')
+    await flushPromises()
+    expect(api.getDatabaseIssueFilterOptions).toHaveBeenLastCalledWith({ field: 'technologyOwnerDisplay' })
+    expect(header.attributes('aria-expanded')).toBe('true')
+    expect(wrapper.get('[data-testid="header-filter-panel"]').attributes('aria-label')).toBe('筛选科技负责人')
+    expect(wrapper.get('.replay-header-filter-options').text()).toContain('（空白）')
+    await wrapper.get('.replay-header-filter-options input[value=""]').setValue(true)
+
+    const search = wrapper.get('[data-testid="header-filter-search"]')
+    await search.setValue('科技甲')
+    await search.trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+    expect(api.getDatabaseIssueFilterOptions).toHaveBeenLastCalledWith({ field: 'technologyOwnerDisplay', keyword: '科技甲' })
+    expect(wrapper.get('.replay-header-filter-options').text()).toContain(owner)
+    await wrapper.get('.replay-header-filter-options input').setValue(true)
+
+    await search.setValue('10000')
+    await wrapper.get('[aria-label="查询筛选选项"]').trigger('click')
+    await flushPromises()
+    expect(api.getDatabaseIssueFilterOptions).toHaveBeenLastCalledWith({ field: 'technologyOwnerDisplay', keyword: '10000' })
+    expect(wrapper.get('.replay-header-filter-options input').element.checked).toBe(true)
+    expect(api.listDatabaseIssues).not.toHaveBeenCalled()
+
+    await wrapper.get('[data-testid="apply-header-filter"]').trigger('click')
+    await flushPromises()
+    expect(api.listDatabaseIssues).toHaveBeenCalledExactlyOnceWith({ technologyOwners: ['', owner], offset: 0, limit: 50 })
+    expect(header.classes()).toContain('active')
+
+    await wrapper.get('[data-testid="reset-filters"]').trigger('click')
+    await flushPromises()
+    expect(api.listDatabaseIssues).toHaveBeenLastCalledWith({ offset: 0, limit: 50 })
+    expect(header.classes()).not.toContain('active')
+    wrapper.unmount()
+  })
+
+  it('uses technology owner filters in other columns, pagination and detail export and clears only that column', async () => {
+    const owner = row.technologyOwnerDisplay
+    const domain = { items: [{ value: '贷款组', count: 100 }], candidateCount: 1, matchedIssueCount: 100, truncated: false }
+    const technology = { items: [{ value: owner, count: 100 }], candidateCount: 1, matchedIssueCount: 100, truncated: false }
+    api.getDatabaseIssueFilterOptions.mockImplementation(async ({ field }) => field === 'domain' ? domain : technology)
+    api.listDatabaseIssues.mockResolvedValue({ items: [row], total: 100, limit: 50, offset: 0 })
+    const wrapper = mount(ReplayDatabaseIssuePage)
+    await flushPromises()
+
+    const domainHeader = wrapper.get('[data-testid="header-filter-domain"]')
+    const technologyHeader = wrapper.get('[data-testid="header-filter-technologyOwnerDisplay"]')
+    const nextPage = wrapper.get('[aria-label="下一页"]')
+    await domainHeader.trigger('click')
+    await flushPromises()
+    await wrapper.get('.replay-header-filter-options input').setValue(true)
+    await wrapper.get('[data-testid="apply-header-filter"]').trigger('click')
+    await flushPromises()
+    await nextPage.trigger('click')
+    await flushPromises()
+    expect(api.listDatabaseIssues).toHaveBeenLastCalledWith({ domains: ['贷款组'], offset: 50, limit: 50 })
+
+    await technologyHeader.trigger('click')
+    await flushPromises()
+    expect(api.getDatabaseIssueFilterOptions).toHaveBeenLastCalledWith({ field: 'technologyOwnerDisplay', domains: ['贷款组'] })
+    await wrapper.get('.replay-header-filter-options input').setValue(true)
+    await wrapper.get('[data-testid="apply-header-filter"]').trigger('click')
+    await flushPromises()
+    const criteria = { domains: ['贷款组'], technologyOwners: [owner] }
+    expect(api.listDatabaseIssues).toHaveBeenLastCalledWith({ ...criteria, offset: 0, limit: 50 })
+
+    await nextPage.trigger('click')
+    await flushPromises()
+    expect(api.listDatabaseIssues).toHaveBeenLastCalledWith({ ...criteria, offset: 50, limit: 50 })
+    await wrapper.get('[data-testid="export-issues"]').trigger('click')
+    await flushPromises()
+    expect(api.exportDatabaseIssues).toHaveBeenCalledExactlyOnceWith(criteria)
+
+    await domainHeader.trigger('click')
+    await flushPromises()
+    expect(api.getDatabaseIssueFilterOptions).toHaveBeenLastCalledWith({ field: 'domain', technologyOwners: [owner] })
+    await technologyHeader.trigger('click')
+    await flushPromises()
+    expect(api.getDatabaseIssueFilterOptions).toHaveBeenLastCalledWith({ field: 'technologyOwnerDisplay', domains: ['贷款组'] })
+    expect(wrapper.get('.replay-header-filter-options input').element.checked).toBe(true)
+    await wrapper.get('[data-testid="clear-header-filter"]').trigger('click')
+    await flushPromises()
+    expect(api.listDatabaseIssues).toHaveBeenLastCalledWith({ domains: ['贷款组'], offset: 0, limit: 50 })
+    expect(domainHeader.classes()).toContain('active')
+    expect(technologyHeader.classes()).not.toContain('active')
+    wrapper.unmount()
+  })
+
   it('filters collaborators by full display values or blanks and shares selections with export',async()=>{
     const w=mount(ReplayDatabaseIssuePage);await flushPromises()
     await w.get('[data-testid="header-filter-domain"]').trigger('click');await flushPromises()

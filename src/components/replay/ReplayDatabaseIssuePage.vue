@@ -169,7 +169,7 @@ const columns = [
 ].map(([key,label,width]) => ({key,label,width}))
 const tableWidth = `${columns.reduce((sum, column) => sum + parseInt(column.width, 10), 0)}px`
 const sourceLabels = {...Object.fromEntries(columns.map(c => [c.key,c.label])),tableName:'表英文名',tableComment:'表中文名',firstOccurredDate:'首次出现日期',lastOccurredDate:'最近出现日期',reviewStatus:'审核状态',reviewReason:'审核原因',reviewerUsername:'审核人账号',reviewerName:'审核人'}
-const headerFilterConfig = { issueId:'issueIds', tableName:'tableNames', domain:'domains', owner:'owners', cooperationPerson:'cooperationPersons', issueLevel:'issueLevels', fieldName:'fieldNames', plannedCompletionDate:'plannedCompletionDates', defectRepairDate:'defectRepairDates', batchNo:'batchNos', issueStatus:'issueStatuses', reviewStatus:'reviewStatuses', issueType:'issueTypes' }
+const headerFilterConfig = { issueId:'issueIds', tableName:'tableNames', domain:'domains', owner:'owners', technologyOwnerDisplay:'technologyOwners', cooperationPerson:'cooperationPersons', issueLevel:'issueLevels', fieldName:'fieldNames', plannedCompletionDate:'plannedCompletionDates', defectRepairDate:'defectRepairDates', batchNo:'batchNos', issueStatus:'issueStatuses', reviewStatus:'reviewStatuses', issueType:'issueTypes' }
 const headerFilters = reactive({})
 function filterParams(excludeKey) {
   return Object.fromEntries(Object.entries(headerFilterConfig).filter(([key]) => key !== excludeKey && headerFilters[key]?.length).map(([key, param]) => [param, [...headerFilters[key]]]))

@@ -13,7 +13,7 @@ vi.mock('../../api/replayDatabaseComparison.js', () => ({
   searchVersionSnapshot: vi.fn(),
   loadVersionHeaderFilterOptions: vi.fn(),
   listScriptConfigurations: vi.fn(), getScriptConfiguration: vi.fn(), createScriptConfiguration: vi.fn(),
-  updateScriptConfiguration: vi.fn(), importScriptConfigurationTables: vi.fn(), downloadScriptConfiguration: vi.fn(),
+  updateScriptConfiguration: vi.fn(), importScriptConfigurationTables: vi.fn(), downloadScriptConfiguration: vi.fn(), previewScriptConfigurationMetadata: vi.fn(),
 }))
 
 import * as comparisonApi from '../../api/replayDatabaseComparison.js'
@@ -119,6 +119,7 @@ describe('ReplayDatabaseComparisonVersionHistory', () => {
     const wrapper = mount(ReplayDatabaseComparisonVersionHistory, { props: { open: true } })
     await flushPromises()
     await wrapper.get('[data-testid="open-script-manager"]').trigger('click'); await flushPromises()
+    await wrapper.get('[data-testid="script-connection-mode"]').setValue('BASE')
     await wrapper.get('[data-testid="script-config-name"]').setValue('新增方案')
     const input = wrapper.get('[data-testid="script-tables-file"]')
     Object.defineProperty(input.element, 'files', { value: [new File(['tables'], 'tables.xlsx')] })
@@ -130,6 +131,37 @@ describe('ReplayDatabaseComparisonVersionHistory', () => {
     expect(wrapper.get('[data-testid="config-script-target"]').text()).toContain('新增方案')
     await wrapper.get('[data-testid="config-script-action"]').trigger('click'); await flushPromises()
     expect(comparisonApi.downloadScriptConfiguration).toHaveBeenCalledWith(8, 1)
+    wrapper.unmount()
+  })
+
+  it('downloads the new frozen revision after editing the source of an existing migration configuration', async () => {
+    const migration = { id: 7, name: '迁移比对', revision: 3, tableCount: 1, fieldCount: 1 }
+    const saved = { ...migration, revision: 4 }
+    comparisonApi.loadVersions.mockResolvedValue({ items: [] })
+    comparisonApi.listScriptConfigurations.mockResolvedValueOnce({ items: [migration] }).mockResolvedValueOnce({ items: [migration] }).mockResolvedValueOnce({ items: [saved] })
+    comparisonApi.getScriptConfiguration.mockResolvedValue({
+      ...migration, connection: null, tables: [{ tableName: 'acct', tableComment: '账户', domainName: '平台组', ownerName: '负责人', maxPartitionNum: 64, ignoredFields: [], fields: [{ columnName: 'id', primaryKey: true }] }],
+    })
+    comparisonApi.updateScriptConfiguration.mockResolvedValue(saved)
+    const wrapper = mount(ReplayDatabaseComparisonVersionHistory, { props: { open: true } })
+    await flushPromises()
+    await wrapper.get('[data-testid="open-script-manager"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="script-profile-7"]').trigger('click')
+    await flushPromises()
+
+    const connection = { mode: 'CUSTOM', host: 'migration.example.test', port: 5432, database: 'migration', schema: 'public', username: 'reader', password: 'test-password' }
+    for (const field of ['mode', 'host', 'database', 'username', 'password']) {
+      await wrapper.get(`[data-testid="script-connection-${field}"]`).setValue(connection[field])
+    }
+    await wrapper.get('[data-testid="save-script-config"]').trigger('click')
+    await flushPromises()
+    expect(comparisonApi.updateScriptConfiguration).toHaveBeenCalledExactlyOnceWith(7, expect.objectContaining({ connection, revision: 3 }))
+    expect(wrapper.get('[data-testid="config-script-target"]').element.value).toBe('profile:7')
+    await wrapper.get('[data-testid="config-script-action"]').trigger('click')
+    await flushPromises()
+    expect(comparisonApi.downloadScriptConfiguration).toHaveBeenCalledExactlyOnceWith(7, 4)
+    expect(comparisonApi.generateVersionConfigScript).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 

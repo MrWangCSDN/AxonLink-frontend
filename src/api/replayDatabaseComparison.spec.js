@@ -67,6 +67,24 @@ describe('replayDatabaseComparison api', () => {
     expect(download).toHaveBeenCalledWith(`${prefix}/id%2F1/download?revision=3`, expect.stringMatching(/\.sql$/))
   })
 
+  it('sends script source credentials and revision in the preview request bodies', async () => {
+    const connection = { mode: 'CUSTOM', host: 'migration.example.test', port: 5432, database: 'migration', schema: 'staging', username: 'reader', password: '  example  ' }
+    const context = { connection, configurationId: 12, revision: 3 }
+    const file = new File(['tables'], 'tables.xlsx')
+    const prefix = '/ai/parallel-replay/database-comparison-fields/script-configs'
+    await comparisonApi.importScriptConfigurationTables(file, context)
+    const [url, options] = request.mock.calls[0]
+    expect(url).toBe(`${prefix}/import-tables`)
+    expect(options.body.get('file')).toBe(file)
+    expect(options.body.get('connection')).toBe(JSON.stringify(connection))
+    expect(options.body.get('configurationId')).toBe('12')
+    expect(options.body.get('revision')).toBe('3')
+
+    const body = { ...context, tables: [{ tableName: 'acct', domainName: '平台组', maxPartitionNum: 64, ignoredFields: [] }] }
+    await comparisonApi.previewScriptConfigurationMetadata(body)
+    expect(request).toHaveBeenLastCalledWith(`${prefix}/preview-metadata`, { method: 'POST', body: JSON.stringify(body) })
+  })
+
   it('analyzes and saves custom SQL registrations through their dedicated routes', async () => {
     expect(comparisonApi.analyzeCustomSql).toBeTypeOf('function')
     const sql = 'select account_id, sum(amount) as total_amt from account group by account_id'

@@ -99,11 +99,15 @@ export const listScriptConfigurations = () => request(SCRIPT_CONFIGS)
 export const getScriptConfiguration = id => request(`${SCRIPT_CONFIGS}/${encodeURIComponent(id)}`)
 export const createScriptConfiguration = body => request(SCRIPT_CONFIGS, json('POST', body))
 export const updateScriptConfiguration = (id, body) => request(`${SCRIPT_CONFIGS}/${encodeURIComponent(id)}`, json('PUT', body))
-export function importScriptConfigurationTables(file) {
+export function importScriptConfigurationTables(file, { connection, configurationId, revision } = {}) {
   const form = new FormData()
   form.append('file', file)
+  if (connection != null) form.append('connection', JSON.stringify(connection))
+  if (configurationId != null) form.append('configurationId', String(configurationId))
+  if (revision != null) form.append('revision', String(revision))
   return request(`${SCRIPT_CONFIGS}/import-tables`, { method: 'POST', body: form })
 }
+export const previewScriptConfigurationMetadata = body => request(`${SCRIPT_CONFIGS}/preview-metadata`, json('POST', body))
 export const downloadScriptConfiguration = (id, revision) => download(
   `${SCRIPT_CONFIGS}/${encodeURIComponent(id)}/download${query({ revision })}`,
   `replay-db-compare-script-config-${encodeURIComponent(id)}-r${revision}.sql`,

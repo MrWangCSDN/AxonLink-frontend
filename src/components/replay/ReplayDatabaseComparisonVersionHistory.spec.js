@@ -127,18 +127,23 @@ describe('ReplayDatabaseComparisonVersionHistory', () => {
     await wrapper.get('[data-testid="preview-script-tables"]').trigger('click'); await flushPromises()
     await wrapper.get('[data-testid="save-script-config"]').trigger('click'); await flushPromises()
     expect(wrapper.find('[aria-label="脚本管理"]').exists()).toBe(false)
-    expect(wrapper.get('[data-testid="config-script-target"]').element.value).toBe('profile:8')
-    expect(wrapper.get('[data-testid="config-script-target"]').text()).toContain('新增方案')
+    const picker = wrapper.get('[data-testid="config-script-target"]')
+    const selected = picker.findAll('option').find(option => option.element.selected)
+    expect(selected.text()).toContain('本次保存 · 修订 1 · 新增方案')
     await wrapper.get('[data-testid="config-script-action"]').trigger('click'); await flushPromises()
     expect(comparisonApi.downloadScriptConfiguration).toHaveBeenCalledWith(8, 1)
     wrapper.unmount()
   })
 
-  it('downloads the new frozen revision after editing the source of an existing migration configuration', async () => {
+  it.each([4, 5])('requests the exact saved migration revision when the list reports revision %s', async currentRevision => {
     const migration = { id: 7, name: '迁移比对', revision: 3, tableCount: 1, fieldCount: 1 }
     const saved = { ...migration, revision: 4 }
+    const current = { ...saved, revision: currentRevision }
+    comparisonApi.downloadScriptConfiguration.mockImplementation(async (_id, revision) => {
+      if (revision !== currentRevision) throw Object.assign(new Error('配置修订已更新，请重新选择'), { status: 409 })
+    })
     comparisonApi.loadVersions.mockResolvedValue({ items: [] })
-    comparisonApi.listScriptConfigurations.mockResolvedValueOnce({ items: [migration] }).mockResolvedValueOnce({ items: [migration] }).mockResolvedValueOnce({ items: [saved] })
+    comparisonApi.listScriptConfigurations.mockResolvedValueOnce({ items: [migration] }).mockResolvedValueOnce({ items: [migration] }).mockResolvedValueOnce({ items: [current] })
     comparisonApi.getScriptConfiguration.mockResolvedValue({
       ...migration, connection: null, tables: [{ tableName: 'acct', tableComment: '账户', domainName: '平台组', ownerName: '负责人', maxPartitionNum: 64, ignoredFields: [], fields: [{ columnName: 'id', primaryKey: true }] }],
     })
@@ -157,10 +162,21 @@ describe('ReplayDatabaseComparisonVersionHistory', () => {
     await wrapper.get('[data-testid="save-script-config"]').trigger('click')
     await flushPromises()
     expect(comparisonApi.updateScriptConfiguration).toHaveBeenCalledExactlyOnceWith(7, expect.objectContaining({ connection, revision: 3 }))
-    expect(wrapper.get('[data-testid="config-script-target"]').element.value).toBe('profile:7')
-    await wrapper.get('[data-testid="config-script-action"]').trigger('click')
+    const picker = wrapper.get('[data-testid="config-script-target"]')
+    const action = wrapper.get('[data-testid="config-script-action"]')
+    await action.trigger('click')
     await flushPromises()
     expect(comparisonApi.downloadScriptConfiguration).toHaveBeenCalledExactlyOnceWith(7, 4)
+    expect(picker.findAll('option').find(option => option.element.selected).text()).toContain('本次保存 · 修订 4')
+    if (currentRevision === 5) {
+      expect(wrapper.get('[data-testid="config-script-errors"]').text()).toContain('配置修订已更新')
+      expect(picker.get('option[value="profile:7"]').text()).toContain('当前修订 5')
+      await picker.setValue('profile:7')
+      await action.trigger('click')
+      await flushPromises()
+      expect(comparisonApi.downloadScriptConfiguration).toHaveBeenLastCalledWith(7, 5)
+      expect(wrapper.find('[data-testid="config-script-errors"]').exists()).toBe(false)
+    }
     expect(comparisonApi.generateVersionConfigScript).not.toHaveBeenCalled()
     wrapper.unmount()
   })

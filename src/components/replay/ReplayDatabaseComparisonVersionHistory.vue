@@ -89,7 +89,8 @@
                 <span>SQL 配置版本</span>
                 <select v-model="scriptTargetVersion" :disabled="scriptBusy" data-testid="config-script-target" @change="scriptSelectionChanged">
                   <option value="NEW">新版本（_new 表）</option>
-                  <option v-for="profile in scriptProfiles" :key="profile.id" :value="`profile:${profile.id}`">{{ profile.name }}</option>
+                  <option v-if="savedScriptProfile" :value="SAVED_SCRIPT_TARGET">本次保存 · 修订 {{ savedScriptProfile.revision }} · {{ savedScriptProfile.name }}</option>
+                  <option v-for="profile in scriptProfiles" :key="profile.id" :value="`profile:${profile.id}`">{{ profile.name }}{{ savedScriptProfile?.id === profile.id ? ` · 当前修订 ${profile.revision}` : '' }}</option>
                 </select>
               </label>
               <button
@@ -231,9 +232,14 @@ const scriptProfilesError = ref('')
 const scriptManagerOpen = ref(false)
 let scriptProfilesRequest = 0
 let scriptActionRequest = 0
+const SAVED_SCRIPT_TARGET = 'saved-profile'
 const scriptTargetVersion = ref('NEW')
-const isNamedSelection = computed(() => scriptTargetVersion.value.startsWith('profile:'))
-const selectedScriptProfile = computed(() => scriptProfiles.value.find(profile => `profile:${profile.id}` === scriptTargetVersion.value))
+const savedScriptProfile = ref(null)
+const isSavedSelection = computed(() => scriptTargetVersion.value === SAVED_SCRIPT_TARGET)
+const isNamedSelection = computed(() => isSavedSelection.value || scriptTargetVersion.value.startsWith('profile:'))
+const selectedScriptProfile = computed(() => isSavedSelection.value
+  ? savedScriptProfile.value
+  : scriptProfiles.value.find(profile => `profile:${profile.id}` === scriptTargetVersion.value))
 const scriptStatus = ref({ generated: false })
 const scriptError = ref('')
 const scriptValidationErrors = ref([])
@@ -274,7 +280,12 @@ const scriptActionDisabled = computed(() => scriptBusy.value || (isNamedSelectio
   ? !selectedScriptProfile.value : !selectedVersionNo.value || loadingScriptStatus.value))
 
 function requestClose() { if (!scriptBusy.value) emit('close') }
-function scriptSelectionChanged() { scriptActionRequest++; scriptError.value = ''; scriptValidationErrors.value = [] }
+function scriptSelectionChanged() {
+  if (!isSavedSelection.value) savedScriptProfile.value = null
+  scriptActionRequest++
+  scriptError.value = ''
+  scriptValidationErrors.value = []
+}
 async function loadScriptProfiles() {
   const requestId = ++scriptProfilesRequest
   scriptProfilesLoading.value = true
@@ -288,7 +299,8 @@ async function loadScriptProfiles() {
 }
 async function scriptConfigurationSaved(profile) {
   scriptProfiles.value = [...scriptProfiles.value.filter(item => item.id !== profile.id), profile]
-  scriptTargetVersion.value = `profile:${profile.id}`
+  savedScriptProfile.value = { id: profile.id, name: profile.name, revision: profile.revision }
+  scriptTargetVersion.value = SAVED_SCRIPT_TARGET
   scriptSelectionChanged()
   scriptManagerOpen.value = false
   await loadScriptProfiles()

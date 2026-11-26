@@ -144,6 +144,34 @@ describe('custom SQL registration editor', () => {
     expect(wrapper.get('[data-testid="custom-sql-max-partition"]').element.disabled).toBe(true)
   })
 
+  it('saves all custom SQL differences while preserving the source result limit and quantity draft', async () => {
+    const wrapper = mount(CustomSqlEditor, { props: { analyzeSql: analyze, canConfigurePartitions: true } })
+    await parse(wrapper)
+    await wrapper.get('[data-testid="custom-sql-limit"]').setValue('25')
+    await wrapper.get('[data-testid="custom-sql-sample"]').setValue('900')
+    await wrapper.get('[data-testid="custom-sql-sample-mode"]').setValue('ALL')
+    await wrapper.get('[data-testid="save-custom-sql"]').trigger('click')
+    expect(wrapper.emitted('save').at(-1)[0]).toMatchObject({ sampleLimit: -1, compareLimit: 25 })
+    await wrapper.get('[data-testid="custom-sql-sample-mode"]').setValue('LIMITED')
+    expect(wrapper.get('[data-testid="custom-sql-sample"]').element.value).toBe('900')
+    await wrapper.get('[data-testid="save-custom-sql"]').trigger('click')
+    expect(wrapper.emitted('save').at(-1)[0].sampleLimit).toBe(900)
+  })
+
+  it.each([false, true])('loads full custom SQL settings and enforces permission (%s)', async allowed => {
+    const initial = { id: 11, version: 4, tableName: 'acct', sampleLimit: -1,
+      customSql: { sql, sourceTableName: 'acct', resultColumns: columns },
+      fields: [{ columnName: 'currency' }], comparisonKey: { columnNames: ['currency'] } }
+    const wrapper = mount(CustomSqlEditor, { props: { initialRegistration: initial, canConfigurePartitions: allowed } })
+    expect(wrapper.get('[data-testid="custom-sql-sample-mode"]').element.value).toBe('ALL')
+    expect(wrapper.get('[data-testid="custom-sql-sample-mode"]').element.disabled).toBe(!allowed)
+    await wrapper.get('[data-testid="save-custom-sql"]').trigger('click')
+    if (allowed) expect(wrapper.emitted('save').at(-1)[0].sampleLimit).toBe(-1)
+    else expect(wrapper.emitted('save').at(-1)[0]).not.toHaveProperty('sampleLimit')
+    await wrapper.setProps({ saving: true })
+    expect(wrapper.get('[data-testid="custom-sql-sample-mode"]').element.disabled).toBe(true)
+  })
+
   it.each([false, true])('allows maximum partitions without elevated sample permission (%s)', async allowed => {
     const wrapper = mount(CustomSqlEditor, { props: { analyzeSql: analyze, canConfigurePartitions: allowed } })
     await parse(wrapper)

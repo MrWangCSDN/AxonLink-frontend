@@ -27,7 +27,7 @@
                 <button class="audit-event-summary" type="button" :data-testid="`toggle-audit-event-${event.id}`" @click="toggleEvent(event)"><span class="operation-badge">{{ operationLabel(event.operation) }}</span><span>{{ eventOperatorLabel(event) }}</span><time>{{ event.operatedAt }}</time><em>{{ detailCountLabel(event) }}</em><b>{{ expandedIds.has(event.id) ? '收起' : '展开' }}</b></button>
                 <div v-if="expandedIds.has(event.id)" class="audit-details">
                   <div class="audit-detail-header"><span v-for="column in ['操作人', '动作', '字段', '修改前', '修改后', '时间']" :key="column">{{ column }}</span></div>
-                  <div v-for="detail in visibleDetails(event)" :key="detail.id" class="audit-detail-row" :data-testid="`audit-detail-${event.id}-${detail.id}`"><span>{{ eventOperatorLabel(event) }}</span><span>{{ changeLabel(detail.changeType) }}</span><span>{{ detailLabel(detail) }}</span><span class="audit-detail-value">{{ displayValue(detail.beforeValue) }}</span><span class="audit-detail-value">{{ displayValue(detail.afterValue) }}</span><span>{{ event.operatedAt }}</span></div>
+                  <div v-for="detail in visibleDetails(event)" :key="detail.id" class="audit-detail-row" :data-testid="`audit-detail-${event.id}-${detail.id}`"><span>{{ eventOperatorLabel(event) }}</span><span>{{ changeLabel(detail.changeType) }}</span><span>{{ detailLabel(detail) }}</span><span class="audit-detail-value">{{ displayValue(detail.beforeValue, detail) }}</span><span class="audit-detail-value">{{ displayValue(detail.afterValue, detail) }}</span><span>{{ event.operatedAt }}</span></div>
                   <p v-if="!event.details" class="audit-empty">正在读取本次变更明细…</p>
                   <p v-else-if="!visibleDetails(event).length" class="audit-empty">本次操作无可展示的变更明细</p>
                   <button v-else type="button" class="copy-details" :data-testid="`copy-audit-event-${event.id}`" @click="copyDetails(event)">{{ copiedEventId === event.id ? '已复制' : '复制全部明细' }}</button>
@@ -40,7 +40,7 @@
               <button class="audit-event-summary" type="button" :data-testid="`toggle-audit-event-${event.id}`" @click="toggleEvent(event)"><span class="operation-badge">{{ operationLabel(event.operation) }}</span><span>{{ eventOperatorLabel(event) }}</span><time>{{ event.operatedAt }}</time><em>{{ detailCountLabel(event) }}</em><b>{{ expandedIds.has(event.id) ? '收起' : '展开' }}</b></button>
               <div v-if="expandedIds.has(event.id)" class="audit-details">
                 <div class="audit-detail-header"><span v-for="column in ['操作人', '动作', '字段', '修改前', '修改后', '时间']" :key="column">{{ column }}</span></div>
-                <div v-for="detail in visibleDetails(event)" :key="detail.id" class="audit-detail-row" :data-testid="`audit-detail-${event.id}-${detail.id}`"><span>{{ eventOperatorLabel(event) }}</span><span>{{ changeLabel(detail.changeType) }}</span><span>{{ detailLabel(detail) }}</span><span class="audit-detail-value">{{ displayValue(detail.beforeValue) }}</span><span class="audit-detail-value">{{ displayValue(detail.afterValue) }}</span><span>{{ event.operatedAt }}</span></div>
+                <div v-for="detail in visibleDetails(event)" :key="detail.id" class="audit-detail-row" :data-testid="`audit-detail-${event.id}-${detail.id}`"><span>{{ eventOperatorLabel(event) }}</span><span>{{ changeLabel(detail.changeType) }}</span><span>{{ detailLabel(detail) }}</span><span class="audit-detail-value">{{ displayValue(detail.beforeValue, detail) }}</span><span class="audit-detail-value">{{ displayValue(detail.afterValue, detail) }}</span><span>{{ event.operatedAt }}</span></div>
                 <p v-if="!event.details" class="audit-empty">正在读取本次变更明细…</p>
                 <p v-else-if="!visibleDetails(event).length" class="audit-empty">本次操作无可展示的变更明细</p>
                 <button v-else type="button" class="copy-details" :data-testid="`copy-audit-event-${event.id}`" @click="copyDetails(event)">{{ copiedEventId === event.id ? '已复制' : '复制全部明细' }}</button>
@@ -59,6 +59,7 @@
 
 <script setup>
 import { computed, reactive, ref, watch } from 'vue'
+import { formatSampleLimit } from './replayDatabaseComparisonSampleLimit.js'
 
 const props = defineProps({ tableName: { type: String, default: '' }, events: { type: Array, default: () => [] }, groups: { type: Array, default: () => [] }, page: { type: Number, default: 0 }, size: { type: Number, default: 20 }, total: { type: Number, default: 0 }, totalPages: { type: Number, default: 0 }, loading: { type: Boolean, default: false }, error: { type: String, default: '' } })
 const emit = defineEmits(['search', 'pageChange', 'pageSizeChange', 'loadDetails', 'close'])
@@ -69,7 +70,8 @@ const copiedEventId = ref(null)
 const operationLabel = operation => ({ CREATE: '新增登记', UPDATE: '修改', DELETE: '删除', REREGISTER: '重新登记', IMPORT: '初始化导入' }[operation] || operation)
 const changeLabel = changeType => ({ ADD: '新增', MODIFY: '修改', DELETE: '删除', REORDER: '排序' }[changeType] || changeType)
 const eventClass = operation => ({ 'is-delete': operation === 'DELETE', 'is-reregister': operation === 'REREGISTER' })
-const displayValue = value => value === null || value === undefined || value === '' ? '—' : value
+const displayValue = (value, detail) => value === null || value === undefined || value === '' ? '—'
+  : detail?.fieldCode === 'sampleLimit' || detail?.fieldLabel === '样本数' ? formatSampleLimit(value) : value
 // Older audit entries still contain the retired partition setting; keep it out of display and copy.
 const visibleDetails = event => (event.details || []).filter(detail =>
   detail.fieldCode !== 'partitionNum' && !['分区数', '读取分区数'].includes(detail.fieldLabel))
@@ -95,7 +97,7 @@ const changePageSize = event => { resetExpanded(); emit('pageSizeChange', Number
 const toggleGroup = group => { const next = new Set(expandedGroupKeys.value); const key = groupKey(group); next.has(key) ? next.delete(key) : next.add(key); expandedGroupKeys.value = next }
 const toggleEvent = event => { const next = new Set(expandedIds.value); if (next.has(event.id)) next.delete(event.id); else { next.add(event.id); if (!event.details) emit('loadDetails', event) } expandedIds.value = next }
 const detailLabel = detail => detail.fieldCode === 'groupOwner' || detail.fieldLabel === '小组负责人' ? '科技负责人' : detail.fieldLabel
-const copyDetails = async event => { const content = visibleDetails(event).map(detail => [eventOperatorLabel(event), changeLabel(detail.changeType), detailLabel(detail), displayValue(detail.beforeValue), displayValue(detail.afterValue), event.operatedAt].join('｜')).join('\n'); await navigator.clipboard.writeText(content); copiedEventId.value = event.id }
+const copyDetails = async event => { const content = visibleDetails(event).map(detail => [eventOperatorLabel(event), changeLabel(detail.changeType), detailLabel(detail), displayValue(detail.beforeValue, detail), displayValue(detail.afterValue, detail), event.operatedAt].join('｜')).join('\n'); await navigator.clipboard.writeText(content); copiedEventId.value = event.id }
 </script>
 
 <style scoped>

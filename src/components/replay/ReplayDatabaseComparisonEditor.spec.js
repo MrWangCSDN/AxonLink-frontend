@@ -114,6 +114,37 @@ describe('ReplayDatabaseComparisonEditor', () => {
     wrapper.unmount()
   })
 
+  it('selects all differences without changing the comparison scope and restores the quantity draft', async () => {
+    const wrapper = mount(ReplayDatabaseComparisonEditor, { props: {
+      initialRegistration: { ...registrations[0], sampleLimit: 2500, compareLimit: 25 },
+      canConfigureSampleLimit: true,
+    } })
+    await wrapper.get('[data-testid="editor-sample-mode"]').setValue('ALL')
+    await wrapper.get('[data-testid="submit-registration"]').trigger('click')
+    expect(wrapper.emitted('save').at(-1)[0]).toMatchObject({ sampleLimit: -1, compareLimit: 25 })
+    await wrapper.get('[data-testid="editor-sample-mode"]').setValue('LIMITED')
+    expect(wrapper.get('[data-testid="editor-sample-limit"]').element.value).toBe('2500')
+    await wrapper.get('[data-testid="submit-registration"]').trigger('click')
+    expect(wrapper.emitted('save').at(-1)[0].sampleLimit).toBe(2500)
+    wrapper.unmount()
+  })
+
+  it.each([false, true])('loads all differences and retains configuration permission (%s)', async allowed => {
+    const wrapper = mount(ReplayDatabaseComparisonEditor, { props: {
+      initialRegistration: { ...registrations[0], sampleLimit: -1 }, canConfigureSampleLimit: allowed,
+    } })
+    expect(wrapper.get('[data-testid="editor-sample-mode"]').element.value).toBe('ALL')
+    expect(wrapper.get('[data-testid="editor-sample-mode"]').element.disabled).toBe(!allowed)
+    await wrapper.get('[data-testid="submit-registration"]').trigger('click')
+    if (allowed) expect(wrapper.emitted('save').at(-1)[0].sampleLimit).toBe(-1)
+    else expect(wrapper.emitted('save').at(-1)[0]).not.toHaveProperty('sampleLimit')
+    if (allowed) {
+      await wrapper.get('[data-testid="editor-sample-mode"]').setValue('LIMITED')
+      expect(wrapper.get('[data-testid="editor-sample-limit"]').element.value).toBe('100')
+    }
+    wrapper.unmount()
+  })
+
   it.each([false, true])('edits maximum partitions independently of sample permission (%s)', async allowed => {
     const registration = { ...registrations[0], maxPartitionNum: 100 }
     const wrapper = mount(ReplayDatabaseComparisonEditor, { props: {

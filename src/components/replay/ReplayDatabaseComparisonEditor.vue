@@ -150,12 +150,17 @@
         </section>
 
         <section v-if="selectedTable" class="editor-block sample-limit-block">
-          <label for="editor-sample-limit">样本数</label>
-          <input ref="sampleLimitInputRef" id="editor-sample-limit" v-model.number="sampleLimit" data-testid="editor-sample-limit"
+          <label for="editor-sample-mode">样本数</label>
+          <select id="editor-sample-mode" v-model="sampleLimitMode" data-testid="editor-sample-mode"
+            :disabled="!canConfigureSampleLimit || isFieldMaintenanceDisabled" aria-describedby="editor-sample-help">
+            <option value="LIMITED">指定数量</option><option value="ALL">全量</option>
+          </select>
+          <input v-show="sampleLimitMode === 'LIMITED'" ref="sampleLimitInputRef" id="editor-sample-limit" v-model.number="sampleLimit" data-testid="editor-sample-limit"
+            aria-label="指定样本数"
             type="number" min="0" max="10000" step="1"
-            :disabled="!canConfigureSampleLimit || isFieldMaintenanceDisabled"
+            :disabled="sampleLimitMode === 'ALL' || !canConfigureSampleLimit || isFieldMaintenanceDisabled"
             :aria-invalid="Boolean(sampleLimitError)" aria-describedby="editor-sample-help" />
-          <span id="editor-sample-help">0–10000 条，默认 100 条；0 表示仅汇总。{{ canConfigureSampleLimit ? '' : '仅有配置权限的人员可修改。' }}</span>
+          <span id="editor-sample-help">指定数量为 0–10000 条，默认 100 条；0 表示仅汇总。全量保存比对范围内的全部差异行，字段值展示长度沿用现有限制。{{ canConfigureSampleLimit ? '' : '仅有配置权限的人员可修改。' }}</span>
           <p v-if="sampleLimitError" class="registration-error" role="alert">{{ sampleLimitError }}</p>
         </section>
 
@@ -264,11 +269,13 @@ const reconciledPrimaryKeySignature = ref('')
 const whereCondition = ref(null)
 const compareLimit = ref(null)
 const sampleLimit = ref(100)
+const sampleLimitMode = ref('LIMITED')
 const maxPartitionNum = ref(64)
 const maxPartitionNumError = computed(() =>
   !Number.isInteger(maxPartitionNum.value) || maxPartitionNum.value < 1 || maxPartitionNum.value > 256
     ? '最大hash分区数必须为 1 至 256 的整数' : '')
 const sampleLimitError = computed(() => props.canConfigureSampleLimit
+  && sampleLimitMode.value !== 'ALL'
   && (!Number.isInteger(sampleLimit.value) || sampleLimit.value < 0 || sampleLimit.value > 10000)
   ? '样本数必须为 0 至 10000 的整数' : '')
 const orderingPrimaryKeyWarning = computed(() => {
@@ -610,7 +617,8 @@ const selectTable = table => {
     form.groupOwnerDisplay = registration?.groupOwner || registration?.groupOwnerName || ''
     whereCondition.value = normalizeConditionTree(registration?.whereCondition)
     compareLimit.value = registration?.compareLimit ?? null
-    sampleLimit.value = registration?.sampleLimit ?? 100
+    sampleLimitMode.value = registration?.sampleLimit === -1 ? 'ALL' : 'LIMITED'
+    sampleLimit.value = registration?.sampleLimit === -1 ? 100 : registration?.sampleLimit ?? 100
     maxPartitionNum.value = registration?.maxPartitionNum ?? 64
     groupOwnerOptions.value = []
     groupOwnerError.value = ''
@@ -788,7 +796,7 @@ const submitRegistration = () => {
     whereCondition: normalizeConditionTree(whereCondition.value),
     compareLimit: compareLimit.value,
     maxPartitionNum: maxPartitionNum.value,
-    ...(props.canConfigureSampleLimit ? { sampleLimit: sampleLimit.value } : {}),
+    ...(props.canConfigureSampleLimit ? { sampleLimit: sampleLimitMode.value === 'ALL' ? -1 : sampleLimit.value } : {}),
     })
   }
   const requestId = ++columnLoadRequestId
@@ -846,8 +854,8 @@ if (props.initialRegistration) {
 .comparison-key-marker { padding: 2px 5px; border-radius: 8px; color: #176f74; background: #e3f5f2; font-size: 10px; white-space: nowrap; }
 .sample-limit-block { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
 .sample-limit-block label { font-weight: 600; }
-.sample-limit-block input { width: 110px; padding: 7px 10px; border: 1px solid var(--border-color, #d8e2dd); border-radius: 4px; }
-.sample-limit-block input:disabled { background: #f2f5f3; color: #64756d; }
+.sample-limit-block input, .sample-limit-block select { width: 110px; padding: 7px 10px; border: 1px solid var(--border-color, #d8e2dd); border-radius: 4px; }
+.sample-limit-block input:disabled, .sample-limit-block select:disabled { background: #f2f5f3; color: #64756d; }
 .sample-limit-block span { color: #64756d; font-size: 12px; }
 
 .comparison-editor-backdrop { position: fixed; inset: 0; z-index: 1800; display: grid; place-items: center; background: rgba(18, 29, 38, .5); }

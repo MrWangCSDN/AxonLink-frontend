@@ -166,6 +166,25 @@ describe('ReplayDatabaseComparisonAuditDialog', () => {
     expect(historicalEvent.details).toHaveLength(3)
   })
 
+  it.each(['table', 'global'])('labels full sample settings in %s audit display and clipboard only', async scope => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+    const historicalEvent = { ...events[0], details: [
+      { id: 1, changeType: 'MODIFY', fieldCode: 'sampleLimit', fieldLabel: '样本数', beforeValue: '100', afterValue: '-1' },
+      { id: 2, changeType: 'MODIFY', fieldCode: 'whereCondition', fieldLabel: '查询条件', beforeValue: '-1', afterValue: '0' },
+    ] }
+    const wrapper = mount(ReplayDatabaseComparisonAuditDialog, { props: scope === 'table'
+      ? { tableName: historicalEvent.tableName, events: [historicalEvent] }
+      : { groups: [{ ...groups[0], events: [historicalEvent] }] } })
+    if (scope === 'global') await wrapper.get(`[data-testid="toggle-audit-group-${historicalEvent.tableName}"]`).trigger('click')
+    await wrapper.get('[data-testid="toggle-audit-event-101"]').trigger('click')
+    expect(wrapper.get('[data-testid="audit-detail-101-1"]').text()).toContain('全量')
+    expect(wrapper.get('[data-testid="audit-detail-101-2"]').text()).toContain('-1')
+    await wrapper.get('[data-testid="copy-audit-event-101"]').trigger('click')
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining('样本数｜100｜全量'))
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining('查询条件｜-1｜0'))
+  })
+
   it('finishes loading an audit event containing only retired partition changes', async () => {
     const historicalEvent = { ...events[0], details: undefined }
     const wrapper = mount(ReplayDatabaseComparisonAuditDialog, {

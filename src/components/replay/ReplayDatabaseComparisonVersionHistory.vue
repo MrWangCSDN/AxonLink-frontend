@@ -159,7 +159,7 @@
                     :data-testid="`history-query-condition-${row.tableName}`"
                     :title="queryConditionText(row)"
                   ><template v-if="row.customSql"><DiiSqlPre :text="row.customSql.sql" label="自定义 SQL" /><small v-if="row.compareLimit">外层比对条数 {{ row.compareLimit }}</small></template><template v-else>{{ queryConditionText(row) }}</template></td>
-                  <td :data-testid="`history-sample-limit-${row.tableName}`">{{ row.sampleLimit ?? 100 }}</td>
+                  <td :data-testid="`history-sample-limit-${row.tableName}`">{{ formatSampleLimit(row.sampleLimit) }}</td>
                   <td :data-testid="`history-max-partition-num-${row.tableName}`">{{ row.maxPartitionNum ?? 64 }}</td>
                   <td>{{ personLabel(row.reviserName, row.reviserUsername, row.reviserEmpNo) }}</td>
                   <td>{{ personLabel(row.groupOwnerName, row.groupOwnerUsername) }}</td>
@@ -197,6 +197,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import DiiSqlPre from '../daoindex/widgets/DiiSqlPre.vue'
 import ReplayDatabaseComparisonScriptManager from './ReplayDatabaseComparisonScriptManager.vue'
 import { exportVersionDetails } from './versionDetailWorkbook.js'
+import { formatSampleLimit } from './replayDatabaseComparisonSampleLimit.js'
 import {
   displayTableName,
   formatComparisonKey,

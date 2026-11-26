@@ -346,6 +346,19 @@ describe('ReplayDatabaseComparisonPage', () => {
     wrapper.unmount()
   })
 
+  it('displays all differences in the registration list and detail', async () => {
+    const row = { ...registrationRow, sampleLimit: -1 }
+    useRealMode([row])
+    comparisonApi.loadRegistration.mockResolvedValue({ ...row, fields: [] })
+    const wrapper = mount(ReplayDatabaseComparisonPage)
+    await flushPromises()
+    expect(wrapper.get('[data-testid="sample-limit-acct"]').text()).toBe('全量')
+    await wrapper.get('[data-testid="view-registration-acct"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="detail-sample-limit"]').text()).toBe('全量')
+    wrapper.unmount()
+  })
+
   it.each([undefined, null])('shows a maximum of 64 for old registrations (%s)', async maxPartitionNum => {
     const row = { ...registrationRow, maxPartitionNum }
     useRealMode([row])

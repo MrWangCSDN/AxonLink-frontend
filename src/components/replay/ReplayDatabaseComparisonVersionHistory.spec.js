@@ -271,6 +271,17 @@ describe('ReplayDatabaseComparisonVersionHistory', () => {
     wrapper.unmount()
   })
 
+  it('displays all differences from the frozen version snapshot', async () => {
+    comparisonApi.searchVersionSnapshot.mockResolvedValue({
+      items: [{ sourceRegistrationId: 7, tableName: 'acct_master', sampleLimit: -1, fields: [] }],
+      page: 0, size: 50, total: 1,
+    })
+    const wrapper = mount(ReplayDatabaseComparisonVersionHistory, { props: { open: true } })
+    await flushPromises()
+    expect(wrapper.get('[data-testid="history-sample-limit-acct_master"]').text()).toBe('全量')
+    wrapper.unmount()
+  })
+
   it('loads newest versions and renders the selected immutable snapshot', async () => {
     const wrapper = mount(ReplayDatabaseComparisonVersionHistory, { props: { open: true } })
     await flushPromises()

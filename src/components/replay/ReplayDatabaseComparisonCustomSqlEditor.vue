@@ -2,10 +2,13 @@
   <div class="custom-sql-backdrop">
     <section class="custom-sql-dialog" role="dialog" aria-modal="true" aria-labelledby="custom-sql-title" data-testid="custom-sql-dialog">
       <header>
-        <div><h3 id="custom-sql-title">{{ initialRegistration?.deleted ? '重新登记自定义 SQL' : initialRegistration ? '编辑自定义 SQL' : '自定义 SQL 登记' }}</h3><p>两侧共用一条单表 SELECT，支持计算列及聚合查询</p></div>
+        <div><h3 id="custom-sql-title">{{ additionalConfiguration ? '新增同表 SQL 配置' : initialRegistration?.deleted ? '重新登记自定义 SQL' : initialRegistration ? '编辑自定义 SQL' : '自定义 SQL 登记' }}</h3><p>两侧共用一条单表 SELECT，支持计算列及聚合查询</p></div>
         <button type="button" aria-label="关闭自定义 SQL" data-testid="close-custom-sql" :disabled="saving" @click="emit('close')">×</button>
       </header>
       <div class="custom-sql-body">
+        <label>配置名称<input v-model="displayName" data-testid="custom-sql-name" maxlength="200" :disabled="saving" placeholder="默认配置" /></label>
+        <label v-if="!initialRegistration" class="additional-configuration"><input v-model="additionalConfiguration" type="checkbox" data-testid="custom-sql-additional" :disabled="saving" />新增同表配置（保留已有登记）</label>
+        <p v-if="initialRegistration && !additionalConfiguration" class="help">固定标识：{{ initialRegistration.comparisonCode || initialRegistration.tableName }}</p>
         <label>SQL<textarea v-model="sql" data-testid="custom-sql-text" rows="10" spellcheck="false" :disabled="saving" placeholder="SELECT currency, SUM(amount) AS total_amt FROM account GROUP BY currency" /></label>
         <p class="help">使用无 schema 的基础表名，按 BASE 母库解析校验并自动提取表英文名和中文注释。计算列需提供唯一英文别名，LIMIT 请通过下方比对条数设置。</p>
         <button type="button" class="analyze-button" data-testid="analyze-custom-sql" :disabled="!sql.trim() || analyzing || saving" @click="analyze">{{ analyzing ? '解析中…' : '校验并解析结果字段' }}</button>
@@ -60,9 +63,12 @@ const props = defineProps({
   saving: { type: Boolean, default: false },
   loadingExisting: { type: Boolean, default: false },
   saveError: { type: Object, default: null },
+  createAdditionalConfiguration: { type: Boolean, default: false },
 })
 const emit = defineEmits(['close', 'save', 'clear-error', 'open-existing'])
 const initial = props.initialRegistration
+const additionalConfiguration = ref(props.createAdditionalConfiguration)
+const displayName = ref(initial?.configurationName || initial?.displayName || '默认配置')
 const lockedSource = initial?.customSql?.sourceTableName || initial?.sourceTableName || initial?.tableName || ''
 const sql = ref(initial?.customSql?.sql || '')
 const compareLimit = ref(initial?.compareLimit ?? '')
@@ -93,6 +99,7 @@ watch(sql, () => {
   emit('clear-error')
 })
 const validationMessage = computed(() => {
+  if (displayName.value.trim().length > 200) return '配置名称不能超过 200 个字符'
   if (new TextEncoder().encode(sql.value).length > 65535) return 'SQL 的 UTF-8 大小不能超过 65535 字节'
   if (!analysis.value || analyzedInput.value !== sql.value) return '请先校验并解析 SQL'
   if (!selectedNames.value.length) return '请选择参与比对的结果字段'
@@ -153,7 +160,9 @@ const moveField = (index, offset) => {
 const save = () => {
   if (!canSave.value) return
   emit('save', {
-    ...(initial ? { id: initial.id, version: initial.version } : {}),
+    ...(initial && !additionalConfiguration.value ? { id: initial.id, version: initial.version } : {}),
+    displayName: displayName.value.trim() || '默认配置',
+    ...(additionalConfiguration.value ? { createAdditionalConfiguration: true } : {}),
     sourceTableName: lockedSource || analysis.value.sourceTableName,
     sql: analysis.value.sql || sql.value,
     fieldNames: [...selectedNames.value],
@@ -175,6 +184,7 @@ h3, h4, p { margin: 0; }
 header p, .help, small { color: var(--text-muted); font-size: 12px; line-height: 1.6; }
 .custom-sql-body { display: grid; gap: 12px; padding: 18px; overflow: auto; }
 label { display: grid; gap: 6px; font-size: 13px; }
+.additional-configuration { display: flex; align-items: center; gap: 8px; }
 input, select, textarea, button { padding: 8px 10px; border: 1px solid var(--border); border-radius: 4px; color: var(--text-primary); background: var(--bg-input); font: inherit; }
 textarea { resize: vertical; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
 button { cursor: pointer; background: var(--bg-card); }

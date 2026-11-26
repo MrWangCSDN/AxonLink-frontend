@@ -3,7 +3,7 @@
     <section class="comparison-editor" role="dialog" aria-modal="true" aria-labelledby="comparison-editor-title">
       <header class="editor-header">
         <div>
-          <h3 id="comparison-editor-title" data-testid="editor-title">{{ isReregister ? '重新登记' : isEditing ? '编辑登记' : '新增登记' }}</h3>
+          <h3 id="comparison-editor-title" data-testid="editor-title">{{ additionalConfiguration ? '新增同表配置' : isReregister ? '重新登记' : isEditing ? '编辑登记' : '新增登记' }}</h3>
           <p>选择 BASE 母库表并配置需要参与回放比对的字段</p>
         </div>
         <button type="button" class="icon-close" aria-label="关闭新增登记" @click="emit('close')">×</button>
@@ -17,9 +17,8 @@
               <input v-model="tableKeywordInput" data-testid="table-search-input" type="search" placeholder="输入至少 2 个字符，自动模糊查询表英文名或中文名" />
             </div>
             <div v-if="tableSearchExecuted" class="table-results">
+              <div v-for="table in tableResults" :key="table.tableName" class="table-result-actions">
               <button
-                v-for="table in tableResults"
-                :key="table.tableName"
                 type="button"
                 class="table-result"
                 data-testid="table-search-result"
@@ -28,22 +27,27 @@
                 <span><strong>{{ table.tableName }}</strong><small>{{ table.tableComment }}</small></span>
                 <em :class="table.registrationStatus.toLowerCase()">{{ table.registrationStatus === 'ACTIVE' ? '已登记 · 进入编辑' : table.registrationStatus === 'DELETED' ? '已删除 · 重新登记' : '未登记' }}</em>
               </button>
+              <button v-if="table.registrationStatus !== 'UNREGISTERED'" type="button" class="text-button" data-testid="new-table-configuration" @click="selectTable(table, true)">新增同表配置</button>
+              </div>
               <p v-if="!tableResults.length" class="empty-result">未检索到匹配的母库表</p>
             </div>
           </template>
           <div v-else class="selected-table" data-testid="selected-table">
             <Database :size="18" />
             <span><strong>{{ selectedTable.tableName }}</strong><small>{{ selectedTable.tableComment }}</small></span>
-            <em :class="isEditing ? 'active' : 'unregistered'">{{ isReregister ? '已删除 · 重新登记模式' : isEditing ? '已登记 · 编辑模式' : '未登记 · 新增模式' }}</em>
-            <button v-if="!isEditing" type="button" class="text-button" @click="resetSelectedTable">重新选择表</button>
+            <em :class="isEditing ? 'active' : 'unregistered'">{{ additionalConfiguration ? '新增独立配置' : isReregister ? '已删除 · 重新登记模式' : isEditing ? '已登记 · 编辑模式' : '未登记 · 新增模式' }}</em>
+            <button v-if="!isEditing && !initialRegistration" type="button" class="text-button" @click="resetSelectedTable">重新选择表</button>
           </div>
+          <label v-if="selectedTable" class="configuration-name-field">配置名称<input v-model="configurationName" data-testid="configuration-name" maxlength="200" :disabled="isTableMissingCleanup" placeholder="默认配置" /></label>
+          <p v-if="configurationName.trim().length > 200" class="registration-error" data-testid="configuration-name-error" role="alert">配置名称不能超过 200 个字符</p>
+          <p v-if="isEditing || isReregister" class="configuration-code">固定标识：{{ selectedTable.comparisonCode || selectedTable.tableName }}</p>
         </section>
 
         <section ref="fieldsBlockRef" class="editor-block fields-block" tabindex="-1">
           <div class="block-heading"><strong>2. 选择并排序比对字段</strong><span>{{ isTableMissingCleanup ? '母库表已删除' : `母库 ${allColumns.length} 个` }} · 已选择 {{ selectedColumns.length }} 个</span></div>
           <div v-if="isTableMissingCleanup" class="table-missing-cleanup-warning" data-testid="table-missing-cleanup-warning">
             <strong>母库中已找不到该表</strong>
-            <span>当前只能查看历史登记并删除整表登记，不能修改比对字段。</span>
+            <span>当前只能查看历史登记并删除当前配置，不能修改比对字段。</span>
           </div>
           <div v-if="isPrimaryKeyMissing" class="primary-key-missing-warning" data-testid="primary-key-missing-warning">
             <strong>该表没有主键或唯一索引，请联系 DBA 创建可用索引</strong>
@@ -192,13 +196,13 @@
         </div>
         <div class="editor-footer-actions">
           <button type="button" @click="emit('close')">取消</button>
-          <button type="button" data-testid="submit-registration" :class="isDeleteAction ? 'danger' : 'primary'" :disabled="!canSubmit" :title="hasMissingSelectedColumns && !isTableMissingCleanup ? '请先移除母库已删除字段' : ''" @click="submitRegistration">{{ isTableMissingCleanup ? '删除整表登记' : isDeleteMode ? '删除登记' : '保存' }}</button>
+          <button type="button" data-testid="submit-registration" :class="isDeleteAction ? 'danger' : 'primary'" :disabled="!canSubmit" :title="hasMissingSelectedColumns && !isTableMissingCleanup ? '请先移除母库已删除字段' : ''" @click="submitRegistration">{{ isTableMissingCleanup ? '删除当前配置' : isDeleteMode ? '删除登记' : '保存' }}</button>
         </div>
       </footer>
     </section>
     <section v-if="deleteConfirmationVisible" class="delete-confirmation" data-testid="delete-confirmation" role="alertdialog" aria-modal="true">
       <h4>确认删除登记</h4>
-      <p>{{ isTableMissingCleanup ? '母库表已删除，继续后将删除整张表的登记记录，历史审计仍会保留。' : '当前表的比对字段已全部移除，继续后将删除整张表的登记记录，历史记录仍会保留。' }}</p>
+      <p>{{ isTableMissingCleanup ? '母库表已删除，继续后将删除当前配置，历史审计仍会保留。' : '当前表的比对字段已全部移除，继续后将删除当前配置，历史记录仍会保留。' }}</p>
       <p v-if="saveError?.type === 'SAVE_FAILED'" class="registration-error" role="alert">{{ saveError.message }}</p>
       <div><button type="button" @click="deleteConfirmationVisible = false">返回检查</button><button type="button" class="danger" data-testid="confirm-delete-registration" @click="confirmDelete">确认删除</button></div>
     </section>
@@ -222,6 +226,7 @@ const props = defineProps({
   loadRegistration: { type: Function, default: null },
   saveError: { type: Object, default: null },
   canConfigureSampleLimit: { type: Boolean, default: false },
+  createAdditionalConfiguration: { type: Boolean, default: false },
 })
 const emit = defineEmits(['close', 'save', 'delete', 'edit-custom-sql'])
 
@@ -229,6 +234,9 @@ const domains = ['存款组', '贷款组', '公共组', '结算组', '平台组'
 const tableKeywordInput = ref('')
 const tableSearchExecuted = ref(false)
 const selectedTable = ref(null)
+const additionalConfiguration = ref(props.createAdditionalConfiguration)
+const configurationName = ref(props.initialRegistration?.configurationName || '默认配置')
+const partitionNum = ref(props.initialRegistration?.partitionNum ?? 1)
 const allColumns = ref([])
 const columnsLoaded = ref(false)
 const keyOptions = ref([])
@@ -289,8 +297,8 @@ const orderingPrimaryKeyWarning = computed(() => {
 const form = reactive({ domain: '', groupOwnerUsername: '', groupOwnerName: '', groupOwnerDisplay: '' })
 
 const tableResults = ref([])
-const isEditing = computed(() => selectedTable.value?.registrationStatus === 'ACTIVE')
-const isReregister = computed(() => selectedTable.value?.registrationStatus === 'DELETED')
+const isEditing = computed(() => !additionalConfiguration.value && selectedTable.value?.registrationStatus === 'ACTIVE')
+const isReregister = computed(() => !additionalConfiguration.value && selectedTable.value?.registrationStatus === 'DELETED')
 const isTableMissingCleanup = computed(() => selectedTable.value?.metadataValidation?.status === 'TABLE_MISSING')
 const isPrimaryKeyMissing = computed(() => Boolean(
   selectedTable.value
@@ -313,6 +321,8 @@ const scopeDraftErrors = computed(() => validateScopeDraft(
 ))
 const canSubmit = computed(() => {
   if (!selectedTable.value || metadataLoading.value) return false
+  if (additionalConfiguration.value && isTableMissingCleanup.value) return false
+  if (configurationName.value.trim().length > 200) return false
   if (metadataError.value && !columnsLoaded.value) return false
   if (isTableMissingCleanup.value) return true
   if (!columnsLoaded.value) return false
@@ -567,7 +577,8 @@ const resetFieldOrderFeedback = () => {
   clearTimeout(recentMoveTimer)
 }
 
-const selectTable = table => {
+const selectTable = (table, createAdditional = props.createAdditionalConfiguration) => {
+  additionalConfiguration.value = createAdditional
   const requestId = ++columnLoadRequestId
   selectedTable.value = table
   columnsLoaded.value = false
@@ -583,7 +594,7 @@ const selectTable = table => {
   const applyRegistration = registration => {
     if (requestId !== columnLoadRequestId) return
     if (registration?.customSql) {
-      emit('edit-custom-sql', registration)
+      emit('edit-custom-sql', registration, additionalConfiguration.value)
       return
     }
     columnsLoaded.value = false
@@ -594,7 +605,7 @@ const selectTable = table => {
         ? 'reregister'
         : table.registrationStatus === 'ACTIVE' ? 'edit' : 'add'
       const metadataValidation = registration?.metadataValidation || table.metadataValidation
-      selectedTable.value = { ...table, metadataValidation }
+      selectedTable.value = { ...table, comparisonCode: registration?.comparisonCode || registration?.tableName || table.tableName, metadataValidation }
       comparisonKey.value = registration?.comparisonKey || keyOptions.value[0] || null
       selectedColumns.value = props.loadKeys
         ? (mode === 'edit' ? mergeRegisteredFields(registration?.fields || [], allColumns.value) : [])
@@ -620,6 +631,8 @@ const selectTable = table => {
     sampleLimitMode.value = registration?.sampleLimit === -1 ? 'ALL' : 'LIMITED'
     sampleLimit.value = registration?.sampleLimit === -1 ? 100 : registration?.sampleLimit ?? 100
     maxPartitionNum.value = registration?.maxPartitionNum ?? 64
+    configurationName.value = registration?.configurationName || '默认配置'
+    partitionNum.value = registration?.partitionNum ?? 1
     groupOwnerOptions.value = []
     groupOwnerError.value = ''
     showRequiredErrors.value = false
@@ -783,9 +796,10 @@ const submitRegistration = () => {
     if (hasMissingSelectedColumns.value) return
     emit('save', {
     mode: isReregister.value ? 'reregister' : isEditing.value ? 'edit' : 'add',
-    id: selectedTable.value.registrationId,
-    version: selectedTable.value.registrationVersion,
-    tableName: selectedTable.value.tableName,
+    ...(!additionalConfiguration.value ? { id: selectedTable.value.registrationId, version: selectedTable.value.registrationVersion } : {}),
+    tableName: isEditing.value || isReregister.value ? selectedTable.value.comparisonCode || selectedTable.value.tableName : selectedTable.value.tableName,
+    configurationName: configurationName.value.trim() || '默认配置',
+    ...(additionalConfiguration.value ? { createAdditionalConfiguration: true } : {}),
     tableComment: selectedTable.value.tableComment,
     comparisonKeyName: comparisonKey.value.indexName,
     fieldNames: selectedColumns.value.map(column => column.columnName),
@@ -796,7 +810,8 @@ const submitRegistration = () => {
     whereCondition: normalizeConditionTree(whereCondition.value),
     compareLimit: compareLimit.value,
     maxPartitionNum: maxPartitionNum.value,
-    ...(props.canConfigureSampleLimit ? { sampleLimit: sampleLimitMode.value === 'ALL' ? -1 : sampleLimit.value } : {}),
+    ...(props.canConfigureSampleLimit ? { sampleLimit: sampleLimitMode.value === 'ALL' ? -1 : sampleLimit.value,
+      ...(additionalConfiguration.value ? { partitionNum: partitionNum.value } : {}) } : {}),
     })
   }
   const requestId = ++columnLoadRequestId
@@ -815,6 +830,8 @@ const confirmDelete = () => emit('delete', {
 const resetSelectedTable = () => {
   columnLoadRequestId += 1
   selectedTable.value = null
+  additionalConfiguration.value = false
+  configurationName.value = '默认配置'
   metadataLoading.value = false
   metadataError.value = ''
   retryMetadata.value = null
@@ -838,7 +855,8 @@ const resetSelectedTable = () => {
 if (props.initialRegistration) {
   selectTable({
     schemaName: 'CCBS_BASE',
-    tableName: props.initialRegistration.tableName,
+    tableName: props.initialRegistration.sourceTableName || props.initialRegistration.tableName,
+    comparisonCode: props.initialRegistration.comparisonCode || props.initialRegistration.tableName,
     tableComment: props.initialRegistration.tableComment,
     registrationStatus: 'ACTIVE',
     registrationId: props.initialRegistration.id,
@@ -849,6 +867,11 @@ if (props.initialRegistration) {
 </script>
 
 <style scoped>
+.table-result-actions { display: flex; align-items: center; gap: 8px; }
+.table-result-actions .table-result { flex: 1; min-width: 0; }
+.configuration-name-field { display: flex; align-items: center; gap: 12px; margin-top: 12px; font-size: 13px; }
+.configuration-name-field input { flex: 1; min-width: 0; padding: 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-input); color: var(--text-primary); }
+.configuration-code { margin: 8px 0 0; color: var(--text-muted); font-size: 12px; overflow-wrap: anywhere; }
 .comparison-key-picker { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; font-size: 12px; }
 .comparison-key-picker select { min-width: 0; flex: 1; padding: 7px 8px; border: 1px solid #cbd6de; border-radius: 4px; background: #fff; }
 .comparison-key-marker { padding: 2px 5px; border-radius: 8px; color: #176f74; background: #e3f5f2; font-size: 10px; white-space: nowrap; }
@@ -895,6 +918,13 @@ if (props.initialRegistration) {
 .editor-footer .save-guidance-button { min-width: 0; padding: 3px 8px; border-color: #cda55a; color: #87510a; background: #fff8e8; font-size: 12px; }
 .danger { border-color: #d9534f !important; color: #fff !important; background: #d9534f !important; }.delete-confirmation { position: fixed; z-index: 1810; width: min(430px, 88vw); padding: 20px; border-radius: 7px; background: #fff; box-shadow: 0 16px 45px rgba(0, 0, 0, .35); }.delete-confirmation h4 { margin: 0 0 10px; color: #b93c38; }.delete-confirmation p { color: #56636f; line-height: 1.65; }.delete-confirmation div { display: flex; justify-content: flex-end; gap: 9px; }.delete-confirmation button { padding: 7px 13px; border: 1px solid #cbd5dc; border-radius: 4px; background: #fff; }
 .empty-result { padding: 18px; color: #87939e; text-align: center; }
+[data-theme="dark"] .comparison-editor { background: var(--bg-page); color: var(--text-primary); }
+[data-theme="dark"] .editor-block, [data-theme="dark"] .table-result, [data-theme="dark"] .field-tools, [data-theme="dark"] .field-list-scroll, [data-theme="dark"] .available-field-row, [data-theme="dark"] .selected-preview li, [data-theme="dark"] .editor-footer { background: var(--bg-card); color: var(--text-primary); border-color: var(--border); }
+[data-theme="dark"] .selected-table, [data-theme="dark"] .selection-tools, [data-theme="dark"] .field-panel { background: var(--bg-domain-hover); border-color: var(--border); }
+[data-theme="dark"] .table-result:hover, [data-theme="dark"] .available-field-row:hover, [data-theme="dark"] .selected-preview li:hover { background: var(--bg-domain-hover); }
+[data-theme="dark"] .block-heading strong, [data-theme="dark"] .text-button { color: var(--text-active); }
+[data-theme="dark"] .block-heading, [data-theme="dark"] .block-heading span, [data-theme="dark"] .sample-limit-block span, [data-theme="dark"] .table-result small, [data-theme="dark"] .selected-table small, [data-theme="dark"] .selected-preview small, [data-theme="dark"] .selection-tools span, [data-theme="dark"] .available-field-row small { color: var(--text-muted); }
+[data-theme="dark"] input, [data-theme="dark"] select, [data-theme="dark"] .selected-preview li button, [data-theme="dark"] .selection-tools button, [data-theme="dark"] .field-filters button, [data-theme="dark"] .selection-actions button, [data-theme="dark"] .transfer-actions button, [data-theme="dark"] .editor-footer button:not(.primary):not(.danger) { color: var(--text-primary); background: var(--bg-input); border-color: var(--border); }
 @media (max-width: 900px) { .comparison-editor { width: 96vw; height: 94vh; }.transfer-layout { height: auto; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(300px, 45vh) auto minmax(300px, 45vh); }.transfer-actions { flex-direction: row; }.registration-form { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 600px) { .editor-footer { grid-template-columns: minmax(0, 1fr) auto; }.editor-footer-actions { grid-column: 2; grid-row: 1; }.editor-footer .scroll-down-cue { grid-column: 1 / -1; grid-row: 2; justify-self: center; } }
 </style>

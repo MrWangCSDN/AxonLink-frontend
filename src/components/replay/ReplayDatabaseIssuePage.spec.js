@@ -27,6 +27,16 @@ async function selectImportFile(wrapper, batch='DB20261015-01') {
   return file
 }
 describe('ReplayDatabaseIssuePage',()=>{
+  it('distinguishes the physical table and configuration while keeping issue_id intact', async () => {
+    api.listDatabaseIssues.mockResolvedValue({ items: [{ ...row, tableName: 'acct_1', sourceTableName: 'acct', configurationName: '状态一', issueId: 'acct_1-amount' }], total: 1 })
+    const w = mount(ReplayDatabaseIssuePage)
+    await flushPromises()
+    expect(w.get('[data-testid="copy-1-tableName"]').text()).toBe('acct')
+    expect(w.get('[data-testid="issue-configuration-1"]').text()).toContain('状态一')
+    expect(w.get('[data-testid="issue-configuration-1"]').text()).toContain('acct_1')
+    expect(w.get('[data-testid="copy-1-issueId"]').text()).toBe('acct_1-amount')
+    w.unmount()
+  })
   beforeEach(()=>{
     loadVersions.mockReset().mockResolvedValue({items:[latestRegistrationVersion],page:0,size:20,total:1})
     api.getDatabaseIssueImportContext.mockReset().mockImplementation(async batchNo=>({batchNo,registrationVersion:null}))

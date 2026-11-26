@@ -55,9 +55,10 @@
                   </span>
                 </span>
               </div>
-            <div v-else-if="column.key === 'tableName'" class="table-name-cell" :title="[row.tableName, row.tableComment].filter(Boolean).join('\n')">
-              <button type="button" class="cell-copy cell-text table-name-english" :data-testid="`copy-${row.id}-tableName`" aria-label="复制表英文名" :title="copyTitle('表英文名',row.tableName)" :disabled="!hasCopyValue(row.tableName)" @click.stop="copyValue(row.tableName,'表英文名')">{{ display(row.tableName) }}</button>
+            <div v-else-if="column.key === 'tableName'" class="table-name-cell" :title="[row.sourceTableName || row.tableName, row.tableComment, row.configurationName, row.tableName].filter(Boolean).join('\n')">
+              <button type="button" class="cell-copy cell-text table-name-english" :data-testid="`copy-${row.id}-tableName`" aria-label="复制表英文名" :title="copyTitle('表英文名',row.sourceTableName || row.tableName)" :disabled="!hasCopyValue(row.sourceTableName || row.tableName)" @click.stop="copyValue(row.sourceTableName || row.tableName,'表英文名')">{{ display(row.sourceTableName || row.tableName) }}</button>
               <button type="button" class="cell-copy cell-text table-name-chinese" :data-testid="`copy-${row.id}-tableComment`" aria-label="复制表中文名" :title="copyTitle('表中文名',row.tableComment)" :disabled="!hasCopyValue(row.tableComment)" @click.stop="copyValue(row.tableComment,'表中文名')">{{ display(row.tableComment) }}</button>
+              <small v-if="row.sourceTableName || row.configurationName" class="issue-configuration" :data-testid="`issue-configuration-${row.id}`">{{ row.configurationName || '默认配置' }} · {{ row.comparisonCode || row.tableName }}</small>
             </div>
             <button v-else-if="column.key === 'batchNo'" type="button" class="cell-copy cell-text" :data-testid="`copy-${row.id}-batchNo`" aria-label="复制出现批次" :title="copyTitle(column.label,occurrenceBatchValue(row))" :disabled="!hasCopyValue(occurrenceBatchValue(row))" @click.stop="copyValue(occurrenceBatchValue(row),column.label)">{{ appearanceBatches(row) }}</button>
             <template v-else-if="column.key === 'reviewStatus' && hasReviewStatus(row)">
@@ -777,6 +778,7 @@ onBeforeUnmount(()=>{alive=false;collaboratorSequence++;copySequence++;clearTime
 </script>
 
 <style scoped>
+.issue-configuration { color: var(--text-muted); overflow-wrap: anywhere; white-space: normal; }
 .database-issues-page{--database-teal:#0f6b78;--database-row-alt:#eef7fb;--database-content-gutter:20px;display:flex;flex-direction:column;min-width:0;min-height:0;height:100%;overflow:hidden;color:var(--text-primary,#1f2937);background:var(--bg-page,#f7f9fc);font-size:12px}
 .database-toolbar{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 20px 12px;background:var(--bg-card,#fff);border-bottom:1px solid var(--border,#e8edf5)}
 .database-title{display:flex;align-items:center;gap:10px}h2,h3,p{margin:0}h2{font-size:19px;font-weight:650}h3{font-size:16px}.database-title p,.dialog header p,.tracking-drawer header p{margin-top:5px;color:var(--text-muted,#6b7280);font-size:12px;overflow-wrap:anywhere}

@@ -38,6 +38,75 @@ const selectedNames = wrapper => wrapper.findAll('[data-testid="selected-field-r
   .map(row => row.get('strong').text().replace(/^\d+\.\s*/, ''))
 
 describe('ReplayDatabaseComparisonEditor', () => {
+  it('prevents an overlong configuration name from saving and defaults an empty name', async () => {
+    const wrapper = mount(ReplayDatabaseComparisonEditor, { props: { initialRegistration: registrations[0] } })
+    await flushPromises()
+    await wrapper.get('[data-testid="configuration-name"]').setValue('名'.repeat(201))
+    expect(wrapper.get('[data-testid="submit-registration"]').element.disabled).toBe(true)
+    expect(wrapper.get('[data-testid="configuration-name-error"]').text()).toContain('200')
+    await wrapper.get('[data-testid="configuration-name"]').setValue(' ')
+    await wrapper.get('[data-testid="submit-registration"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.emitted('save').at(-1)[0].configurationName).toBe('默认配置')
+    wrapper.unmount()
+  })
+  it('copies a configuration using real-table metadata and creates a new named configuration', async () => {
+    const fields = [{ columnName: 'id', primaryKey: true }, { columnName: 'amount', dataType: 'DECIMAL' }]
+    const loadColumns = vi.fn(() => fields)
+    const initialRegistration = { id: 41, version: 3, tableName: 'acct_1', sourceTableName: 'acct',
+      configurationName: '状态一', fields, sampleLimit: -1, partitionNum: 8, maxPartitionNum: 120,
+      comparisonKey: { indexName: 'PRIMARY', indexType: 'PRIMARY_KEY', columnNames: ['id'] }, compareLimit: 20,
+      whereCondition: { connector: 'AND', groups: [{ connector: 'AND', conditions: [{ columnName: 'amount', operator: 'GT', values: ['0'] }] }] } }
+    const wrapper = mount(ReplayDatabaseComparisonEditor, { props: {
+      initialRegistration, createAdditionalConfiguration: true, loadColumns, canConfigureSampleLimit: true,
+    } })
+    await flushPromises()
+    expect(loadColumns).toHaveBeenCalledWith('acct')
+    expect(wrapper.get('[data-testid="editor-title"]').text()).toBe('新增同表配置')
+    expect(selectedNames(wrapper)).toEqual(['id', 'amount'])
+    await wrapper.get('[data-testid="configuration-name"]').setValue('状态二')
+    await wrapper.get('[data-testid="submit-registration"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.emitted('save').at(-1)[0]).toMatchObject({ mode: 'add', tableName: 'acct', configurationName: '状态二',
+      createAdditionalConfiguration: true, sampleLimit: -1, partitionNum: 8, maxPartitionNum: 120, compareLimit: 20,
+      comparisonKeyName: 'PRIMARY', fieldNames: ['id', 'amount'], whereCondition: initialRegistration.whereCondition })
+    expect(wrapper.emitted('save').at(-1)[0]).not.toHaveProperty('id')
+    expect(wrapper.emitted('save').at(-1)[0]).not.toHaveProperty('version')
+    wrapper.unmount()
+  })
+
+  it('locks an edited configuration to real-table metadata while preserving its code and id', async () => {
+    const loadColumns = vi.fn(() => [{ columnName: 'id', primaryKey: true }])
+    const wrapper = mount(ReplayDatabaseComparisonEditor, { props: { loadColumns,
+      initialRegistration: { id: 41, version: 3, tableName: 'acct_1', sourceTableName: 'acct', configurationName: '状态一', fields: [{ name: 'id' }] },
+    } })
+    await flushPromises()
+    expect(loadColumns).toHaveBeenCalledWith('acct')
+    expect(wrapper.get('[data-testid="selected-table"]').text()).toContain('acct')
+    expect(wrapper.find('[data-testid="table-search-input"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="configuration-name"]').attributes('maxlength')).toBe('200')
+    await wrapper.get('[data-testid="configuration-name"]').setValue('新的名称')
+    await wrapper.get('[data-testid="submit-registration"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.emitted('save').at(-1)[0]).toMatchObject({ mode: 'edit', id: 41, version: 3, tableName: 'acct_1', configurationName: '新的名称' })
+    expect(wrapper.emitted('save').at(-1)[0]).not.toHaveProperty('createAdditionalConfiguration')
+    wrapper.unmount()
+  })
+
+  it('offers an explicit new configuration action for an already registered table in search', async () => {
+    const initialRegistration = { id: 9, tableName: 'acct', fields: [{ name: 'id' }] }
+    const wrapper = mount(ReplayDatabaseComparisonEditor, { props: { registrations: [initialRegistration],
+      searchTables: () => [{ tableName: 'acct', registrationStatus: 'ACTIVE', registrationId: 9 }],
+      loadColumns: () => [{ columnName: 'id', primaryKey: true }],
+    } })
+    await waitForTableSearch(wrapper, 'acct')
+    await wrapper.get('[data-testid="new-table-configuration"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="submit-registration"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.emitted('save').at(-1)[0]).toMatchObject({ mode: 'add', tableName: 'acct', createAdditionalConfiguration: true, configurationName: '默认配置' })
+    wrapper.unmount()
+  })
   beforeEach(() => {
     comparisonApi.searchTechnologyOwners.mockReset().mockResolvedValue([])
     comparisonApi.loadBaseColumns.mockReset().mockImplementation(metadataColumns)
@@ -486,14 +555,14 @@ describe('ReplayDatabaseComparisonEditor', () => {
 
     expect(loadColumns).not.toHaveBeenCalled()
     expect(wrapper.get('[data-testid="table-missing-cleanup-warning"]').text())
-      .toContain('只能查看历史登记并删除整表登记')
+      .toContain('只能查看历史登记并删除当前配置')
     expect(wrapper.get('[data-testid="selected-fields"]').text()).toContain('historical_id')
     expect(wrapper.get('[data-testid="selected-fields"] .primary-key-marker').text()).toBe('主键')
     expect(wrapper.findAll('[data-testid="selected-field-row"]')).toHaveLength(2)
     expect(wrapper.findAll('input, select, .field-filters button, .selection-tools button, .selection-actions button')
       .filter(control => control.attributes('data-testid') !== 'submit-registration')
       .every(control => control.attributes('disabled') !== undefined)).toBe(true)
-    expect(wrapper.get('[data-testid="submit-registration"]').text()).toBe('删除整表登记')
+    expect(wrapper.get('[data-testid="submit-registration"]').text()).toBe('删除当前配置')
     expect(wrapper.get('[data-testid="submit-registration"]').attributes('disabled')).toBeUndefined()
   })
 

@@ -17,12 +17,36 @@ const parse = async wrapper => {
 }
 
 describe('custom SQL registration editor', () => {
+  it('copies a SQL configuration into a new named registration without its original identity', async () => {
+    const initial = { id: 11, version: 4, tableName: 'acct_1', sourceTableName: 'acct', configurationName: '汇总一',
+      sampleLimit: -1, partitionNum: 8, maxPartitionNum: 128, compareLimit: 22,
+      customSql: { sql, sourceTableName: 'acct', resultColumns: columns },
+      fields: [{ columnName: 'currency' }, { columnName: 'total_amt' }], comparisonKey: { columnNames: ['currency'] } }
+    const wrapper = mount(CustomSqlEditor, { props: { initialRegistration: initial,
+      createAdditionalConfiguration: true, canConfigurePartitions: true } })
+    expect(wrapper.get('[data-testid="custom-sql-name"]').attributes('maxlength')).toBe('200')
+    await wrapper.get('[data-testid="custom-sql-name"]').setValue('汇总二')
+    await wrapper.get('[data-testid="save-custom-sql"]').trigger('click')
+    const payload = wrapper.emitted('save').at(-1)[0]
+    expect(payload).toMatchObject({ sourceTableName: 'acct', displayName: '汇总二', createAdditionalConfiguration: true, sql,
+      fieldNames: ['currency', 'total_amt'], resultKeyColumns: ['currency'], sampleLimit: -1, partitionNum: 8, maxPartitionNum: 128, compareLimit: 22 })
+    expect(payload).not.toHaveProperty('id')
+    expect(payload).not.toHaveProperty('version')
+  })
+
+  it('lets a new SQL registration explicitly request an additional configuration', async () => {
+    const wrapper = mount(CustomSqlEditor, { props: { analyzeSql: analyze } })
+    await parse(wrapper)
+    await wrapper.get('[data-testid="custom-sql-additional"]').setValue(true)
+    await wrapper.get('[data-testid="save-custom-sql"]').trigger('click')
+    expect(wrapper.emitted('save').at(-1)[0]).toMatchObject({ displayName: '默认配置', createAdditionalConfiguration: true })
+  })
   beforeEach(() => { analyze.mockReset(); analyze.mockResolvedValue(analysis) })
 
   it('analyzes SQL, shows read-only source metadata and saves ordered fields with selected result keys', async () => {
     const wrapper = mount(CustomSqlEditor, { props: { analyzeSql: analyze } })
     expect(wrapper.get('[data-testid="save-custom-sql"]').element.disabled).toBe(true)
-    expect(wrapper.find('[data-testid="custom-sql-name"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="custom-sql-name"]').element.value).toBe('默认配置')
     await parse(wrapper)
     expect(wrapper.get('[data-testid="custom-sql-table-name"]').text()).toBe('acct')
     expect(wrapper.get('[data-testid="custom-sql-table-comment"]').text()).toBe('账户表')
@@ -32,7 +56,7 @@ describe('custom SQL registration editor', () => {
     expect(wrapper.get('[data-testid="sql-select-currency"]').element.disabled).toBe(true)
     await wrapper.get('[data-testid="sql-move-up-total_amt"]').trigger('click')
     await wrapper.get('[data-testid="save-custom-sql"]').trigger('click')
-    expect(wrapper.emitted('save')[0][0]).toEqual({ sourceTableName: 'acct', sql, fieldNames: ['total_amt', 'currency'], resultKeyColumns: ['currency'], compareLimit: null, maxPartitionNum: 64 })
+    expect(wrapper.emitted('save')[0][0]).toEqual({ displayName: '默认配置', sourceTableName: 'acct', sql, fieldNames: ['total_amt', 'currency'], resultKeyColumns: ['currency'], compareLimit: null, maxPartitionNum: 64 })
   })
 
   it('invalidates parsed fields when SQL changes and ignores stale analysis responses', async () => {
@@ -109,7 +133,7 @@ describe('custom SQL registration editor', () => {
     await parse(wrapper)
     await wrapper.get('[data-testid="sql-select-total_amt"]').setValue(true)
     await wrapper.get('[data-testid="save-custom-sql"]').trigger('click')
-    expect(wrapper.emitted('save')[0][0]).toEqual({ id: 18, version: 6, sourceTableName: 'acct', sql,
+    expect(wrapper.emitted('save')[0][0]).toEqual({ displayName: '默认配置', id: 18, version: 6, sourceTableName: 'acct', sql,
       fieldNames: ['currency', 'total_amt'], resultKeyColumns: ['currency'], compareLimit: null, maxPartitionNum: 64 })
     analyze.mockResolvedValue({ ...analysis, sourceTableName: 'another_table' })
     await wrapper.get('[data-testid="custom-sql-text"]').setValue('select currency from another_table')

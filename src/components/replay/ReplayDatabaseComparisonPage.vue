@@ -4,7 +4,7 @@
       <button class="nav-button" type="button" aria-label="打开导航" @click="$emit('toggleNavigation')">☰</button>
       <div>
         <h2>回放数据库比对字段登记（{{ latestVersion?.versionNo ? `版本：${latestVersion.versionNo}` : '尚未生成版本' }}）</h2>
-        <p>共 {{ globalTableCount }} {{ serverGlobalCustomSqlCount ? '个比对项' : '张表' }} · 共 {{ globalFieldCount }} 个比对字段<span v-if="serverGlobalCustomSqlCount"> · 普通表登记 {{ globalTableCount - serverGlobalCustomSqlCount }} · SQL 登记 {{ serverGlobalCustomSqlCount }}</span></p>
+        <p>共 {{ globalTableCount }} 条配置 · 共 {{ globalFieldCount }} 个比对字段<span v-if="serverGlobalCustomSqlCount"> · 普通表登记 {{ globalTableCount - serverGlobalCustomSqlCount }} · SQL 登记 {{ serverGlobalCustomSqlCount }}</span></p>
         <p v-if="generationMessage" class="generation-message" data-testid="generation-message">{{ generationMessage }}</p>
       </div>
       <div class="toolbar-actions">
@@ -66,7 +66,7 @@
               :data-testid="`table-name-${row.tableName}`"
               :title="tableDisplayValue(row)"
             >
-              <span class="compact-cell-content table-name-content"><strong>{{ displayTableName(row) }}</strong><small v-if="row.customSql"><span class="sql-badge">SQL</span> {{ row.tableComment }}</small><small v-else>{{ row.tableComment }}</small></span>
+              <span class="compact-cell-content table-name-content"><strong>{{ displayTableName(row) }}</strong><small v-if="row.customSql"><span class="sql-badge">SQL</span> {{ row.tableComment }}</small><small v-else>{{ row.tableComment }}</small><small class="configuration-identity"><span>{{ row.configurationName }}</span><code :data-testid="`configuration-code-${row.tableName}`">{{ row.comparisonCode }}</code></small></span>
               <span v-if="isTableMissing(row)" class="metadata-status is-table-missing-status">母库表已删除</span>
               <span v-else-if="isMetadataUnavailable(row)" class="metadata-status is-unavailable-status" :data-testid="`metadata-unavailable-${row.tableName}`">母库校验暂不可用</span>
               <span v-else-if="isCustomSqlInvalid(row)" class="metadata-status is-table-missing-status">自定义 SQL 无效</span>
@@ -167,6 +167,7 @@
             <td class="operation-cell">
               <button class="operation-button" type="button" :data-testid="`view-registration-${row.tableName}`" @click="openRegistrationDetail(row)">查看</button>
               <button class="operation-button" type="button" :data-testid="`edit-registration-${row.tableName}`" @click="openEditEditor(row)">编辑</button>
+              <button class="operation-button" type="button" :data-testid="`copy-configuration-${row.tableName}`" :disabled="copyingConfigurationCode === row.tableName" @click="copyConfiguration(row)">{{ copyingConfigurationCode === row.tableName ? '加载中…' : '复制配置' }}</button>
               <button v-if="!row.customSql" class="operation-button" type="button" :data-testid="`configure-custom-sql-${row.tableName}`" @click="openEditEditor(row, true)">自定义 SQL</button>
               <button class="operation-button danger" type="button" :data-testid="`delete-registration-${row.tableName}`" @click="requestDeleteRegistration(row)">删除</button>
               <button class="operation-button" type="button" :data-testid="`audit-registration-${row.tableName}`" @click="openRegistrationAudit(row)">审计日志</button>
@@ -262,6 +263,7 @@
       :key="editingRegistration?.id || 'new-table'"
       :registrations="rows"
       :initial-registration="editingRegistration"
+      :create-additional-configuration="editorCreatesAdditional"
       :search-tables="searchTableOptions"
       :load-columns="loadTableColumns"
       :load-keys="loadTableKeys"
@@ -277,6 +279,7 @@
       v-if="customSqlEditorOpen"
       :key="customSqlEditingRegistration?.id || 'new-sql'"
       :initial-registration="customSqlEditingRegistration"
+      :create-additional-configuration="customSqlCreatesAdditional"
       :can-configure-partitions="canConfigureSampleLimit"
       :saving="customSqlSaving"
       :loading-existing="customSqlOpeningExisting"
@@ -289,12 +292,14 @@
     <div v-if="detailRegistration" class="page-dialog-backdrop">
       <section class="page-dialog" data-testid="registration-detail-dialog">
         <header><h3>登记详情</h3><button type="button" data-testid="close-registration-detail" aria-label="关闭登记详情" @click="detailRegistration = null">×</button></header>
-        <p v-if="isTableMissing(detailRegistration)" class="detail-table-warning" data-testid="detail-table-missing-warning">母库中已找不到该表，当前展示的是历史登记快照。请确认后删除整表登记。</p>
+        <p v-if="isTableMissing(detailRegistration)" class="detail-table-warning" data-testid="detail-table-missing-warning">母库中已找不到该表，当前展示的是历史登记快照。请确认后删除当前配置。</p>
         <p v-else-if="isMetadataUnavailable(detailRegistration)" class="detail-metadata-unavailable">母库校验暂不可用，当前展示历史登记内容。</p>
         <p v-else-if="isCustomSqlInvalid(detailRegistration)" class="detail-table-warning">自定义 SQL 无效，当前展示已保存的登记内容，请编辑并重新校验 SQL、结果字段和结果比对键。</p>
         <dl>
           <dt>表英文名</dt><dd>{{ displayTableName(detailRegistration) }}</dd>
           <dt>表中文名</dt><dd>{{ detailRegistration.tableComment || '-' }}</dd>
+          <dt>配置名称</dt><dd>{{ detailRegistration.configurationName }}</dd>
+          <dt>固定标识</dt><dd>{{ detailRegistration.comparisonCode }}</dd>
           <template v-if="detailRegistration.customSql"><dt>登记类型</dt><dd><span class="sql-badge">SQL</span></dd></template>
           <dt>领域</dt><dd>{{ detailRegistration.domain }}</dd>
           <dt>{{ detailRegistration.customSql ? '结果比对键' : '选择索引' }}</dt><dd data-testid="detail-comparison-key">{{ formatComparisonKey(detailRegistration.comparisonKey) }}</dd>
@@ -320,7 +325,7 @@
           <dt>科技负责人</dt><dd>{{ detailRegistration.groupOwner }}</dd>
           <dt>登记日期</dt><dd>{{ detailRegistration.date }}</dd>
         </dl>
-        <footer v-if="isTableMissing(detailRegistration)"><button type="button" class="danger-confirm" data-testid="delete-missing-table-registration" @click="requestDetailTableDeletion">删除整表登记</button></footer>
+        <footer v-if="isTableMissing(detailRegistration)"><button type="button" class="danger-confirm" data-testid="delete-missing-table-registration" @click="requestDetailTableDeletion">删除当前配置</button></footer>
       </section>
     </div>
     <ReplayDatabaseComparisonAuditDialog
@@ -347,8 +352,7 @@
     <div v-if="deleteTarget" class="page-dialog-backdrop">
       <section class="page-dialog compact-dialog" data-testid="list-delete-confirmation">
         <header><h3>删除登记</h3><button type="button" aria-label="关闭删除确认" @click="deleteTarget = null">×</button></header>
-        <p v-if="deleteTarget.customSql">确认删除表 <strong>{{ displayTableName(deleteTarget) }}</strong> 的自定义 SQL 登记吗？</p>
-        <p v-else>确认删除表 <strong>{{ deleteTarget.tableName }}</strong> 的全部比对字段登记吗？</p>
+        <p>确认删除表 <strong>{{ displayTableName(deleteTarget) }}</strong> 的配置 <strong>{{ deleteTarget.configurationName }}（{{ deleteTarget.comparisonCode }}）</strong> 吗？</p>
         <p v-if="pageError" class="api-error" role="alert">{{ pageError }}</p>
         <footer><button type="button" @click="deleteTarget = null">取消</button><button type="button" class="danger-confirm" data-testid="confirm-list-delete" @click="confirmListDelete">确认删除</button></footer>
       </section>
@@ -428,9 +432,12 @@ const expandedConditionTables = ref(new Set())
 const copiedTable = ref('')
 const copiedConditionTable = ref('')
 const editorOpen = ref(false)
+const editorCreatesAdditional = ref(false)
+const copyingConfigurationCode = ref('')
 const editingRegistration = ref(null)
 const editorSaveError = ref(null)
 const customSqlEditorOpen = ref(false)
+const customSqlCreatesAdditional = ref(false)
 const customSqlEditingRegistration = ref(null)
 const customSqlSaveError = ref(null)
 const customSqlSaving = ref(false)
@@ -644,6 +651,7 @@ const mapRegistration = registration => ({
   customSql: registration.customSql || null,
   registrationType: registration.customSql ? 'CUSTOM_SQL' : 'TABLE',
   comparisonCode: registration.comparisonCode || registration.tableName,
+  configurationName: registration.configurationName || registration.displayName || '默认配置',
   sourceTableName: registration.customSql?.sourceTableName || registration.sourceTableName || registration.tableName,
   tableName: registration.tableName,
   tableComment: registration.tableComment || '',
@@ -753,6 +761,7 @@ const openAddEditor = () => {
   editorLoadSequence++
   editorSaveError.value = null
   editingRegistration.value = null
+  editorCreatesAdditional.value = false
   editorOpen.value = true
 }
 
@@ -764,15 +773,42 @@ const openEditEditor = async (row, useCustomSqlEditor = false) => {
     const registration = await hydrateRegistration(row)
     if (request !== editorLoadSequence) return
     if (registration.customSql || useCustomSqlEditor) {
+      customSqlCreatesAdditional.value = false
       customSqlEditingRegistration.value = registration
       customSqlSaveError.value = null
       customSqlEditorOpen.value = true
     } else {
+      editorCreatesAdditional.value = false
       editingRegistration.value = registration
       editorOpen.value = true
     }
   } catch (error) {
     if (request === editorLoadSequence) pageError.value = error?.message || '登记详情加载失败，请重试'
+  }
+}
+
+const copyConfiguration = async row => {
+  const request = ++editorLoadSequence
+  copyingConfigurationCode.value = row.tableName
+  pageError.value = ''
+  try {
+    const registration = await hydrateRegistration(row)
+    if (request !== editorLoadSequence) return
+    if (registration.customSql) {
+      customSqlCreatesAdditional.value = true
+      customSqlEditingRegistration.value = registration
+      customSqlSaveError.value = null
+      customSqlEditorOpen.value = true
+    } else {
+      editorCreatesAdditional.value = true
+      editingRegistration.value = registration
+      editorSaveError.value = null
+      editorOpen.value = true
+    }
+  } catch (error) {
+    if (request === editorLoadSequence) pageError.value = error?.message || '配置加载失败，请重试'
+  } finally {
+    if (copyingConfigurationCode.value === row.tableName) copyingConfigurationCode.value = ''
   }
 }
 
@@ -786,13 +822,15 @@ const closeEditor = () => {
 const openCustomSqlEditor = () => {
   editorLoadSequence++
   customSqlEditingRegistration.value = null
+  customSqlCreatesAdditional.value = false
   customSqlSaveError.value = null
   customSqlOpeningExisting.value = false
   customSqlEditorOpen.value = true
 }
-const openLoadedCustomSqlRegistration = registration => {
+const openLoadedCustomSqlRegistration = (registration, createAdditional = false) => {
   closeEditor()
   customSqlEditingRegistration.value = registration
+  customSqlCreatesAdditional.value = createAdditional
   customSqlSaveError.value = null
   customSqlOpeningExisting.value = false
   customSqlEditorOpen.value = true
@@ -806,6 +844,7 @@ const openExistingCustomSqlRegistration = async id => {
     const registration = await loadRegistrationDetail(id)
     if (request !== editorLoadSequence || !customSqlEditorOpen.value) return
     customSqlEditingRegistration.value = registration
+    customSqlCreatesAdditional.value = false
     customSqlSaveError.value = null
   } catch (error) {
     if (request === editorLoadSequence) customSqlSaveError.value = {
@@ -849,6 +888,8 @@ const saveRegistration = async payload => {
   editorSaveError.value = null
   const body = {
     tableName: payload.tableName,
+    ...(payload.configurationName !== undefined ? { configurationName: payload.configurationName } : {}),
+    ...(payload.createAdditionalConfiguration === true ? { createAdditionalConfiguration: true } : {}),
     fieldNames: payload.fieldNames,
     comparisonKeyName: payload.comparisonKeyName,
     domainName: payload.domain,
@@ -859,6 +900,7 @@ const saveRegistration = async payload => {
     compareLimit: payload.compareLimit,
     ...(payload.maxPartitionNum !== undefined ? { maxPartitionNum: payload.maxPartitionNum } : {}),
     ...(canConfigureSampleLimit.value && payload.sampleLimit !== undefined ? { sampleLimit: payload.sampleLimit } : {}),
+    ...(canConfigureSampleLimit.value && payload.createAdditionalConfiguration === true && payload.partitionNum !== undefined ? { partitionNum: payload.partitionNum } : {}),
   }
   try {
     if (payload.mode === 'edit') await updateRegistration(payload.id, body)
@@ -1160,7 +1202,7 @@ const submitGeneration = async () => {
   try {
     const generated = await generateVersion(generationToken.value)
     latestVersion.value = generated
-    generationMessage.value = `已生成版本，共 ${generated.tableCount} ${generated.customSqlCount ? '个比对项' : '张表'}、${generated.fieldCount} 个字段`
+  generationMessage.value = `已生成版本，共 ${generated.tableCount} 条配置、${generated.fieldCount} 个字段`
     generationOpen.value = false
     generationToken.value = ''
     page.value = 1
@@ -1194,23 +1236,25 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.table-name-content .configuration-identity { display: flex; flex-direction: column; gap: 3px; white-space: normal; overflow-wrap: anywhere; }
+.configuration-identity code { color: var(--text-muted); font-size: 11px; }
 .sql-badge { display: inline-block; padding: 1px 5px; border-radius: 3px; background: var(--bg-domain-active); color: var(--text-active); font-size: 11px; }
-.db-compare-page { flex: 1; min-width: 0; min-height: 0; height: 100%; display: flex; flex-direction: column; overflow: hidden; background: #f4f6f9; color: #303947; }
+.db-compare-page { flex: 1; min-width: 0; min-height: 0; height: 100%; display: flex; flex-direction: column; overflow: hidden; background: var(--bg-page); color: var(--text-primary); }
 .page-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
 .page-toolbar { flex: 0 0 auto; padding: 20px 22px 0; }
 .page-toolbar h2 { margin: 0 0 4px; font-size: 21px; }
-.page-toolbar p { margin: 0; color: #778291; font-size: 13px; }
+.page-toolbar p { margin: 0; color: var(--text-muted); font-size: 13px; }
 .page-toolbar p span { margin-left: 8px; padding: 2px 7px; border-radius: 10px; color: #a36b00; background: #fff4ce; }
 .page-toolbar .generation-message { margin-top: 5px; color: #107267; }
 .api-error { margin: 0 22px 10px; padding: 8px 10px; color: #9f2f2c; background: #fff1f0; border-left: 4px solid #d94a47; }
 .page-dialog .api-error, .replay-header-filter-panel .api-error { margin: 8px 0; }
 .nav-button { display: none; }
 .toolbar-actions { display: flex; gap: 8px; margin-left: auto; }
-.toolbar-actions button, .pager button { padding: 7px 11px; border: 1px solid #d4dce5; border-radius: 4px; background: #fff; color: #44505e; }
-.toolbar-actions .outlined { border-color: #168478; color: #107267; }
+.toolbar-actions button, .pager button { padding: 7px 11px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-card); color: var(--text-secondary); }
+.toolbar-actions .outlined { border-color: var(--text-active); color: var(--text-active); }
 .toolbar-actions .primary, .pager .active { border-color: #168478; color: #fff; background: #168478; }
 .toolbar-actions button:disabled, .operation-button:disabled { cursor: not-allowed; opacity: .48; }
-.table-shell { min-width: 0; min-height: 0; height: 0; flex: 1 1 auto; margin: 0 22px; overflow: auto; overscroll-behavior: contain; border: 1px solid #dbe2e9; border-radius: 5px; background: #fff; box-shadow: 0 3px 12px rgba(25, 42, 60, .06); scrollbar-gutter: stable; }
+.table-shell { min-width: 0; min-height: 0; height: 0; flex: 1 1 auto; margin: 0 22px; overflow: auto; overscroll-behavior: contain; border: 1px solid var(--border); border-radius: 5px; background: var(--bg-card); scrollbar-gutter: stable; }
 table { width: 100%; min-width: 950px; border-collapse: collapse; font-size: 13px; }
 table.is-fixed-layout { table-layout: fixed; }
 thead.is-sticky { position: sticky; top: 0; z-index: 2; color: #fff; background: #176f74; }
@@ -1223,12 +1267,12 @@ th[data-column-key="reviser"] .replay-header-filter-button, th[data-column-key="
 .replay-header-filter-button:hover i, .replay-header-filter-button:focus-visible i { border-top-color: #fff; }
 .replay-header-filter-button.active i { border-top-color: #ffd166; }
 .replay-header-filter-button:focus-visible { outline: 1px solid #fff; outline-offset: 1px; }
-td { padding: 12px 10px; border-right: 1px solid #e2e8ee; border-bottom: 1px solid #e2e8ee; }
-tbody tr:nth-child(even) { background: #edf7fb; }
+td { padding: 12px 10px; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+tbody tr:nth-child(even) { background: var(--bg-domain-hover); }
 .primary-column { position: sticky; left: 0; z-index: 1; }
 thead .primary-column { z-index: 3; background: #176f74; }
-tbody .primary-column { background: #fff; }
-tbody tr:nth-child(even) .primary-column { background: #edf7fb; }
+tbody .primary-column { background: var(--bg-card); }
+tbody tr:nth-child(even) .primary-column { background: var(--bg-domain-hover); }
 .table-name-cell.is-table-missing { border-left: 4px solid #d94a47; background: #fff0ef; }
 tbody tr:nth-child(even) .table-name-cell.is-table-missing { background: #ffe9e7; }
 .metadata-status { display: inline-block; margin-top: 6px; padding: 2px 6px; border-radius: 9px; font-size: 10px; line-height: 1.4; }
@@ -1236,17 +1280,17 @@ tbody tr:nth-child(even) .table-name-cell.is-table-missing { background: #ffe9e7
 .is-table-missing-status { color: #fff; background: #d94a47; }
 .is-unavailable-status { color: #596673; background: #e8edf1; }
 td strong, td small { display: block; }
-td small { margin-top: 4px; color: #7b8795; }
-.fields { color: #1769aa; }
+td small { margin-top: 4px; color: var(--text-muted); }
+.fields { color: var(--text-active); }
 .field-content { overflow: hidden; line-height: 1.65; text-overflow: ellipsis; }
 .field-list { display: flex; flex-wrap: wrap; gap: 6px 0; align-items: flex-start; }
-.field-item { max-width: 100%; color: #1769aa; line-height: 1.65; overflow-wrap: anywhere; }
+.field-item { max-width: 100%; color: var(--text-active); line-height: 1.65; overflow-wrap: anywhere; }
 .field-item.is-missing-in-base-preview { color: #d92d20; text-decoration: line-through; text-decoration-thickness: 1.5px; }
 .field-separator { margin-right: 6px; }
 .field-actions { display: flex; gap: 10px; margin-top: 5px; }
-.field-action { padding: 0; border: 0; color: #168478; background: transparent; font-size: 12px; cursor: pointer; }
+.field-action { padding: 0; border: 0; color: var(--text-active); background: transparent; font-size: 12px; cursor: pointer; }
 .fields:not(.is-expanded) .field-content { white-space: nowrap; }
-.query-condition-cell { color: #44505e; vertical-align: top; }
+.query-condition-cell { color: var(--text-secondary); vertical-align: top; }
 .query-condition-content { line-height: 1.65; overflow-wrap: anywhere; }
 .query-condition-cell.is-expanded .query-condition-content { white-space: pre-line; }
 .query-condition-cell:not(.is-expanded) .query-condition-content { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1255,10 +1299,10 @@ td small { margin-top: 4px; color: #7b8795; }
 .table-name-content strong, .table-name-content small { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .compact-copy-cell > button { display: none; position: absolute; z-index: 1; right: 4px; bottom: 3px; padding: 1px 4px; border: 1px solid #a9c8c5; border-radius: 3px; color: #14766d; background: #fff; font-size: 10px; cursor: pointer; }
 .compact-copy-cell:hover > button, .compact-copy-cell:focus-within > button { display: block; }
-.operation-cell { padding-right: 5px; padding-left: 5px; white-space: nowrap; }
-.operation-button { margin-right: 2px; padding: 4px 4px; border: 1px solid #9fbab8; border-radius: 3px; color: #176f74; background: #fff; font-size: 11px; cursor: pointer; }
-.operation-button:hover { border-color: #176f74; background: #eff9f8; }
-.operation-button.danger { border-color: #e7aaa9; color: #c83d3a; }
+.operation-cell { padding-right: 5px; padding-left: 5px; white-space: normal; }
+.operation-button { margin: 2px; padding: 4px 4px; border: 1px solid var(--border); border-radius: 3px; color: var(--text-active); background: var(--bg-card); font-size: 11px; cursor: pointer; }
+.operation-button:hover { border-color: var(--text-active); background: var(--bg-domain-hover); }
+.operation-button.danger { border-color: var(--c-error-code-text); color: var(--c-error-code-text); }
 .page-dialog-backdrop { position: fixed; inset: 0; z-index: 1700; display: grid; place-items: center; padding: 20px; background: rgba(22, 31, 41, .46); }
 .page-dialog { width: min(680px, calc(100vw - 40px)); max-height: calc(100vh - 40px); overflow: auto; border-radius: 7px; background: #fff; box-shadow: 0 18px 50px rgba(0, 0, 0, .24); }
 .page-dialog.compact-dialog { width: min(480px, calc(100vw - 40px)); }
@@ -1346,9 +1390,9 @@ td small { margin-top: 4px; color: #7b8795; }
 .replay-header-filter-panel > footer .primary { border-color: #42b883; background: #42b883; }
 .replay-header-filter-panel > footer .replay-header-filter-clear { border-color: #777; color: #ffcf8a; background: #555; }
 .replay-header-filter-resize-handle { position: absolute; right: 1px; bottom: 1px; width: 16px; height: 16px; padding: 0; border: 0; cursor: nwse-resize; touch-action: none; background: linear-gradient(135deg, transparent 0 42%, #bbb 43% 49%, transparent 50% 61%, #ddd 62% 68%, transparent 69%); }
-.pager { flex: 0 0 auto; min-height: 52px; display: flex; justify-content: flex-end; align-items: center; gap: 14px; padding: 10px 22px; border-top: 1px solid #e2e8ee; background: #fff; font-size: 12px; color: #687381; }
+.pager { flex: 0 0 auto; min-height: 52px; display: flex; justify-content: flex-end; align-items: center; gap: 14px; padding: 10px 22px; border-top: 1px solid var(--border); background: var(--bg-card); font-size: 12px; color: var(--text-muted); }
 .pager label { display: inline-flex; align-items: center; gap: 6px; }
-.pager select { width: 66px; height: 31px; padding: 0 7px; border: 1px solid #d4dce5; border-radius: 4px; color: #44505e; background: #fff; }
+.pager select { width: 66px; height: 31px; padding: 0 7px; border: 1px solid var(--border); border-radius: 4px; color: var(--text-secondary); background: var(--bg-input); }
 .page-actions { display: flex; gap: 6px; }
 .page-actions button { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; font-size: 20px; line-height: 1; }
 @media (max-width: 760px) { .page-toolbar { align-items: flex-start; flex-wrap: wrap; padding: 12px 12px 0; } .table-shell { margin: 0 12px; } .pager { padding: 8px 12px; justify-content: space-between; } .nav-button { display: inline-block; } .toolbar-actions { width: 100%; margin-left: 0; } }

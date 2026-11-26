@@ -30,6 +30,18 @@ const downloadedSheet = () => {
 beforeEach(() => vi.resetAllMocks())
 
 describe('version detail Excel export', () => {
+  it('keeps real-table, configuration name and fixed code in multi-configuration history exports', async () => {
+    searchVersionSnapshot.mockResolvedValue(page([
+      table({ tableName: 'acct_1', sourceTableName: 'acct', configurationName: '状态一' }),
+      table({ sourceRegistrationId: 2, tableName: 'acct_2', sourceTableName: 'acct', configurationName: '状态二' }),
+    ]))
+    await exportVersionDetails(versionNo)
+    const rows = XLSX.utils.sheet_to_json(downloadedSheet(), { header: 1, defval: '' })
+    expect(rows[0].slice(-2)).toEqual(['配置名称', '固定标识'])
+    expect(rows[1][1]).toBe('acct / 账户主表')
+    expect(rows[1].slice(-2)).toEqual(['状态一', 'acct_1'])
+    expect(rows[3].slice(-2)).toEqual(['状态二', 'acct_2'])
+  })
   it('writes every field in comparison order and merges table-level maximum partitions', async () => {
     const first = table({ maxPartitionNum: 100 })
     searchVersionSnapshot.mockResolvedValue(page([

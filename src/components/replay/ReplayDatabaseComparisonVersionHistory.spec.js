@@ -20,6 +20,19 @@ import * as comparisonApi from '../../api/replayDatabaseComparison.js'
 import ReplayDatabaseComparisonVersionHistory from './ReplayDatabaseComparisonVersionHistory.vue'
 
 describe('ReplayDatabaseComparisonVersionHistory', () => {
+  it('shows frozen real-table, configuration name and fixed code for each configuration', async () => {
+    comparisonApi.searchVersionSnapshot.mockResolvedValue({ items: [
+      { sourceRegistrationId: 7, tableName: 'acct_1', sourceTableName: 'acct', configurationName: '历史状态一', fields: [] },
+      { sourceRegistrationId: 8, tableName: 'acct_2', sourceTableName: 'acct', configurationName: '历史状态二', fields: [] },
+    ], total: 2 })
+    const wrapper = mount(ReplayDatabaseComparisonVersionHistory, { props: { open: true } })
+    await flushPromises()
+    expect(wrapper.get('[data-testid="history-configuration-acct_1"]').text()).toContain('历史状态一')
+    expect(wrapper.get('[data-testid="history-configuration-acct_1"]').text()).toContain('acct_1')
+    expect(wrapper.get('[data-testid="history-configuration-acct_2"]').text()).toContain('历史状态二')
+    expect(wrapper.text()).toContain('acct')
+    wrapper.unmount()
+  })
   beforeEach(() => {
     workbook.exportVersionDetails.mockReset().mockResolvedValue(undefined)
     Object.values(comparisonApi).forEach(value => value.mockReset())
@@ -211,11 +224,11 @@ describe('ReplayDatabaseComparisonVersionHistory', () => {
     await flushPromises()
     expect(wrapper.get('[data-testid="version-item-V1"]').text()).toContain('普通表登记 1')
     expect(wrapper.get('[data-testid="version-item-V1"]').text()).toContain('SQL 登记 2')
-    expect(wrapper.get('[data-testid="version-item-V1"]').text()).toContain('3 个比对项')
+    expect(wrapper.get('[data-testid="version-item-V1"]').text()).toContain('3 条配置')
     expect(wrapper.get('[data-testid="version-snapshot-table"]').text()).toContain('汇总金额')
     expect(wrapper.get('[data-testid="version-snapshot-table"]').text()).toContain('acct')
     expect(wrapper.get('[data-testid="version-snapshot-table"] tbody tr td strong').text()).toBe('acct')
-    expect(wrapper.get('[data-testid="version-snapshot-table"]').text()).not.toContain('sql_one')
+    expect(wrapper.get('[data-testid="version-snapshot-table"]').text()).toContain('sql_one')
     expect(wrapper.get('[data-testid="history-comparison-key-sql_one"]').text()).toBe('结果比对键 · currency')
     expect(wrapper.get('[data-testid="history-query-condition-sql_one"]').text()).toContain('select currency, sum(amount) as total_amt from acct group by currency')
     expect(wrapper.get('[data-testid="history-query-condition-sql_one"]').text()).not.toContain('WHERE select')

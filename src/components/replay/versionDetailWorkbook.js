@@ -53,7 +53,10 @@ export const exportVersionDetails = async (versionNo, criteria = {}) => {
   if (!tables.length) throw new Error('没有可导出的明细')
 
   const XLSX = await import('xlsx')
-  const rows = [headers]
+  const includesConfigurationIdentity = tables.some(table => table.configurationName != null
+    || table.sourceTableName != null || table.comparisonCode != null)
+  const rows = [includesConfigurationIdentity ? [...headers, '配置名称', '固定标识'] : headers]
+  const tableColumns = includesConfigurationIdentity ? [...mergedColumns, 7, 8] : mergedColumns
   const merges = []
   const queryRows = [['表英文名 / 中文名', '片段序号', '查询条件（按序拼接）']]
   const queryLinks = []
@@ -80,14 +83,16 @@ export const exportVersionDetails = async (versionNo, criteria = {}) => {
       index ? '' : condition,
       index ? '' : table.maxPartitionNum ?? 64,
       index ? '' : personLabel(table.groupOwnerName, table.groupOwnerUsername, table.groupOwnerEmpNo),
+      ...(includesConfigurationIdentity ? [index ? '' : table.configurationName || table.displayName || '默认配置',
+        index ? '' : table.comparisonCode || table.tableName] : []),
     ]))
-    if (fields.length > 1) mergedColumns.forEach(column => merges.push({
+    if (fields.length > 1) tableColumns.forEach(column => merges.push({
       s: { r: start, c: column }, e: { r: rows.length - 1, c: column },
     }))
   }
   const worksheet = XLSX.utils.aoa_to_sheet(rows)
   worksheet['!merges'] = merges
-  worksheet['!cols'] = [16, 44, 48, 68, 90, 20, 28].map(wch => ({ wch }))
+  worksheet['!cols'] = [16, 44, 48, 68, 90, 20, 28, ...(includesConfigurationIdentity ? [28, 36] : [])].map(wch => ({ wch }))
   queryLinks.forEach(({ row, target }) => {
     worksheet[XLSX.utils.encode_cell({ r: row, c: 4 })].l = { Target: target }
   })

@@ -36,7 +36,7 @@
               <span class="version-number">{{ version.versionNo }}</span>
               <span v-if="version.latest" class="latest-badge">最新</span>
               <small>{{ version.generatedName || '-' }} · {{ formatDateTime(version.generatedAt) }}</small>
-              <small>{{ version.tableCount }} {{ version.customSqlCount ? '个比对项' : '张表' }} · {{ version.fieldCount }} 个字段</small>
+              <small>{{ version.tableCount }} 条配置 · {{ version.fieldCount }} 个字段</small>
               <small v-if="version.customSqlCount">普通表登记 {{ version.tableCount - version.customSqlCount }} · SQL 登记 {{ version.customSqlCount }}</small>
             </button>
             <p v-if="!loadingVersions && !versions.length" class="empty-state">暂无历史版本</p>
@@ -49,7 +49,7 @@
               <strong>{{ selectedVersionNo || '未选择版本' }}</strong>
               <span>不可编辑的生成快照</span>
             </div>
-            <span>共 {{ snapshot.total }} {{ versions.find(version => version.versionNo === selectedVersionNo)?.customSqlCount ? '个比对项' : '张表' }}</span>
+            <span>共 {{ snapshot.total }} 条配置</span>
           </div>
 
           <div class="filter-section">
@@ -146,7 +146,7 @@
               </thead>
               <tbody>
                 <tr v-for="row in snapshot.items" :key="`${row.sourceRegistrationId}-${row.tableName}`">
-                  <td><strong>{{ displayTableName(row) }}</strong><small v-if="row.customSql"><span class="sql-badge">SQL</span> {{ row.tableComment || '-' }}</small><small v-else>{{ row.tableComment || '-' }}</small></td>
+                  <td><strong>{{ displayTableName(row) }}</strong><small v-if="row.customSql"><span class="sql-badge">SQL</span> {{ row.tableComment || '-' }}</small><small v-else>{{ row.tableComment || '-' }}</small><small :data-testid="`history-configuration-${row.tableName}`">{{ row.configurationName || row.displayName || '默认配置' }} · {{ row.comparisonCode || row.tableName }}</small></td>
                   <td>{{ row.domainName || '-' }}</td>
                   <td :data-testid="`history-comparison-key-${row.tableName}`">{{ formatComparisonKey(row.comparisonKey) }}</td>
                   <td class="field-cell">

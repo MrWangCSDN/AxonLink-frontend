@@ -41,6 +41,7 @@ import * as comparisonApi from '../../api/replayDatabaseComparison.js'
 import { exportInitialImportErrors } from './initialImportErrorWorkbook.js'
 import ReplayDatabaseComparisonPage from './ReplayDatabaseComparisonPage.vue'
 import ReplayDatabaseComparisonEditor from './ReplayDatabaseComparisonEditor.vue'
+import CustomSqlEditor from './ReplayDatabaseComparisonCustomSqlEditor.vue'
 
 describe('ReplayDatabaseComparisonPage', () => {
 
@@ -85,6 +86,53 @@ describe('ReplayDatabaseComparisonPage', () => {
 
   const registrationRow = { id: 3, tableName: 'acct', tableComment: '账户表', version: 7,
     domainName: '存款组', partitionNum: 16, sampleLimit: 0, maxPartitionNum: 100, fieldPreview: ['id(编号)'], fieldCount: 1 }
+
+  it.each([false, true])('copies a configuration into the correct create endpoint (SQL=%s)', async custom => {
+    const detail = { ...registrationRow, tableName: 'acct_1', sourceTableName: 'acct', configurationName: '状态一',
+      fields: [{ columnName: 'id', primaryKey: true }, { columnName: 'amount' }],
+      ...(custom ? { customSql: { sourceTableName: 'acct', sql: 'select id, amount from acct', resultColumns: [{ columnName: 'id' }, { columnName: 'amount' }] }, comparisonKey: { columnNames: ['id'] } } : {}) }
+    useRealMode([detail])
+    comparisonApi.loadOptions.mockResolvedValue({ canConfigurePartitions: true })
+    comparisonApi.loadRegistration.mockResolvedValue(detail)
+    comparisonApi.loadBaseColumns.mockResolvedValue(detail.fields)
+    const wrapper = mount(ReplayDatabaseComparisonPage)
+    await flushPromises()
+    const row = wrapper.get('[data-row-table="acct_1"]')
+    expect(row.text()).toContain('状态一')
+    expect(row.get('[data-testid="configuration-code-acct_1"]').text()).toBe('acct_1')
+    await row.get('[data-testid="copy-configuration-acct_1"]').trigger('click')
+    await flushPromises()
+    const editor = wrapper.getComponent(custom ? CustomSqlEditor : ReplayDatabaseComparisonEditor)
+    expect(editor.props('createAdditionalConfiguration')).toBe(true)
+    expect(editor.props('initialRegistration')).toMatchObject({ sourceTableName: 'acct', configurationName: '状态一' })
+    await editor.get(custom ? '[data-testid="custom-sql-name"]' : '[data-testid="configuration-name"]').setValue('状态二')
+    await editor.get(custom ? '[data-testid="save-custom-sql"]' : '[data-testid="submit-registration"]').trigger('click')
+    await flushPromises()
+    const create = custom ? comparisonApi.createCustomSqlRegistration : comparisonApi.createRegistration
+    expect(create).toHaveBeenCalledTimes(1)
+    expect(create.mock.calls[0][0]).toMatchObject({ createAdditionalConfiguration: true, sampleLimit: 0, partitionNum: 16,
+      ...(custom ? { sourceTableName: 'acct', displayName: '状态二' } : { tableName: 'acct', configurationName: '状态二' }) })
+    expect(comparisonApi.updateRegistration).not.toHaveBeenCalled()
+    expect(comparisonApi.updateCustomSqlRegistration).not.toHaveBeenCalled()
+  })
+
+  it('keeps field, condition and clipboard state separate for configurations of the same source', async () => {
+    const fields = Array.from({ length: 8 }, (_, index) => ({ columnName: `f${index}` }))
+    const whereCondition = { connector: 'AND', groups: [{ connector: 'AND', conditions: [{ columnName: 'f1', operator: 'EQ', values: ['1'] }] }] }
+    useRealMode([{ ...registrationRow, fields, whereCondition }, { ...registrationRow, id: 4, tableName: 'acct_1', sourceTableName: 'acct', fields, whereCondition }])
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: vi.fn().mockResolvedValue() } })
+    const wrapper = mount(ReplayDatabaseComparisonPage)
+    await flushPromises()
+    await wrapper.get('[data-testid="expand-fields-acct_1"]').trigger('click')
+    expect(wrapper.get('[data-testid="expand-fields-acct_1"]').text()).toBe('收起')
+    expect(wrapper.get('[data-testid="expand-fields-acct"]').text()).toBe('展开')
+    await wrapper.get('[data-testid="expand-query-condition-acct_1"]').trigger('click')
+    expect(wrapper.get('[data-testid="expand-query-condition-acct"]').text()).toBe('展开')
+    await wrapper.get('[data-testid="copy-fields-acct_1"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="copy-fields-acct_1"]').text()).toBe('已复制')
+    expect(wrapper.find('[data-testid="copy-fields-acct"]').exists()).toBe(false)
+  })
 
   it.each(['add', 'edit', 'reregister'])('passes the comparison key name through the %s save route', async mode => {
     useRealMode()
@@ -591,7 +639,7 @@ describe('ReplayDatabaseComparisonPage', () => {
 
     expect(comparisonApi.generateVersion).toHaveBeenCalledWith('secret')
     expect(wrapper.get('h2').text()).toContain('20260914-150101')
-    expect(wrapper.text()).toContain('已生成版本，共 200 张表、1426 个字段')
+    expect(wrapper.text()).toContain('已生成版本，共 200 条配置、1426 个字段')
     expect(wrapper.find('[data-testid="generation-dialog"]').exists()).toBe(false)
   })
 
@@ -689,7 +737,7 @@ describe('ReplayDatabaseComparisonPage', () => {
     await flushPromises()
 
     expect(wrapper.get('h2').text()).toContain('20260914-150101')
-    expect(wrapper.text()).toContain('已生成版本，共 1 张表、1 个字段')
+    expect(wrapper.text()).toContain('已生成版本，共 1 条配置、1 个字段')
     expect(wrapper.find('[data-testid="generation-dialog"]').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('未配置领域')
   })
@@ -733,12 +781,12 @@ describe('ReplayDatabaseComparisonPage', () => {
     expect(buttons[0].attributes('data-testid')).toBe('open-custom-sql')
     expect(wrapper.get('header').text()).toContain('普通表登记 1')
     expect(wrapper.get('header').text()).toContain('SQL 登记 2')
-    expect(wrapper.get('header').text()).toContain('共 3 个比对项')
+    expect(wrapper.get('header').text()).toContain('共 3 条配置')
     expect(wrapper.get('[data-testid="table-name-sql_one"]').text()).toContain('金额汇总')
     expect(wrapper.get('[data-testid="table-name-sql_one"]').text()).toContain('acct')
     expect(wrapper.get('[data-testid="table-name-sql_one"]').text()).toContain('SQL')
     expect(wrapper.get('[data-testid="table-name-sql_one"] strong').text()).toBe('acct')
-    expect(wrapper.get('[data-testid="table-name-sql_one"]').text()).not.toContain('sql_one')
+    expect(wrapper.get('[data-testid="table-name-sql_one"]').text()).toContain('sql_one')
     await wrapper.get('[data-testid="expand-query-condition-sql_one"]').trigger('click')
     expect(wrapper.get('[data-testid="query-condition-sql_one"]').text()).toContain('sum(amount)')
     expect(wrapper.get('[data-testid="query-condition-sql_two"]').text()).not.toContain('sum(balance)')
@@ -746,7 +794,7 @@ describe('ReplayDatabaseComparisonPage', () => {
     await flushPromises()
     expect(wrapper.get('[data-testid="registration-detail-dialog"]').text()).toContain(customSql.sql)
     expect(wrapper.get('[data-testid="registration-detail-dialog"]').text()).not.toContain('比对编号')
-    expect(wrapper.get('[data-testid="registration-detail-dialog"]').text()).not.toContain('sql_one')
+    expect(wrapper.get('[data-testid="registration-detail-dialog"]').text()).toContain('sql_one')
     expect(wrapper.get('[data-testid="detail-comparison-key"]').text()).toContain('结果比对键')
     await wrapper.get('[data-testid="close-registration-detail"]').trigger('click')
     await wrapper.get('[data-testid="edit-registration-sql_two"]').trigger('click')
@@ -761,7 +809,7 @@ describe('ReplayDatabaseComparisonPage', () => {
     await wrapper.get('[data-testid="close-audit-dialog"]').trigger('click')
     await wrapper.get('[data-testid="delete-registration-sql_one"]').trigger('click')
     expect(wrapper.get('[data-testid="list-delete-confirmation"]').text()).toContain('acct')
-    expect(wrapper.get('[data-testid="list-delete-confirmation"]').text()).not.toContain('sql_one')
+    expect(wrapper.get('[data-testid="list-delete-confirmation"]').text()).toContain('sql_one')
     await wrapper.get('[data-testid="confirm-list-delete"]').trigger('click')
     await flushPromises()
     expect(comparisonApi.deleteRegistration).toHaveBeenCalledWith(11, { version: 2, reason: '删除登记' })
@@ -786,7 +834,7 @@ describe('ReplayDatabaseComparisonPage', () => {
     expect(comparisonApi.updateCustomSqlRegistration).not.toHaveBeenCalled()
     await wrapper.get('[data-testid="save-custom-sql"]').trigger('click')
     await flushPromises()
-    expect(comparisonApi.createCustomSqlRegistration).toHaveBeenLastCalledWith({ sourceTableName: 'acct', sql: 'select id from acct', fieldNames: ['id'], resultKeyColumns: ['id'], compareLimit: null, maxPartitionNum: 64 })
+    expect(comparisonApi.createCustomSqlRegistration).toHaveBeenLastCalledWith({ displayName: '默认配置', sourceTableName: 'acct', sql: 'select id from acct', fieldNames: ['id'], resultKeyColumns: ['id'], compareLimit: null, maxPartitionNum: 64 })
     expect(wrapper.find('[data-testid="custom-sql-dialog"]').exists()).toBe(false)
   })
 
@@ -895,7 +943,7 @@ describe('ReplayDatabaseComparisonPage', () => {
     await wrapper.get('[data-testid="save-custom-sql"]').trigger('click')
     await flushPromises()
     expect(comparisonApi.updateCustomSqlRegistration).toHaveBeenCalledWith(21, {
-      version: 5, sourceTableName: 'acct', sql: 'select id from acct',
+      version: 5, displayName: '默认配置', sourceTableName: 'acct', sql: 'select id from acct',
       fieldNames: ['id'], resultKeyColumns: ['id'], compareLimit: null, maxPartitionNum: 100,
     })
     expect(comparisonApi.updateRegistration).not.toHaveBeenCalled()
@@ -924,7 +972,7 @@ describe('ReplayDatabaseComparisonPage', () => {
     await flushPromises()
 
     expect(comparisonApi.updateCustomSqlRegistration).toHaveBeenCalledWith(21, {
-      version: 5, sourceTableName: 'acct', sql: 'select id from acct', fieldNames: ['id'],
+      version: 5, displayName: '默认配置', sourceTableName: 'acct', sql: 'select id from acct', fieldNames: ['id'],
       resultKeyColumns: ['id'], compareLimit: null, maxPartitionNum: 64,
     })
     expect(comparisonApi.createCustomSqlRegistration).not.toHaveBeenCalled()
@@ -1057,7 +1105,7 @@ describe('ReplayDatabaseComparisonPage', () => {
 
     expect(comparisonApi.searchRegistrations).toHaveBeenCalledWith(expect.objectContaining({ page: 0, size: 50 }))
     expect(wrapper.get('[data-testid="page-summary"]').text()).toContain('共 125 条')
-    expect(wrapper.text()).toContain('共 166 张表 · 共 271 个比对字段')
+    expect(wrapper.text()).toContain('共 166 条配置 · 共 271 个比对字段')
     expect(wrapper.text()).not.toContain('当前页 2 个比对字段')
     expect(wrapper.text()).not.toContain('Mock 数据')
     await wrapper.get('[data-testid="view-registration-acct_master"]').trigger('click')

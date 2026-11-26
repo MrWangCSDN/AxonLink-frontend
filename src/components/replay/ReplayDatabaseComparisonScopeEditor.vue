@@ -186,26 +186,26 @@ const changeLimit = event => {
 </script>
 
 <style scoped>
-.scope-editor { display: grid; gap: 10px; color: #405160; }
+.scope-editor { display: grid; gap: 10px; color: var(--text-secondary); }
 .scope-toolbar { display: flex; align-items: center; gap: 8px; }
 .scope-toolbar button { margin-left: auto; }
-.scope-toolbar select, .condition-row select, .condition-row input, .limit-row input { min-height: 32px; padding: 5px 8px; border: 1px solid #cbd6de; border-radius: 4px; background: #fff; }
-.scope-empty { padding: 14px; border: 1px dashed #cbd6de; color: #7b8995; background: #f8fafb; text-align: center; }
-.condition-group { display: grid; grid-template-columns: 18px minmax(0, 1fr) 18px; gap: 6px; padding: 8px 0; border-top: 1px solid #e3e9ed; }
-.group-bracket { display: grid; place-items: center; color: #168478; font: 38px/1 Georgia, serif; }
+.scope-toolbar select, .condition-row select, .condition-row input, .limit-row input { min-height: 32px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-input); color: var(--text-primary); }
+.scope-empty { padding: 14px; border: 1px dashed var(--border); color: var(--text-muted); background: var(--bg-domain-hover); text-align: center; }
+.condition-group { display: grid; grid-template-columns: 18px minmax(0, 1fr) 18px; gap: 6px; padding: 8px 0; border-top: 1px solid var(--border); }
+.group-bracket { display: grid; place-items: center; color: var(--text-active); font: 38px/1 Georgia, serif; }
 .group-content { min-width: 0; }
 .group-content header { display: flex; align-items: center; gap: 10px; margin-bottom: 7px; }
-.group-content header strong { color: #176f74; }
+.group-content header strong { color: var(--text-active); }
 .group-content header label { display: flex; align-items: center; gap: 6px; margin-left: auto; font-size: 12px; }
 .condition-row { display: grid; grid-template-columns: minmax(190px, 1.2fr) 145px minmax(150px, 1fr) auto; gap: 7px; align-items: center; margin-bottom: 7px; }
-.condition-row select.missing { border-color: #d9534f; background: #fff2f1; }
-.condition-error { grid-column: 1 / -1; color: #c43f3a; font-size: 11px; }
-.add-condition { color: #167e76; border: 0; background: transparent; }
-.limit-row { display: grid; grid-template-columns: auto minmax(180px, 280px) 1fr; align-items: center; gap: 10px; padding-top: 10px; border-top: 1px solid #e3e9ed; }
-.limit-row span { color: #7b8995; font-size: 12px; }
-.scope-errors { display: grid; gap: 3px; color: #c43f3a; font-size: 11px; }
-.scope-preview { min-height: 48px; margin: 0; padding: 9px 11px; overflow: auto; border-left: 3px solid #168478; color: #304451; background: #f2f7f7; white-space: pre-wrap; }
-button { padding: 6px 9px; border: 1px solid #c8d3da; border-radius: 4px; background: #fff; cursor: pointer; }
+.condition-row select.missing { border-color: var(--c-error-code-text); background: var(--bg-input); }
+.condition-error { grid-column: 1 / -1; color: var(--c-error-code-text); font-size: 11px; }
+.add-condition { color: var(--text-active); border: 0; background: transparent; }
+.limit-row { display: grid; grid-template-columns: auto minmax(180px, 280px) 1fr; align-items: center; gap: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+.limit-row span { color: var(--text-muted); font-size: 12px; }
+.scope-errors { display: grid; gap: 3px; color: var(--c-error-code-text); font-size: 11px; }
+.scope-preview { min-height: 48px; margin: 0; padding: 9px 11px; overflow: auto; border-left: 3px solid var(--text-active); color: var(--text-primary); background: var(--bg-domain-hover); white-space: pre-wrap; }
+button { padding: 6px 9px; border: 1px solid var(--border); border-radius: 4px; color: var(--text-primary); background: var(--bg-input); cursor: pointer; }
 button:disabled, input:disabled, select:disabled { opacity: .55; cursor: not-allowed; }
 @media (max-width: 900px) { .condition-row { grid-template-columns: 1fr; }.limit-row { grid-template-columns: 1fr; } }
 </style>

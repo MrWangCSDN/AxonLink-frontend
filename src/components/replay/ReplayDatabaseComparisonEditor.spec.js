@@ -145,6 +145,24 @@ describe('ReplayDatabaseComparisonEditor', () => {
     wrapper.unmount()
   })
 
+  it('resets the all-differences draft when selecting another unregistered table', async () => {
+    const wrapper = mount(ReplayDatabaseComparisonEditor, { props: {
+      canConfigureSampleLimit: true,
+      searchTables: keyword => [{ tableName: keyword === '第一' ? 'first_table' : 'other_table', tableComment: keyword, registrationStatus: 'UNREGISTERED' }],
+      loadColumns: () => [{ columnName: 'id', primaryKey: true }],
+    } })
+    await waitForTableSearch(wrapper, '第一')
+    await wrapper.get('[data-testid="table-search-result"]').trigger('click')
+    await wrapper.get('[data-testid="editor-sample-mode"]').setValue('ALL')
+    await wrapper.get('[data-testid="selected-table"] button').trigger('click')
+    await waitForTableSearch(wrapper, '其他')
+    await wrapper.get('[data-testid="table-search-result"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="editor-sample-mode"]').element.value).toBe('LIMITED')
+    expect(wrapper.get('[data-testid="editor-sample-limit"]').element.value).toBe('100')
+    wrapper.unmount()
+  })
+
   it.each([false, true])('edits maximum partitions independently of sample permission (%s)', async allowed => {
     const registration = { ...registrations[0], maxPartitionNum: 100 }
     const wrapper = mount(ReplayDatabaseComparisonEditor, { props: {

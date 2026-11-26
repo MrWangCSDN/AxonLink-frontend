@@ -6,7 +6,7 @@
           <h3 id="comparison-editor-title" data-testid="editor-title">{{ additionalConfiguration ? '新增同表配置' : isReregister ? '重新登记' : isEditing ? '编辑登记' : '新增登记' }}</h3>
           <p>选择 BASE 母库表并配置需要参与回放比对的字段</p>
         </div>
-        <button type="button" class="icon-close" aria-label="关闭新增登记" @click="emit('close')">×</button>
+        <button type="button" class="icon-close" aria-label="关闭新增登记" :disabled="saving" @click="emit('close')">×</button>
       </header>
 
       <div class="editor-body">
@@ -36,9 +36,9 @@
             <Database :size="18" />
             <span><strong>{{ selectedTable.tableName }}</strong><small>{{ selectedTable.tableComment }}</small></span>
             <em :class="isEditing ? 'active' : 'unregistered'">{{ additionalConfiguration ? '新增独立配置' : isReregister ? '已删除 · 重新登记模式' : isEditing ? '已登记 · 编辑模式' : '未登记 · 新增模式' }}</em>
-            <button v-if="!isEditing && !initialRegistration" type="button" class="text-button" @click="resetSelectedTable">重新选择表</button>
+            <button v-if="!isEditing && !initialRegistration" type="button" class="text-button" :disabled="saving" @click="resetSelectedTable">重新选择表</button>
           </div>
-          <label v-if="selectedTable" class="configuration-name-field">配置名称<input v-model="configurationName" data-testid="configuration-name" maxlength="200" :disabled="isTableMissingCleanup" placeholder="默认配置" /></label>
+          <label v-if="selectedTable" class="configuration-name-field">配置名称<input v-model="configurationName" data-testid="configuration-name" maxlength="200" :disabled="saving || isTableMissingCleanup" placeholder="默认配置" /></label>
           <p v-if="configurationName.trim().length > 200" class="registration-error" data-testid="configuration-name-error" role="alert">配置名称不能超过 200 个字符</p>
           <p v-if="isEditing || isReregister" class="configuration-code">固定标识：{{ selectedTable.comparisonCode || selectedTable.tableName }}</p>
         </section>
@@ -56,7 +56,7 @@
           <label v-if="selectedTable && !isTableMissingCleanup" class="comparison-key-picker">
             <strong>选择索引</strong>
             <select data-testid="comparison-key-select" :value="keySelectionError ? '' : (comparisonKey?.indexName || '')"
-              :disabled="metadataLoading || !columnsLoaded || !keyOptions.length" @change="selectComparisonKey($event.target.value)">
+              :disabled="saving || metadataLoading || !columnsLoaded || !keyOptions.length" @change="selectComparisonKey($event.target.value)">
               <option v-if="!comparisonKey" value="" disabled>请选择索引</option>
               <option v-if="comparisonKey && keySelectionError" value="" disabled>{{ formatComparisonKey(comparisonKey) }}（已失效）</option>
               <option v-for="key in keyOptions" :key="key.indexName" :value="key.indexName">{{ formatComparisonKey(key) }}</option>
@@ -195,8 +195,8 @@
           </div>
         </div>
         <div class="editor-footer-actions">
-          <button type="button" @click="emit('close')">取消</button>
-          <button type="button" data-testid="submit-registration" :class="isDeleteAction ? 'danger' : 'primary'" :disabled="!canSubmit" :title="hasMissingSelectedColumns && !isTableMissingCleanup ? '请先移除母库已删除字段' : ''" @click="submitRegistration">{{ isTableMissingCleanup ? '删除当前配置' : isDeleteMode ? '删除登记' : '保存' }}</button>
+          <button type="button" :disabled="saving" @click="emit('close')">取消</button>
+          <button type="button" data-testid="submit-registration" :class="isDeleteAction ? 'danger' : 'primary'" :disabled="!canSubmit" :title="hasMissingSelectedColumns && !isTableMissingCleanup ? '请先移除母库已删除字段' : ''" @click="submitRegistration">{{ saving ? '保存中…' : isTableMissingCleanup ? '删除当前配置' : isDeleteMode ? '删除登记' : '保存' }}</button>
         </div>
       </footer>
     </section>
@@ -204,7 +204,7 @@
       <h4>确认删除登记</h4>
       <p>{{ isTableMissingCleanup ? '母库表已删除，继续后将删除当前配置，历史审计仍会保留。' : '当前表的比对字段已全部移除，继续后将删除当前配置，历史记录仍会保留。' }}</p>
       <p v-if="saveError?.type === 'SAVE_FAILED'" class="registration-error" role="alert">{{ saveError.message }}</p>
-      <div><button type="button" @click="deleteConfirmationVisible = false">返回检查</button><button type="button" class="danger" data-testid="confirm-delete-registration" @click="confirmDelete">确认删除</button></div>
+      <div><button type="button" :disabled="saving" @click="deleteConfirmationVisible = false">返回检查</button><button type="button" class="danger" data-testid="confirm-delete-registration" :disabled="saving" @click="confirmDelete">确认删除</button></div>
     </section>
   </div>
 </template>
@@ -225,6 +225,7 @@ const props = defineProps({
   searchTables: { type: Function, default: keyword => searchBaseTables(keyword, 20) },
   loadRegistration: { type: Function, default: null },
   saveError: { type: Object, default: null },
+  saving: { type: Boolean, default: false },
   canConfigureSampleLimit: { type: Boolean, default: false },
   createAdditionalConfiguration: { type: Boolean, default: false },
 })
@@ -307,7 +308,7 @@ const isPrimaryKeyMissing = computed(() => Boolean(
   && keyOptions.value.length === 0
 ))
 const isFieldMaintenanceDisabled = computed(() => isTableMissingCleanup.value || isPrimaryKeyMissing.value
-  || metadataLoading.value || !columnsLoaded.value)
+  || props.saving || metadataLoading.value || !columnsLoaded.value)
 const isDeleteMode = computed(() => isEditing.value && columnsLoaded.value && selectedColumns.value.length === 0)
 const isDeleteAction = computed(() => isTableMissingCleanup.value || isDeleteMode.value)
 const missingSelectedColumns = computed(() => selectedColumns.value.filter(column => column.missingInBase))
@@ -320,7 +321,7 @@ const scopeDraftErrors = computed(() => validateScopeDraft(
   whereCondition.value, compareLimit.value, allColumns.value,
 ))
 const canSubmit = computed(() => {
-  if (!selectedTable.value || metadataLoading.value) return false
+  if (props.saving || !selectedTable.value || metadataLoading.value) return false
   if (additionalConfiguration.value && isTableMissingCleanup.value) return false
   if (configurationName.value.trim().length > 200) return false
   if (metadataError.value && !columnsLoaded.value) return false
@@ -588,24 +589,41 @@ const selectTable = (table, createAdditional = props.createAdditionalConfigurati
   comparisonKey.value = null
   metadataError.value = ''
   retryMetadata.value = null
-  const localRegistration = props.initialRegistration?.id === table.registrationId
-    ? props.initialRegistration
-    : props.registrations.find(item => item.tableName === table.tableName)
+  const matchesSelection = registration => registration?.id != null && registration.id === table.registrationId
+    && (registration.sourceTableName || registration.customSql?.sourceTableName || registration.tableName)?.toLocaleLowerCase()
+      === table.tableName?.toLocaleLowerCase()
+  const initialRegistration = props.initialRegistration && matchesSelection(props.initialRegistration)
+    ? props.initialRegistration : null
+  const localRegistration = initialRegistration || props.registrations.find(matchesSelection)
   const applyRegistration = registration => {
     if (requestId !== columnLoadRequestId) return
     if (registration?.customSql) {
-      emit('edit-custom-sql', registration, additionalConfiguration.value)
-      return
+      if (additionalConfiguration.value && !props.initialRegistration) registration = null
+      else {
+        emit('edit-custom-sql', registration, additionalConfiguration.value)
+        return
+      }
     }
+    const selectedIdentity = {
+      ...table,
+      tableName: registration?.sourceTableName || registration?.tableName || table.tableName,
+      tableComment: registration?.tableComment ?? table.tableComment,
+      comparisonCode: registration?.comparisonCode || registration?.tableName || table.comparisonCode || table.tableName,
+      registrationId: registration ? registration.id : table.registrationId,
+      registrationVersion: registration ? registration.version : table.registrationVersion,
+      registrationStatus: registration?.deleted === true ? 'DELETED'
+        : registration?.deleted === false ? 'ACTIVE' : table.registrationStatus,
+      metadataValidation: registration?.metadataValidation || table.metadataValidation,
+    }
+    selectedTable.value = selectedIdentity
     columnsLoaded.value = false
     const applyColumns = metadata => {
       if (requestId !== columnLoadRequestId) return
       applyMetadata(metadata)
-      const mode = table.registrationStatus === 'DELETED'
+      const mode = !registration ? 'add' : selectedIdentity.registrationStatus === 'DELETED'
         ? 'reregister'
-        : table.registrationStatus === 'ACTIVE' ? 'edit' : 'add'
-      const metadataValidation = registration?.metadataValidation || table.metadataValidation
-      selectedTable.value = { ...table, comparisonCode: registration?.comparisonCode || registration?.tableName || table.tableName, metadataValidation }
+        : selectedIdentity.registrationStatus === 'ACTIVE' ? 'edit' : 'add'
+      const metadataValidation = selectedIdentity.metadataValidation
       comparisonKey.value = registration?.comparisonKey || keyOptions.value[0] || null
       selectedColumns.value = props.loadKeys
         ? (mode === 'edit' ? mergeRegisteredFields(registration?.fields || [], allColumns.value) : [])
@@ -614,13 +632,13 @@ const selectTable = (table, createAdditional = props.createAdditionalConfigurati
       reconciledPrimaryKeySignature.value = primaryKeySignature(allColumns.value)
       resetFieldOrderFeedback()
     }
-    if (table.metadataValidation?.status === 'TABLE_MISSING') {
+    if (selectedIdentity.metadataValidation?.status === 'TABLE_MISSING') {
       allColumns.value = []
       columnsLoaded.value = false
       selectedColumns.value = mapHistoricalFields(registration?.fields || [])
       resetFieldOrderFeedback()
     } else {
-      requestMetadata(() => loadTableMetadata(table.tableName), applyColumns, requestId, '母库字段加载失败')
+      requestMetadata(() => loadTableMetadata(selectedIdentity.tableName), applyColumns, requestId, '母库字段加载失败')
     }
     form.domain = registration?.domain || ''
     form.groupOwnerUsername = registration?.groupOwnerUsername || registration?.groupOwnerEmpNo || ''
@@ -642,7 +660,7 @@ const selectTable = (table, createAdditional = props.createAdditionalConfigurati
     selectedFieldKeyword.value = ''
     fieldFilter.value = 'ALL'
   }
-  if ((!localRegistration || localRegistration.customSql) && table.registrationStatus !== 'UNREGISTERED' && props.loadRegistration) {
+  if (!initialRegistration && table.registrationStatus !== 'UNREGISTERED' && props.loadRegistration) {
     requestMetadata(() => props.loadRegistration(table.registrationId), applyRegistration, requestId, '登记信息加载失败')
   } else applyRegistration(localRegistration)
 }

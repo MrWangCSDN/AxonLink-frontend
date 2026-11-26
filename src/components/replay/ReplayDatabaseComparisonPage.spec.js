@@ -87,6 +87,88 @@ describe('ReplayDatabaseComparisonPage', () => {
   const registrationRow = { id: 3, tableName: 'acct', tableComment: '账户表', version: 7,
     domainName: '存款组', partitionNum: 16, sampleLimit: 0, maxPartitionNum: 100, fieldPreview: ['id(编号)'], fieldCount: 1 }
 
+  it.each(['add', 'edit', 'reregister'])('locks the ordinary %s request until persistence settles and permits retry after failure', async mode => {
+    useRealMode()
+    const wrapper = mount(ReplayDatabaseComparisonPage)
+    await flushPromises()
+    await wrapper.get('[data-testid="add-registration"]').trigger('click')
+    const editor = wrapper.getComponent(ReplayDatabaseComparisonEditor)
+    const api = mode === 'add' ? comparisonApi.createRegistration : mode === 'edit' ? comparisonApi.updateRegistration : comparisonApi.reregisterRegistration
+    let rejectSave
+    api.mockReturnValueOnce(new Promise((resolve, reject) => { rejectSave = reject }))
+    const payload = { mode, id: 3, version: 7, tableName: 'acct', fieldNames: ['id'], configurationName: '配置二', createAdditionalConfiguration: mode === 'add' }
+    editor.vm.$emit('save', payload)
+    editor.vm.$emit('save', payload)
+    await flushPromises()
+    expect(api).toHaveBeenCalledTimes(1)
+    expect(editor.props('saving')).toBe(true)
+    expect(editor.get('[data-testid="submit-registration"]').element.disabled).toBe(true)
+    expect(editor.get('[aria-label="关闭新增登记"]').element.disabled).toBe(true)
+    expect(editor.get('.editor-footer-actions button').element.disabled).toBe(true)
+    editor.vm.$emit('close')
+    await flushPromises()
+    expect(wrapper.findComponent(ReplayDatabaseComparisonEditor).exists()).toBe(true)
+    rejectSave(new Error('保存失败，可重试'))
+    await flushPromises()
+    expect(editor.props('saving')).toBe(false)
+    expect(editor.get('[aria-label="关闭新增登记"]').element.disabled).toBe(false)
+    api.mockResolvedValueOnce({})
+    editor.vm.$emit('save', payload)
+    await flushPromises()
+    expect(api).toHaveBeenCalledTimes(2)
+    expect(wrapper.findComponent(ReplayDatabaseComparisonEditor).exists()).toBe(false)
+  })
+
+  it('ignores a second save click while an additional ordinary configuration is being persisted', async () => {
+    const detail = { ...registrationRow, fields: [{ columnName: 'id', primaryKey: true }] }
+    useRealMode([detail])
+    comparisonApi.loadRegistration.mockResolvedValue(detail)
+    comparisonApi.loadBaseColumns.mockResolvedValue(detail.fields)
+    let finishSave
+    comparisonApi.createRegistration.mockReturnValueOnce(new Promise(resolve => { finishSave = resolve }))
+    const wrapper = mount(ReplayDatabaseComparisonPage)
+    await flushPromises()
+    await wrapper.get('[data-testid="copy-configuration-acct"]').trigger('click')
+    await flushPromises()
+    const saveButton = wrapper.get('[data-testid="submit-registration"]')
+    await saveButton.trigger('click')
+    await flushPromises()
+    expect(comparisonApi.createRegistration).toHaveBeenCalledTimes(1)
+    expect(saveButton.element.disabled).toBe(true)
+    await saveButton.trigger('click')
+    await flushPromises()
+    expect(comparisonApi.createRegistration).toHaveBeenCalledTimes(1)
+    finishSave({})
+    await flushPromises()
+    expect(wrapper.findComponent(ReplayDatabaseComparisonEditor).exists()).toBe(false)
+  })
+
+  it('creates an ordinary configuration when search finds a table registered only with custom SQL', async () => {
+    const registration = { id: 21, version: 5, tableName: 'acct', sourceTableName: 'acct', configurationName: '汇总',
+      customSql: { sql: 'select id from acct', sourceTableName: 'acct', resultColumns: [{ columnName: 'id' }] },
+      fields: [{ columnName: 'id' }], comparisonKey: { indexType: 'RESULT_KEY', columnNames: ['id'] } }
+    useRealMode([registration])
+    comparisonApi.searchBaseTables.mockResolvedValue([{ tableName: 'acct', registrationStatus: 'ACTIVE', registrationId: 21, registrationVersion: 5 }])
+    comparisonApi.loadRegistration.mockResolvedValue(registration)
+    comparisonApi.loadBaseColumns.mockResolvedValue([{ columnName: 'id', primaryKey: true }, { columnName: 'amount', dataType: 'DECIMAL' }])
+    const wrapper = mount(ReplayDatabaseComparisonPage)
+    await flushPromises()
+    await wrapper.get('[data-testid="add-registration"]').trigger('click')
+    await wrapper.get('[data-testid="table-search-input"]').setValue('acct')
+    await new Promise(resolve => setTimeout(resolve, 275))
+    await flushPromises()
+    await wrapper.get('[data-testid="new-table-configuration"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.findComponent(CustomSqlEditor).exists()).toBe(false)
+    const editor = wrapper.getComponent(ReplayDatabaseComparisonEditor)
+    expect(editor.get('[data-testid="editor-title"]').text()).toBe('新增同表配置')
+    await editor.get('[data-testid="submit-registration"]').trigger('click')
+    await flushPromises()
+    expect(comparisonApi.createRegistration).toHaveBeenCalledWith(expect.objectContaining({ tableName: 'acct', createAdditionalConfiguration: true, comparisonKeyName: 'PRIMARY', fieldNames: ['id'] }))
+    expect(comparisonApi.createCustomSqlRegistration).not.toHaveBeenCalled()
+    expect(comparisonApi.updateCustomSqlRegistration).not.toHaveBeenCalled()
+  })
+
   it.each([false, true])('copies a configuration into the correct create endpoint (SQL=%s)', async custom => {
     const detail = { ...registrationRow, tableName: 'acct_1', sourceTableName: 'acct', configurationName: '状态一',
       fields: [{ columnName: 'id', primaryKey: true }, { columnName: 'amount' }],

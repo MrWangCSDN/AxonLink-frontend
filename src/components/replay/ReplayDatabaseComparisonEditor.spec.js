@@ -38,6 +38,45 @@ const selectedNames = wrapper => wrapper.findAll('[data-testid="selected-field-r
   .map(row => row.get('strong').text().replace(/^\d+\.\s*/, ''))
 
 describe('ReplayDatabaseComparisonEditor', () => {
+  it('loads the selected registration by id instead of mixing cached fields with a fresh search version', async () => {
+    const cached = { id: 12, version: 2, tableName: 'acct', sourceTableName: 'acct', configurationName: '旧缓存', fields: [{ name: 'id' }, { name: 'old_field' }] }
+    const detail = { id: 12, version: 8, tableName: 'acct', sourceTableName: 'acct', configurationName: '服务端当前配置', fields: [{ name: 'id' }, { name: 'current_field' }] }
+    const loadRegistration = vi.fn().mockResolvedValue(detail)
+    const wrapper = mount(ReplayDatabaseComparisonEditor, { props: { registrations: [cached], loadRegistration,
+      searchTables: () => [{ tableName: 'acct', registrationStatus: 'ACTIVE', registrationId: 12, registrationVersion: 9 }],
+      loadColumns: () => [{ columnName: 'id', primaryKey: true }, { columnName: 'old_field' }, { columnName: 'current_field' }],
+    } })
+    await waitForTableSearch(wrapper, 'acct')
+    await wrapper.get('[data-testid="table-search-result"]').trigger('click')
+    await flushPromises()
+    expect(loadRegistration).toHaveBeenCalledWith(12)
+    expect(selectedNames(wrapper)).toEqual(['id', 'current_field'])
+    expect(wrapper.get('[data-testid="configuration-name"]').element.value).toBe('服务端当前配置')
+    await wrapper.get('[data-testid="submit-registration"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.emitted('save').at(-1)[0]).toMatchObject({ id: 12, version: 8, tableName: 'acct', fieldNames: ['id', 'current_field'] })
+    wrapper.unmount()
+  })
+
+  it('does not reuse a source-table cache entry for a different selected configuration', async () => {
+    const cached = { id: 12, version: 2, tableName: 'acct', sourceTableName: 'acct', configurationName: '第一配置', fields: [{ name: 'id' }, { name: 'old_field' }] }
+    const detail = { id: 28, version: 6, tableName: 'acct_1', sourceTableName: 'acct', configurationName: '第二配置', fields: [{ name: 'id' }, { name: 'current_field' }] }
+    const loadRegistration = vi.fn().mockResolvedValue(detail)
+    const loadColumns = vi.fn(() => [{ columnName: 'id', primaryKey: true }, { columnName: 'old_field' }, { columnName: 'current_field' }])
+    const wrapper = mount(ReplayDatabaseComparisonEditor, { props: { registrations: [cached], loadRegistration, loadColumns,
+      searchTables: () => [{ tableName: 'acct', registrationStatus: 'ACTIVE', registrationId: 28, registrationVersion: 7 }],
+    } })
+    await waitForTableSearch(wrapper, 'acct')
+    await wrapper.get('[data-testid="table-search-result"]').trigger('click')
+    await flushPromises()
+    expect(loadRegistration).toHaveBeenCalledWith(28)
+    expect(loadColumns).toHaveBeenCalledWith('acct')
+    expect(selectedNames(wrapper)).toEqual(['id', 'current_field'])
+    await wrapper.get('[data-testid="submit-registration"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.emitted('save').at(-1)[0]).toMatchObject({ id: 28, version: 6, tableName: 'acct_1', configurationName: '第二配置' })
+    wrapper.unmount()
+  })
   it('prevents an overlong configuration name from saving and defaults an empty name', async () => {
     const wrapper = mount(ReplayDatabaseComparisonEditor, { props: { initialRegistration: registrations[0] } })
     await flushPromises()

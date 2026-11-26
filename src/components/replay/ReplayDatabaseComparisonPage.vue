@@ -269,6 +269,7 @@
       :load-keys="loadTableKeys"
       :load-registration="loadRegistrationDetail"
       :save-error="editorSaveError"
+      :saving="editorSaving"
       :can-configure-sample-limit="canConfigureSampleLimit"
       @close="closeEditor"
       @save="saveRegistration"
@@ -436,6 +437,7 @@ const editorCreatesAdditional = ref(false)
 const copyingConfigurationCode = ref('')
 const editingRegistration = ref(null)
 const editorSaveError = ref(null)
+const editorSaving = ref(false)
 const customSqlEditorOpen = ref(false)
 const customSqlCreatesAdditional = ref(false)
 const customSqlEditingRegistration = ref(null)
@@ -813,6 +815,7 @@ const copyConfiguration = async row => {
 }
 
 const closeEditor = () => {
+  if (editorSaving.value) return
   editorLoadSequence++
   editorOpen.value = false
   editingRegistration.value = null
@@ -885,6 +888,8 @@ const saveCustomSqlRegistration = async payload => {
 }
 
 const saveRegistration = async payload => {
+  if (editorSaving.value) return
+  editorSaving.value = true
   editorSaveError.value = null
   const body = {
     tableName: payload.tableName,
@@ -939,6 +944,8 @@ const saveRegistration = async payload => {
       message: error.message || '保存失败，请稍后重试',
     }
     return
+  } finally {
+    editorSaving.value = false
   }
   closeEditor()
   await loadPage()
@@ -946,12 +953,16 @@ const saveRegistration = async payload => {
 }
 
 const deleteRegistration = async payload => {
+  if (editorSaving.value) return
+  editorSaving.value = true
   editorSaveError.value = null
   try {
     await deleteRegistrationApi(payload.id, { version: payload.version, reason: payload.reason })
   } catch (error) {
     editorSaveError.value = { type: 'SAVE_FAILED', message: error.message || '删除失败，请稍后重试' }
     return
+  } finally {
+    editorSaving.value = false
   }
   closeEditor()
   await loadPage()

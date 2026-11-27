@@ -146,7 +146,15 @@
     >
       <header><strong>筛选 {{ headerFilterLabel }}</strong></header>
       <div class="replay-header-filter-content">
-        <input v-if="activeHeaderFilter.kind === 'text'" v-model.trim="headerFilterDraft" type="search" :placeholder="activeHeaderFilter.placeholder || '模糊搜索'" :aria-label="headerFilterLabel" />
+        <template v-if="activeHeaderFilter.kind === 'text' || activeHeaderFilter.kind === 'transactionCode'">
+          <input v-if="activeHeaderFilter.kind === 'text' || !isServiceSequenceTab" v-model.trim="headerFilterDraft" type="search" :placeholder="activeHeaderFilter.placeholder || '模糊搜索'" :aria-label="headerFilterLabel" :disabled="headerFilterEmpty" />
+          <div v-if="activeHeaderFilter.kind === 'transactionCode'" class="replay-header-filter-options">
+            <label>
+              <input v-model="headerFilterEmpty" type="checkbox" />
+              <span>为空</span>
+            </label>
+          </div>
+        </template>
         <template v-else>
               <input v-if="['person', 'domain'].includes(activeHeaderFilter.kind)" v-model.trim="headerFilterSearch" type="search" placeholder="模糊搜索" aria-label="搜索筛选选项" @keydown.enter.prevent />
           <div class="replay-header-filter-options">
@@ -560,6 +568,7 @@ const SCHEMAS = {
       { key: 'reviewStatus', label: '审核状态', kind: 'review' },
     ],
     columns: [
+      { key: 'domain', label: '领域' },
       { key: 'category', label: TRANSACTION_CATEGORY_LABEL, display: 'category' },
       { key: 'serviceCode', label: '服务码' },
       { key: 'messageSequence', label: '流水号', long: true },
@@ -593,6 +602,7 @@ const SCHEMAS = {
       { key: 'reviewStatus', label: '审核状态', kind: 'review' },
     ],
     columns: [
+      { key: 'domain', label: '领域' },
       { key: 'category', label: TRANSACTION_CATEGORY_LABEL, display: 'category' },
       { key: 'serviceCode', label: '服务码' },
       { key: 'ownership', label: '归属' },
@@ -651,6 +661,7 @@ const developerFilterOptions = ref([])
 const exporting = ref(false)
 const headerFilterKey = ref('')
 const headerFilterDraft = ref('')
+const headerFilterEmpty = ref(false)
 const headerFilterSearch = ref('')
 const headerFilterPanelStyle = reactive({ left: '8px', top: '8px' })
 const headerFilterPanel = ref(null)
@@ -733,7 +744,7 @@ const activeForm = computed(() => {
 const formRows = computed(() => (isMultiCreate.value ? createRows.value : [draft]))
 const createHint = computed(() => {
   if (isSortCreate.value) {
-    return '按 A 对象的单个属性 B 排序时填写 A.B；按 A 对象的多个属性 B、C 排序时填写 A(B,C)。保存后按映射生成 3 条：&sop 使用老核心排序字段，&soap 与 &bzjson 使用新核心排序字段。'
+    return '按 A 对象的单个属性 B 排序时填写 A.B；按 A 对象的多个属性 B、C 排序时填写 A(B,C)。保存时为每个已登记的服务码生成一条配置。&sop 使用老核心排序字段，&soap 和 &bzjson 使用新核心排序字段。'
   }
   if (isMessageSequenceCreate.value) {
     return '多个流水号请使用英文逗号分隔，去除首尾空格后逐条保存；任一项为空或重复时整批不写入。'
@@ -780,16 +791,14 @@ function displayValue(column, row) {
 
 function headerFilterFor(column) {
   if (!column) return undefined
-  if (!isServiceSequenceTab.value) {
-    if (column.key === 'oldTransactionCode') {
-      return { ...column, kind: 'text', placeholder: '精确匹配' }
-    }
-    if (column.key === 'domain') {
-      return { ...column, kind: 'domain' }
-    }
-    if (column.key === 'developer') {
-      return { ...column, kind: 'person' }
-    }
+  if (column.key === 'domain') {
+    return { ...column, kind: 'domain' }
+  }
+  if (column.key === 'oldTransactionCode') {
+    return { ...column, kind: 'transactionCode', placeholder: '精确匹配' }
+  }
+  if (column.key === 'developer' && !isServiceSequenceTab.value) {
+    return { ...column, kind: 'person' }
   }
   return schema.value.filters.find(filter => filter.key === column.key)
 }
@@ -805,7 +814,9 @@ async function openHeaderFilter(column, event) {
     return
   }
   headerFilterKey.value = column.key
-  headerFilterDraft.value = filters[column.key] || ''
+  const currentValue = filters[column.key] || ''
+  headerFilterEmpty.value = column.key === 'oldTransactionCode' && currentValue === EMPTY_FILTER
+  headerFilterDraft.value = headerFilterEmpty.value ? '' : currentValue
   headerFilterSearch.value = ''
   developerFilterOptions.value = []
   if (headerFilterFor(column)?.kind === 'person') {
@@ -831,7 +842,7 @@ async function openHeaderFilter(column, event) {
     : Math.max(margin, rect.top - height - gap)
   headerFilterPanelStyle.left = `${Math.round(left)}px`
   headerFilterPanelStyle.top = `${Math.round(top)}px`
-  headerFilterPanel.value.querySelector('input[type="search"], input:checked')?.focus()
+  headerFilterPanel.value.querySelector('input[type="search"]:enabled, input:checked, input[type="checkbox"]')?.focus()
 }
 
 function closeHeaderFilter() {
@@ -846,7 +857,8 @@ function dismissHeaderFilter(event) {
 function applyHeaderFilter(value) {
   const key = headerFilterKey.value
   if (!key) return
-  const selectedValue = typeof value === 'string' ? value : headerFilterDraft.value
+  const draft = headerFilterEmpty.value ? EMPTY_FILTER : headerFilterDraft.value
+  const selectedValue = typeof value === 'string' ? value : draft
   filters[key] = selectedValue
   page.value = 0
   closeHeaderFilter()
@@ -916,7 +928,8 @@ function requestParams() {
     limit: pageSize.value,
     offset: page.value * pageSize.value,
   }
-  if (filters.oldTransactionCode) params.internalTransactionCode = filters.oldTransactionCode
+  if (filters.oldTransactionCode === EMPTY_FILTER) params.internalTransactionCodeEmpty = 'true'
+  else if (filters.oldTransactionCode) params.internalTransactionCode = filters.oldTransactionCode
   if (filters.domain === EMPTY_FILTER) params.domainEmpty = 'true'
   else if (filters.domain) params.domain = filters.domain
   if (filters.developer === EMPTY_FILTER) params.developerEmpty = 'true'

@@ -2,7 +2,7 @@
   <div class="custom-sql-backdrop">
     <section class="custom-sql-dialog" role="dialog" aria-modal="true" aria-labelledby="custom-sql-title" data-testid="custom-sql-dialog">
       <header>
-        <div><h3 id="custom-sql-title">{{ additionalConfiguration ? '新增同表 SQL 配置' : initialRegistration?.deleted ? '重新登记自定义 SQL' : initialRegistration ? '编辑自定义 SQL' : '自定义 SQL 登记' }}</h3><p>两侧共用一条单表 SELECT，支持计算列及聚合查询</p></div>
+        <div><h3 id="custom-sql-title">{{ additionalConfiguration ? '新增同表 SQL 配置' : initialRegistration?.deleted ? '重新登记自定义 SQL' : initialRegistration ? '编辑自定义 SQL' : '自定义 SQL 登记' }}</h3><p>两侧共用单表 SELECT，支持计算列、聚合及 WHERE 中的单层 EXISTS / NOT EXISTS</p></div>
         <button type="button" aria-label="关闭自定义 SQL" data-testid="close-custom-sql" :disabled="saving" @click="emit('close')">×</button>
       </header>
       <div class="custom-sql-body">
@@ -10,7 +10,7 @@
         <label v-if="!initialRegistration" class="additional-configuration"><input v-model="additionalConfiguration" type="checkbox" data-testid="custom-sql-additional" :disabled="saving" />新增同表配置（保留已有登记）</label>
         <p v-if="initialRegistration && !additionalConfiguration" class="help">固定标识：{{ initialRegistration.comparisonCode || initialRegistration.tableName }}</p>
         <label>SQL<textarea v-model="sql" data-testid="custom-sql-text" rows="10" spellcheck="false" :disabled="saving" placeholder="SELECT currency, SUM(amount) AS total_amt FROM account GROUP BY currency" /></label>
-        <p class="help">使用无 schema 的基础表名，按 BASE 母库解析校验并自动提取表英文名和中文注释。计算列需提供唯一英文别名，LIMIT 请通过下方比对条数设置。</p>
+        <p class="help">使用无 schema 的基础表名，由 BASE 母库校验。外层 WHERE 可用 AND / OR / NOT 组合单层 EXISTS / NOT EXISTS；内层仅限 SELECT 1 或 SELECT *，查询同一 BASE schema 的单张基础表。暂不支持 IN 子查询、FROM 派生表、JOIN、WITH、UNION，以及投影、HAVING、ORDER BY 中的子查询。计算列需提供唯一英文别名，LIMIT 请通过下方比对条数设置。</p>
         <button type="button" class="analyze-button" data-testid="analyze-custom-sql" :disabled="!sql.trim() || analyzing || saving" @click="analyze">{{ analyzing ? '解析中…' : '校验并解析结果字段' }}</button>
         <dl v-if="analysis || lockedSource" class="source-metadata">
           <dt>表英文名</dt><dd><span data-testid="custom-sql-table-name">{{ registeredTableName }}</span><small v-if="lockedSource">登记表在创建后固定</small></dd>

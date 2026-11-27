@@ -84,6 +84,15 @@ describe('ReplayDatabaseComparisonPage', () => {
     })
   })
 
+  const pkOption = (name = 'id') => ({ indexType: 'PRIMARY_KEY', indexName: 'acct_pk', columnNames: [name] })
+  const reanalyzeSavedSql = async (wrapper, registration) => {
+    comparisonApi.analyzeCustomSql.mockResolvedValueOnce({
+      ...registration.customSql, keyOptions: [pkOption(registration.comparisonKey.columnNames[0])],
+    })
+    await wrapper.get('[data-testid="analyze-custom-sql"]').trigger('click')
+    await flushPromises()
+  }
+
   const registrationRow = { id: 3, tableName: 'acct', tableComment: '账户表', version: 7,
     domainName: '存款组', partitionNum: 16, sampleLimit: 0, maxPartitionNum: 100, fieldPreview: ['id(编号)'], fieldCount: 1 }
 
@@ -188,6 +197,7 @@ describe('ReplayDatabaseComparisonPage', () => {
     expect(editor.props('createAdditionalConfiguration')).toBe(true)
     expect(editor.props('initialRegistration')).toMatchObject({ sourceTableName: 'acct', configurationName: '状态一' })
     await editor.get(custom ? '[data-testid="custom-sql-name"]' : '[data-testid="configuration-name"]').setValue('状态二')
+    if (custom) await reanalyzeSavedSql(editor, detail)
     await editor.get(custom ? '[data-testid="save-custom-sql"]' : '[data-testid="submit-registration"]').trigger('click')
     await flushPromises()
     const create = custom ? comparisonApi.createCustomSqlRegistration : comparisonApi.createRegistration
@@ -901,7 +911,7 @@ describe('ReplayDatabaseComparisonPage', () => {
   it('retains custom SQL input after save failure and uses dedicated create and update routes', async () => {
     useRealMode()
     comparisonApi.analyzeCustomSql.mockResolvedValue({ sql: 'select id from acct', sourceTableName: 'acct',
-      resultColumns: [{ columnName: 'id', columnLabel: 'id', dataType: 'VARCHAR', ordinalPosition: 1 }], candidateKeyColumns: ['id'] })
+      resultColumns: [{ columnName: 'id', columnLabel: 'id', dataType: 'VARCHAR', ordinalPosition: 1 }], candidateKeyColumns: ['id'], keyOptions: [pkOption()] })
     comparisonApi.createCustomSqlRegistration.mockRejectedValueOnce(new Error('表 acct 已登记，请进入原登记后编辑')).mockResolvedValueOnce({ id: 11 })
     const wrapper = mount(ReplayDatabaseComparisonPage)
     await flushPromises()
@@ -933,7 +943,7 @@ describe('ReplayDatabaseComparisonPage', () => {
       comparisonKey: { indexType: hasCustomSql ? 'RESULT_KEY' : 'PRIMARY_KEY', columnNames: [hasCustomSql ? 'legacy_id' : 'id'] },
       ...(hasCustomSql ? { customSql: { sql: savedSql, sourceTableName: 'acct', resultColumns: [{ columnName: 'legacy_id' }] } } : {}) }
     comparisonApi.analyzeCustomSql.mockResolvedValue({ sql: draftSql, sourceTableName: 'acct',
-      resultColumns: [{ columnName: 'id' }], candidateKeyColumns: ['id'] })
+      resultColumns: [{ columnName: 'id' }], candidateKeyColumns: ['id'], keyOptions: [pkOption()] })
     comparisonApi.createCustomSqlRegistration.mockRejectedValue(Object.assign(new Error('表 acct 已登记，请进入原登记后编辑'), {
       status: 409, code: 'DUPLICATE_REGISTRATION', data: { existingId: 35 },
     }))
@@ -957,7 +967,9 @@ describe('ReplayDatabaseComparisonPage', () => {
     expect(wrapper.get('[data-testid="custom-sql-dialog"] h3').text()).toBe(deleted ? '重新登记自定义 SQL' : '编辑自定义 SQL')
     expect(wrapper.get('[data-testid="save-custom-sql"]').text()).toBe(deleted ? '重新登记' : '保存')
     expect(wrapper.get('[data-testid="custom-sql-text"]').element.value).toBe(hasCustomSql ? savedSql : '')
-    if (!hasCustomSql) {
+    if (hasCustomSql) {
+      await reanalyzeSavedSql(wrapper, registration)
+    } else {
       await wrapper.get('[data-testid="custom-sql-text"]').setValue(draftSql)
       await wrapper.get('[data-testid="analyze-custom-sql"]').trigger('click')
       await flushPromises()
@@ -1000,6 +1012,7 @@ describe('ReplayDatabaseComparisonPage', () => {
     expect(wrapper.get('[data-testid="custom-sql-dialog"] h3').text()).toBe(deleted ? '重新登记自定义 SQL' : '编辑自定义 SQL')
     expect(wrapper.get('[data-testid="custom-sql-text"]').element.value).toBe(savedSql)
     expect(comparisonApi.loadBaseColumns).not.toHaveBeenCalled()
+    await reanalyzeSavedSql(wrapper, registration)
     await wrapper.get('[data-testid="save-custom-sql"]').trigger('click')
     await flushPromises()
     expect(comparisonApi.updateCustomSqlRegistration).toHaveBeenCalledWith(36, expect.objectContaining({ version: 9, sql: savedSql }))
@@ -1022,6 +1035,7 @@ describe('ReplayDatabaseComparisonPage', () => {
     expect(wrapper.get('[data-testid="custom-sql-sample"]').element.disabled).toBe(true)
     expect(wrapper.get('[data-testid="custom-sql-partition"]').element.disabled).toBe(true)
     expect(wrapper.get('[data-testid="custom-sql-max-partition"]').element.disabled).toBe(false)
+    await reanalyzeSavedSql(wrapper, registration)
     await wrapper.get('[data-testid="save-custom-sql"]').trigger('click')
     await flushPromises()
     expect(comparisonApi.updateCustomSqlRegistration).toHaveBeenCalledWith(21, {
@@ -1038,7 +1052,7 @@ describe('ReplayDatabaseComparisonPage', () => {
     useRealMode([{ ...registration, fieldPreview: ['id'] }])
     comparisonApi.loadRegistration.mockResolvedValue(registration)
     comparisonApi.analyzeCustomSql.mockResolvedValue({ sql: 'select id from acct', sourceTableName: 'acct',
-      sourceTableComment: '账户表', resultColumns: [{ columnName: 'id' }], candidateKeyColumns: ['id'] })
+      sourceTableComment: '账户表', resultColumns: [{ columnName: 'id' }], candidateKeyColumns: ['id'], keyOptions: [pkOption()] })
     comparisonApi.updateCustomSqlRegistration.mockResolvedValue(registration)
     const wrapper = mount(ReplayDatabaseComparisonPage)
     await flushPromises()
@@ -1097,6 +1111,7 @@ describe('ReplayDatabaseComparisonPage', () => {
     finishSecond(second)
     await flushPromises()
     expect(wrapper.get('[data-testid="custom-sql-table-comment"]').text()).toBe('第二个汇总')
+    await reanalyzeSavedSql(wrapper, second)
     await wrapper.get('[data-testid="save-custom-sql"]').trigger('click')
     await flushPromises()
     expect(comparisonApi.updateCustomSqlRegistration).toHaveBeenCalledWith(32, expect.objectContaining({ version: 2 }))

@@ -8,7 +8,9 @@ const columns = [
   { columnName: 'currency', columnLabel: 'currency', dataType: 'VARCHAR', ordinalPosition: 1 },
   { columnName: 'total_amt', columnLabel: 'TOTAL_AMT', dataType: 'DECIMAL', ordinalPosition: 2 },
 ]
-const analysis = { sql, sourceTableName: 'acct', sourceTableComment: '账户表', resultColumns: columns, candidateKeyColumns: ['currency'], domainName: '存款组', reviserName: '张三', groupOwnerName: '李经理' }
+const primary = { indexType: 'PRIMARY_KEY', indexName: 'acct_pk', columnNames: ['currency'] }
+const alternate = { indexType: 'UNIQUE_INDEX', indexName: 'acct_uq', columnNames: ['total_amt', 'currency'] }
+const analysis = { sql, sourceTableName: 'acct', sourceTableComment: '账户表', resultColumns: columns, candidateKeyColumns: ['currency'], keyOptions: [primary], domainName: '存款组', reviserName: '张三', groupOwnerName: '李经理' }
 const analyze = vi.fn()
 const parse = async wrapper => {
   await wrapper.get('[data-testid="custom-sql-text"]').setValue(sql)
@@ -23,7 +25,8 @@ describe('custom SQL registration editor', () => {
       customSql: { sql, sourceTableName: 'acct', resultColumns: columns },
       fields: [{ columnName: 'currency' }, { columnName: 'total_amt' }], comparisonKey: { columnNames: ['currency'] } }
     const wrapper = mount(CustomSqlEditor, { props: { initialRegistration: initial,
-      createAdditionalConfiguration: true, canConfigurePartitions: true } })
+      analyzeSql: analyze, createAdditionalConfiguration: true, canConfigurePartitions: true } })
+    await parse(wrapper)
     expect(wrapper.get('[data-testid="custom-sql-name"]').attributes('maxlength')).toBe('200')
     await wrapper.get('[data-testid="custom-sql-name"]').setValue('汇总二')
     await wrapper.get('[data-testid="save-custom-sql"]').trigger('click')
@@ -32,6 +35,58 @@ describe('custom SQL registration editor', () => {
       fieldNames: ['currency', 'total_amt'], resultKeyColumns: ['currency'], sampleLimit: -1, partitionNum: 8, maxPartitionNum: 128, compareLimit: 22 })
     expect(payload).not.toHaveProperty('id')
     expect(payload).not.toHaveProperty('version')
+  })
+
+  it('requires a choice among indexes and selects every column of a composite key', async () => {
+    analyze.mockResolvedValue({ ...analysis, keyOptions: [primary, alternate] })
+    const wrapper = mount(CustomSqlEditor, { props: { analyzeSql: analyze } })
+    await parse(wrapper)
+    const picker = wrapper.get('[data-testid="sql-source-index"]')
+    expect(picker.text()).toContain('acct_pk')
+    expect(picker.text()).toContain('acct_uq')
+    expect(picker.text()).toContain('total_amt, currency')
+    expect(wrapper.get('[data-testid="save-custom-sql"]').element.disabled).toBe(true)
+    await wrapper.get('[data-testid="sql-select-total_amt"]').setValue(false)
+    await picker.setValue(alternate.indexName)
+    expect(wrapper.get('[data-testid="sql-select-total_amt"]').element.checked).toBe(true)
+    expect(wrapper.get('[data-testid="sql-key-total_amt"]').element.disabled).toBe(true)
+    await wrapper.get('[data-testid="save-custom-sql"]').trigger('click')
+    expect(wrapper.emitted('save').at(-1)[0].resultKeyColumns).toEqual(alternate.columnNames)
+    await wrapper.get('[data-testid="analyze-custom-sql"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="sql-source-index"]').element.value).toBe('')
+    expect(wrapper.get('[data-testid="save-custom-sql"]').element.disabled).toBe(true)
+  })
+
+  it.each([[[], '完整'], [undefined, '服务版本']])('keeps analyzed fields but blocks save without current index options', async (keyOptions, message) => {
+    analyze.mockResolvedValue({ ...analysis, keyOptions })
+    const wrapper = mount(CustomSqlEditor, { props: { analyzeSql: analyze } })
+    await parse(wrapper)
+    expect(wrapper.get('[data-testid="sql-select-currency"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="save-custom-sql"]').element.disabled).toBe(true)
+    expect(wrapper.get('.validation-message').text()).toContain(message)
+  })
+
+  it('resolves saved keys only after fresh analysis and requires a choice for duplicate indexes', async () => {
+    const initial = { customSql: analysis, fields: [{ columnName: 'currency' }], comparisonKey: { columnNames: ['currency'] } }
+    const wrapper = mount(CustomSqlEditor, { props: { analyzeSql: analyze, initialRegistration: initial } })
+    expect(wrapper.get('[data-testid="save-custom-sql"]').element.disabled).toBe(true)
+    analyze.mockResolvedValueOnce({ ...analysis, keyOptions: [alternate, primary] })
+    await parse(wrapper)
+    expect(wrapper.get('[data-testid="sql-source-index"]').element.value).toBe(primary.indexName)
+    const duplicate = { ...primary, indexName: 'also_currency', indexType: 'UNIQUE_INDEX' }
+    analyze.mockResolvedValueOnce({ ...analysis, keyOptions: [primary, duplicate] })
+    await parse(wrapper)
+    const picker = wrapper.get('[data-testid="sql-source-index"]')
+    expect(picker.element.value).toBe('')
+    expect(picker.text()).toContain('also_currency')
+    expect(wrapper.get('[data-testid="save-custom-sql"]').element.disabled).toBe(true)
+    await picker.setValue(duplicate.indexName)
+    expect(wrapper.get('[data-testid="save-custom-sql"]').element.disabled).toBe(false)
+    analyze.mockResolvedValueOnce({ ...analysis, keyOptions: [] })
+    await parse(wrapper)
+    expect(wrapper.get('[data-testid="sql-key-currency"]').element.checked).toBe(false)
+    expect(wrapper.get('[data-testid="save-custom-sql"]').element.disabled).toBe(true)
   })
 
   it('lets a new SQL registration explicitly request an additional configuration', async () => {
@@ -69,20 +124,22 @@ describe('custom SQL registration editor', () => {
     finishAnalysis(analysis)
     await flushPromises()
     expect(wrapper.find('[data-testid="sql-select-currency"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="sql-source-index"]').exists()).toBe(false)
     expect(wrapper.get('[data-testid="save-custom-sql"]').element.disabled).toBe(true)
     await wrapper.get('[data-testid="custom-sql-text"]').setValue(sql)
     await wrapper.get('[data-testid="analyze-custom-sql"]').trigger('click')
     await flushPromises()
     await wrapper.get('[data-testid="custom-sql-text"]').setValue(`${sql} having sum(amount) > 0`)
     expect(wrapper.find('[data-testid="sql-select-currency"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="sql-source-index"]').exists()).toBe(false)
     expect(wrapper.get('[data-testid="save-custom-sql"]').element.disabled).toBe(true)
   })
 
   it('retains invalid SQL on analysis failure and obtains table metadata after retry', async () => {
-    analyze.mockRejectedValueOnce(new Error('不支持 LIMIT，请使用比对条数'))
+    analyze.mockRejectedValueOnce(new Error('结果字段未覆盖来源表的完整主键或唯一索引，请修改 SQL'))
     const wrapper = mount(CustomSqlEditor, { props: { analyzeSql: analyze } })
     await parse(wrapper)
-    expect(wrapper.get('[data-testid="custom-sql-error"]').text()).toContain('不支持 LIMIT')
+    expect(wrapper.get('[data-testid="custom-sql-error"]').text()).toContain('请修改 SQL')
     expect(wrapper.get('[data-testid="custom-sql-text"]').element.value).toBe(sql)
     await wrapper.get('[data-testid="analyze-custom-sql"]').trigger('click')
     await flushPromises()
@@ -146,9 +203,8 @@ describe('custom SQL registration editor', () => {
   it('requires a selected key and validates compare limits and permission-controlled settings', async () => {
     const wrapper = mount(CustomSqlEditor, { props: { analyzeSql: analyze, canConfigurePartitions: true } })
     await parse(wrapper)
-    await wrapper.get('[data-testid="sql-key-currency"]').setValue(false)
-    expect(wrapper.get('[data-testid="save-custom-sql"]').element.disabled).toBe(true)
-    await wrapper.get('[data-testid="sql-key-currency"]').setValue(true)
+    expect(wrapper.get('[data-testid="sql-source-index"]').element.value).toBe(primary.indexName)
+    expect(wrapper.get('[data-testid="sql-key-currency"]').element.disabled).toBe(true)
     await wrapper.get('[data-testid="custom-sql-limit"]').setValue('0')
     expect(wrapper.get('[data-testid="save-custom-sql"]').element.disabled).toBe(true)
     await wrapper.get('[data-testid="custom-sql-limit"]').setValue('25')
@@ -186,7 +242,8 @@ describe('custom SQL registration editor', () => {
     const initial = { id: 11, version: 4, tableName: 'acct', sampleLimit: -1,
       customSql: { sql, sourceTableName: 'acct', resultColumns: columns },
       fields: [{ columnName: 'currency' }], comparisonKey: { columnNames: ['currency'] } }
-    const wrapper = mount(CustomSqlEditor, { props: { initialRegistration: initial, canConfigurePartitions: allowed } })
+    const wrapper = mount(CustomSqlEditor, { props: { analyzeSql: analyze, initialRegistration: initial, canConfigurePartitions: allowed } })
+    await parse(wrapper)
     expect(wrapper.get('[data-testid="custom-sql-sample-mode"]').element.value).toBe('ALL')
     expect(wrapper.get('[data-testid="custom-sql-sample-mode"]').element.disabled).toBe(!allowed)
     await wrapper.get('[data-testid="save-custom-sql"]').trigger('click')

@@ -2,15 +2,15 @@
   <div class="custom-sql-backdrop">
     <section class="custom-sql-dialog" role="dialog" aria-modal="true" aria-labelledby="custom-sql-title" data-testid="custom-sql-dialog">
       <header>
-        <div><h3 id="custom-sql-title">{{ additionalConfiguration ? '新增同表 SQL 配置' : initialRegistration?.deleted ? '重新登记自定义 SQL' : initialRegistration ? '编辑自定义 SQL' : '自定义 SQL 登记' }}</h3><p>两侧共用单表 SELECT，支持计算列、聚合及 WHERE 中的单层 EXISTS / NOT EXISTS</p></div>
+        <div><h3 id="custom-sql-title">{{ additionalConfiguration ? '新增同表 SQL 配置' : initialRegistration?.deleted ? '重新登记自定义 SQL' : initialRegistration ? '编辑自定义 SQL' : '自定义 SQL 登记' }}</h3><p>两侧共用单表 SELECT，支持计算列和聚合。</p></div>
         <button type="button" aria-label="关闭自定义 SQL" data-testid="close-custom-sql" :disabled="saving" @click="emit('close')">×</button>
       </header>
       <div class="custom-sql-body">
         <label>配置名称<input v-model="displayName" data-testid="custom-sql-name" maxlength="200" :disabled="saving" placeholder="默认配置" /></label>
         <label v-if="!initialRegistration" class="additional-configuration"><input v-model="additionalConfiguration" type="checkbox" data-testid="custom-sql-additional" :disabled="saving" />新增同表配置（保留已有登记）</label>
         <p v-if="initialRegistration && !additionalConfiguration" class="help">固定标识：{{ initialRegistration.comparisonCode || initialRegistration.tableName }}</p>
-        <label>SQL<textarea v-model="sql" data-testid="custom-sql-text" rows="10" spellcheck="false" :disabled="saving" placeholder="SELECT currency, SUM(amount) AS total_amt FROM account GROUP BY currency" /></label>
-        <p class="help">使用无 schema 的基础表名，由 BASE 母库校验。外层 WHERE 可用 AND / OR / NOT 组合单层 EXISTS / NOT EXISTS；内层仅限 SELECT 1 或 SELECT *，查询同一 BASE schema 的单张基础表。暂不支持 IN 子查询、FROM 派生表、JOIN、WITH、UNION，以及投影、HAVING、ORDER BY 中的子查询。计算列需提供唯一英文别名，LIMIT 请通过下方比对条数设置。</p>
+        <label>SQL<textarea v-model="sql" data-testid="custom-sql-text" rows="10" spellcheck="false" :disabled="saving" placeholder="SELECT id, SUM(amount) AS total_amt FROM account GROUP BY id" /></label>
+        <p class="help">使用无 schema 的基础表名，由 BASE 母库校验。外层 WHERE 可用 AND / OR / NOT 组合单层 EXISTS / NOT EXISTS；内层仅限 SELECT 1 或 SELECT *，查询同一 BASE schema 的单张基础表。暂不支持 IN 子查询、FROM 派生表、JOIN、WITH、UNION，以及投影、HAVING、ORDER BY 中的子查询。计算列需提供唯一英文别名。LIMIT 请通过下方比对条数设置。</p>
         <button type="button" class="analyze-button" data-testid="analyze-custom-sql" :disabled="!sql.trim() || analyzing || saving" @click="analyze">{{ analyzing ? '解析中…' : '校验并解析结果字段' }}</button>
         <dl v-if="analysis || lockedSource" class="source-metadata">
           <dt>表英文名</dt><dd><span data-testid="custom-sql-table-name">{{ registeredTableName }}</span><small v-if="lockedSource">登记表在创建后固定</small></dd>
@@ -21,20 +21,26 @@
         </dl>
         <section v-if="analysis" class="result-columns">
           <h4>选择并排序结果字段</h4>
-          <p class="help">键字段须参与比对。结果键需非空且唯一，BD 归一化后的组合键 JSON 长度上限为 1000。全表 SUM 可显式返回常量键 ALL。</p>
+          <label>来源比对键
+            <select data-testid="sql-source-index" :value="selectedIndexName" :disabled="saving || !keyOptions.length" @change="selectIndex($event.target.value)">
+              <option value="" disabled>请选择来源表主键或唯一索引</option>
+              <option v-for="option in keyOptions" :key="option.indexName" :value="option.indexName">{{ option.indexType === 'PRIMARY_KEY' ? '主键' : '唯一索引' }} · {{ option.indexName }}（{{ option.columnNames.join(', ') }}）</option>
+            </select>
+          </label>
+          <p class="help">选择索引后，整组键列自动参与比对。键列的结果字段名须与来源表字段名一致，可使用同名别名。结果键值须非空且唯一，BD 归一化后的组合键 JSON 长度上限为 1000。</p>
           <div class="columns-scroll"><table>
             <thead><tr><th>参与比对</th><th>结果字段</th><th>类型</th><th>结果比对键</th></tr></thead>
             <tbody><tr v-for="column in analysis.resultColumns" :key="column.columnName">
               <td><input type="checkbox" :aria-label="`参与比对 ${column.columnName}`" :data-testid="`sql-select-${column.columnName}`" :checked="selectedNames.includes(column.columnName)" :disabled="saving || keyNames.includes(column.columnName)" @change="toggleField(column.columnName, $event.target.checked)" /></td>
               <td>{{ column.columnName }}<small v-if="column.columnLabel && column.columnLabel !== column.columnName">{{ column.columnLabel }}</small></td>
               <td>{{ column.dataType || '-' }}</td>
-              <td><input type="checkbox" :aria-label="`结果比对键 ${column.columnName}`" :data-testid="`sql-key-${column.columnName}`" :checked="keyNames.includes(column.columnName)" :disabled="saving || !selectedNames.includes(column.columnName)" @change="toggleKey(column.columnName, $event.target.checked)" /></td>
+              <td><input type="checkbox" :aria-label="`结果比对键 ${column.columnName}`" :data-testid="`sql-key-${column.columnName}`" :checked="keyNames.includes(column.columnName)" disabled /></td>
             </tr></tbody>
           </table></div>
           <h4>输出顺序</h4>
           <ol class="output-order"><li v-for="(name, index) in selectedNames" :key="name"><span>{{ name }} <b v-if="keyNames.includes(name)">结果比对键</b></span><button type="button" :data-testid="`sql-move-up-${name}`" :aria-label="`上移 ${name}`" :disabled="saving || index === 0" @click="moveField(index, -1)">↑</button><button type="button" :aria-label="`下移 ${name}`" :disabled="saving || index === selectedNames.length - 1" @click="moveField(index, 1)">↓</button></li></ol>
         </section>
-        <p v-else class="help">SQL 修改后需重新解析结果字段，再确认参与比对的字段和结果键。</p>
+        <p v-else class="help">请校验并解析当前 SQL，以获取来源表最新主键和唯一索引。结果字段需覆盖至少一个完整索引。</p>
         <div class="limits">
           <label>比对条数<input v-model="compareLimit" type="number" min="1" max="10000000" data-testid="custom-sql-limit" :disabled="saving" placeholder="留空表示全部结果" /></label>
           <label>样本数<select v-model="sampleLimitMode" data-testid="custom-sql-sample-mode" :disabled="saving || !canConfigurePartitions"><option value="LIMITED">指定数量</option><option value="ALL">全量</option></select></label>
@@ -76,14 +82,17 @@ const sampleLimitMode = ref(initial?.sampleLimit === -1 ? 'ALL' : 'LIMITED')
 const sampleLimit = ref(initial?.sampleLimit === -1 ? 100 : initial?.sampleLimit ?? 100)
 const partitionNum = ref(initial?.partitionNum ?? 1)
 const maxPartitionNum = ref(initial?.maxPartitionNum ?? 64)
-const analysis = ref(initial?.customSql ? { ...initial.customSql } : null)
+const analysis = ref(null)
 const registeredTableName = computed(() => analysis.value?.sourceTableName || lockedSource)
 const registeredTableComment = computed(() => analysis.value?.sourceTableComment !== undefined
   ? analysis.value.sourceTableComment
   : initial?.tableComment ?? '')
 const selectedNames = ref((initial?.fields || []).map(field => field.columnName || field.name))
-const keyNames = ref([...(initial?.comparisonKey?.columnNames || [])])
-const analyzedInput = ref(initial?.customSql?.sql || '')
+const selectedIndexName = ref('')
+const keyOptions = computed(() => Array.isArray(analysis.value?.keyOptions) ? analysis.value.keyOptions : [])
+const keyNames = computed(() => keyOptions.value.find(option => option.indexName === selectedIndexName.value)?.columnNames || [])
+const analyzedInput = ref('')
+let restoreSavedKey = Boolean(initial?.customSql)
 const analyzing = ref(false)
 const analysisError = ref('')
 let analysisSequence = 0
@@ -94,7 +103,8 @@ watch(sql, () => {
   analysis.value = null
   analyzedInput.value = ''
   selectedNames.value = []
-  keyNames.value = []
+  selectedIndexName.value = ''
+  restoreSavedKey = false
   analysisError.value = ''
   emit('clear-error')
 })
@@ -102,8 +112,10 @@ const validationMessage = computed(() => {
   if (displayName.value.trim().length > 200) return '配置名称不能超过 200 个字符'
   if (new TextEncoder().encode(sql.value).length > 65535) return 'SQL 的 UTF-8 大小不能超过 65535 字节'
   if (!analysis.value || analyzedInput.value !== sql.value) return '请先校验并解析 SQL'
+  if (!Array.isArray(analysis.value.keyOptions)) return '解析响应缺少来源索引信息，请确认服务版本后重新解析'
+  if (!keyOptions.value.length) return '结果字段未覆盖来源表的完整主键或唯一索引，请修改 SQL 后重新解析'
+  if (!selectedIndexName.value) return '请选择来源比对键'
   if (!selectedNames.value.length) return '请选择参与比对的结果字段'
-  if (!keyNames.value.length) return '请选择非空且唯一的结果比对键'
   const scopeError = validateScopeDraft(null, compareLimit.value)[0]
   if (scopeError) return scopeError.reason
   if (!Number.isInteger(maxPartitionNum.value) || maxPartitionNum.value < 1 || maxPartitionNum.value > 256) return '最大hash分区数必须为 1 至 256 的整数'
@@ -120,7 +132,7 @@ const analyze = async () => {
   const requestedSql = sql.value
   const request = ++analysisSequence
   const previousFields = [...selectedNames.value]
-  const previousKeys = [...keyNames.value]
+  selectedIndexName.value = ''
   analysisError.value = ''
   analysis.value = null
   emit('clear-error')
@@ -136,8 +148,16 @@ const analyze = async () => {
     analyzedInput.value = requestedSql
     const names = result.resultColumns.map(column => column.columnName)
     selectedNames.value = previousFields.length ? previousFields.filter(name => names.includes(name)) : names
-    keyNames.value = previousKeys.length ? previousKeys.filter(name => selectedNames.value.includes(name))
-      : (result.candidateKeyColumns || []).filter(name => selectedNames.value.includes(name))
+    const options = keyOptions.value
+    if (options.length === 1) {
+      selectIndex(options[0].indexName)
+    } else if (restoreSavedKey) {
+      const savedNames = initial.comparisonKey?.columnNames || []
+      const matches = options.filter(option => option.columnNames.length === savedNames.length
+        && option.columnNames.every(name => savedNames.includes(name)))
+      if (matches.length === 1) selectIndex(matches[0].indexName)
+    }
+    if (options.length) restoreSavedKey = false
   } catch (error) {
     if (request === analysisSequence) analysisError.value = error?.message || 'SQL 解析失败，请修正后重试'
   } finally {
@@ -148,8 +168,11 @@ const toggleField = (name, selected) => {
   if (keyNames.value.includes(name)) return
   selectedNames.value = selected ? [...selectedNames.value, name] : selectedNames.value.filter(value => value !== name)
 }
-const toggleKey = (name, selected) => {
-  keyNames.value = selected ? [...keyNames.value, name] : keyNames.value.filter(value => value !== name)
+const selectIndex = indexName => {
+  selectedIndexName.value = indexName
+  for (const name of keyNames.value) {
+    if (!selectedNames.value.includes(name)) selectedNames.value.push(name)
+  }
 }
 const moveField = (index, offset) => {
   const ordered = [...selectedNames.value]
@@ -166,7 +189,7 @@ const save = () => {
     sourceTableName: lockedSource || analysis.value.sourceTableName,
     sql: analysis.value.sql || sql.value,
     fieldNames: [...selectedNames.value],
-    resultKeyColumns: selectedNames.value.filter(name => keyNames.value.includes(name)),
+    resultKeyColumns: [...keyNames.value],
     compareLimit: compareLimit.value === '' ? null : Number(compareLimit.value),
     maxPartitionNum: maxPartitionNum.value,
     ...(props.canConfigurePartitions ? { sampleLimit: sampleLimitMode.value === 'ALL' ? -1 : sampleLimit.value, partitionNum: partitionNum.value } : {}),
